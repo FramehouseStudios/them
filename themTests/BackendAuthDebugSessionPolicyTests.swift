@@ -1,3 +1,4 @@
+import Foundation
 import XCTest
 @testable import them
 
@@ -110,5 +111,40 @@ final class BackendAuthDebugSessionPolicyTests: XCTestCase {
         XCTAssertEqual(user.email, "writer@example.com")
         XCTAssertEqual(user.authProvider, "debug")
         XCTAssertTrue(user.emailVerified)
+    }
+
+    func testStoredCredentialJourneyRequiresExplicitLocalUIFlag() {
+        var environment = completeAutomationEnvironment
+        environment["THEM_UITEST_USE_STORED_AUTH_SESSION"] = "1"
+        environment["THEM_UITEST_BACKEND_BASE_URL"] = "http://127.0.0.1:31337"
+        XCTAssertTrue(BackendAuthDebugSessionPolicy.usesStoredCredentials(arguments: ["--ui-testing"], environment: environment))
+        XCTAssertNil(BackendAuthDebugSessionPolicy.automationSessionOverride(arguments: ["--ui-testing"], environment: environment))
+        XCTAssertTrue(BackendAuthDebugSessionPolicy.shouldPersistSessionBootstrapIdentity(arguments: ["--ui-testing"], environment: environment))
+        XCTAssertFalse(BackendAuthDebugSessionPolicy.usesStoredCredentials(arguments: ["--studio-eval"], environment: environment))
+        for url in ["https://example.com", "http://writer:password@127.0.0.1", "", "http://127.0.0.1.example.com"] {
+            environment["THEM_UITEST_BACKEND_BASE_URL"] = url
+            XCTAssertFalse(BackendAuthDebugSessionPolicy.usesStoredCredentials(arguments: ["--ui-testing"], environment: environment))
+            XCTAssertNotNil(BackendAuthDebugSessionPolicy.automationSessionOverride(arguments: ["--ui-testing"], environment: environment))
+        }
+    }
+
+    func testExpiredSaveFaultChangesOnlyOneExplicitLocalRequest() {
+        let arguments = ["--ui-testing", "--ui-screenplay-save-expire-auth-once"]
+        var request = URLRequest(url: URL(string: "http://127.0.0.1:31337/screenplay/projects/proof/version")!)
+        request.httpMethod = "POST"
+        request.setValue("Bearer fixture", forHTTPHeaderField: "Authorization")
+        var fault = ScreenplaySaveAuthFaultInjection()
+        var unchanged = request
+        fault.apply(to: &unchanged, arguments: [])
+        XCTAssertEqual(unchanged.value(forHTTPHeaderField: "Authorization"), "Bearer fixture")
+        fault.apply(to: &request, arguments: arguments)
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer expired-screenplay-save-access-token")
+        fault.apply(to: &unchanged, arguments: arguments)
+        XCTAssertEqual(unchanged.value(forHTTPHeaderField: "Authorization"), "Bearer fixture")
+        var remote = unchanged
+        remote.url = URL(string: "https://example.com/screenplay/projects/proof/version")!
+        var remoteFault = ScreenplaySaveAuthFaultInjection()
+        remoteFault.apply(to: &remote, arguments: arguments)
+        XCTAssertEqual(remote.value(forHTTPHeaderField: "Authorization"), "Bearer fixture")
     }
 }

@@ -1,3 +1,5 @@
+import { DIALOGUE_NOTES_TRIM_CONTRACT } from "./dialogue_notes.js";
+
 const DEFAULT_PROTECTED_TAGS = Object.freeze([
   "clementine_core",
   "clementine_safety_contract",
@@ -8,7 +10,13 @@ const DEFAULT_PROTECTED_TAGS = Object.freeze([
   "writer_block_memory",
   "screenplay_task",
   "screenplay_page_output",
+  "mentor_output",
+  "craft",
   "block_signal",
+  // Original #649 identity-delivery fix; Studio-controls protection stays
+  // with #648. Dialogue notes remain owned by screenplay_task, not a new overlay.
+  "mentor_core",
+  "scene_pitch",
 ]);
 
 function normalizePromptText(value) {
@@ -286,6 +294,10 @@ function compactFeatureFilmMapBody(body, bodyLimit) {
 
 function screenplayModeContract(intent) {
   switch (String(intent || "").trim().toLowerCase()) {
+    case "story_discussion":
+      return "mode_contract: the writer refused page changes. Answer in spoken prose; discuss without writing, continuing, replacing or revising screenplay text.";
+    case "dialogue_notes":
+      return DIALOGUE_NOTES_TRIM_CONTRACT;
     case "finish_feature":
       return "mode_contract: locate active act/sequence/due obligation; protect setups, payoffs, character need, next three turns, Act III path, and final image; start page requests in Fountain; planning returns an immediate page assignment.";
     case "rewrite_scene":
@@ -315,7 +327,7 @@ function compactScreenplayTaskBody(body, bodyLimit) {
     { value: firstLineStartingWith(lines, "requested_act:"), maxChars: 100 },
     { value: firstLineStartingWith(lines, "requested_page_batch:"), maxChars: 100 },
     {
-      value: "craft_contract: whole-feature authorship; page batch discipline; expert page engine; subtext engine; image system; speed discipline; Fountain pages first; verify continuity.",
+      value: ["dialogue_notes", "story_discussion"].includes(intent) ? "craft_contract: preserve character, facts, tactic and feeling; spoken discussion, not pages." : "craft_contract: whole-feature authorship; page batch discipline; expert page engine; subtext engine; image system; speed discipline; Fountain pages first; verify continuity.",
       maxChars: 180,
     },
     { value: screenplayModeContract(intent), maxChars: 230 },
@@ -404,7 +416,8 @@ function compactTaggedBlock(block, maxChars) {
   const tag = tagMatch[1];
   const normalizedTag = tag.toLowerCase();
   // A fitted screenplay task always needs its invariant mode contract.
-  if (clean.length <= limit && normalizedTag !== "screenplay_task") return clean;
+  if (clean.length <= limit && normalizedTag !== "screenplay_task" &&
+      !(normalizedTag === "writer_block_memory" && clean.includes("rank_1:"))) return clean;
   const closeTag = `</${tag}>`;
   const openTag = tagMatch[0];
   const body = clean
@@ -457,10 +470,13 @@ function buildProtectedSection(blocks, budget) {
   if (!Array.isArray(blocks) || blocks.length === 0) return "";
   const totalBudget = Math.max(0, Math.floor(Number(budget || 0)));
   if (totalBudget < 160) return "";
-  const parts = [];
+  const hasMentorCore = blocks.some(entry => String(entry?.tag || "").toLowerCase() === "mentor_core");
   const blockWeight = (tag) => {
     switch (String(tag || "").toLowerCase()) {
-      case "clementine_core": return 2.4;
+      case "clementine_core": return hasMentorCore ? 0.5 : 2.4;
+      case "mentor_core": return 2.6;
+      case "mentor_output": return hasMentorCore ? 1.6 : 1;
+      case "scene_pitch": return 1.6;
       case "clementine_safety_contract": return 1.8;
       case "creative_memory": return 2.5;
       case "writer_block_memory": return 2.4;
@@ -471,35 +487,39 @@ function buildProtectedSection(blocks, budget) {
       default: return 1;
     }
   };
-  for (let i = 0; i < blocks.length; i += 1) {
-    const entry = blocks[i];
-    const used = parts.join("\n\n").length;
-    const separatorBudget = parts.length ? 2 : 0;
-    const remaining = totalBudget - used - separatorBudget;
-    if (remaining < 120) break;
-    const remainingWeights = blocks
-      .slice(i)
-      .reduce((sum, item) => sum + blockWeight(item?.tag), 0);
-    const weightedShare = remainingWeights > 0
-      ? remaining * (blockWeight(entry?.tag) / remainingWeights)
-      : remaining;
-    const futureBlockCount = blocks.length - i - 1;
-    const maxCurrentBudget = Math.max(120, remaining - futureBlockCount * 122);
-    const perBlockBudget = Math.max(
-      120,
-      Math.min(maxCurrentBudget, Math.floor(weightedShare) - 2)
-    );
-    const compacted = compactTaggedBlock(entry.block, Math.min(remaining, perBlockBudget));
-    if (!compacted) continue;
-    const projected = used + separatorBudget + compacted.length;
-    if (projected <= totalBudget) {
-      parts.push(compacted);
-      continue;
+  const entries = blocks.slice(0, Math.floor((totalBudget + 2) / 122));
+  const full = entries.map((entry) => compactTaggedBlock(entry.block, Math.max(totalBudget, entry.block.length)));
+  const allocations = entries.map(() => 0);
+  let remaining = totalBudget - Math.max(0, entries.length - 1) * 2;
+  let active = entries.map((_, i) => i);
+  // Preserve #649's whole-identity reservation while retaining the current
+  // capped allocation and semantic-slack recovery for every other block.
+  for (const i of [...active]) {
+    if (entries[i].tag !== "mentor_core" || full[i].length > remaining * 0.5) continue;
+    allocations[i] = full[i].length;
+    remaining -= allocations[i];
+    active = active.filter(index => index !== i);
+  }
+  // Capped weighted allocation: short blocks return their unused share before
+  // long blocks are compacted. This is independent of production block order.
+  while (active.length) {
+    const weight = active.reduce((sum, i) => sum + blockWeight(entries[i].tag), 0);
+    const capped = active.filter((i) => full[i].length <= remaining * blockWeight(entries[i].tag) / weight);
+    if (!capped.length) {
+      for (const i of active) allocations[i] = Math.floor(remaining * blockWeight(entries[i].tag) / weight);
+      break;
     }
-    const finalAttempt = compactTaggedBlock(entry.block, remaining);
-    if (finalAttempt && used + separatorBudget + finalAttempt.length <= totalBudget) {
-      parts.push(finalAttempt);
-    }
+    for (const i of capped) { allocations[i] = full[i].length; remaining -= allocations[i]; }
+    active = active.filter((i) => !capped.includes(i));
+  }
+  const parts = entries.map((entry, i) => compactTaggedBlock(entry.block, allocations[i]));
+  // Semantic compactors may emit less than their allocation. Return that slack
+  // to truncated blocks instead of leaving it stranded at the end of the pool.
+  for (let i = 0; i < parts.length; i += 1) {
+    const unused = totalBudget - parts.join("\n\n").length;
+    if (unused <= 0 || parts[i] === full[i]) continue;
+    const expanded = compactTaggedBlock(entries[i].block, Math.min(full[i].length, allocations[i] + unused));
+    if (expanded.length > parts[i].length && expanded.length - parts[i].length <= unused) parts[i] = expanded;
   }
   return parts.join("\n\n").trim();
 }
@@ -555,7 +575,10 @@ function fitSystemPromptForTurnLatency(
     return `${head}\n...\n${tail}`.slice(0, budget).trim();
   }
 
-  const protectedBudget = Math.max(240, Math.floor(budget * 0.82));
+  // Use otherwise disposable base context for protected contracts that fit.
+  // Reserve a small ingress prefix, not a fixed 18% that can discard guardrails.
+  const protectedChars = protectedBlocks.reduce((sum, entry) => sum + entry.block.length + 2, -2);
+  const protectedBudget = Math.max(240, Math.floor(budget * 0.82), Math.min(protectedChars, budget - 240));
   const protectedSection = buildProtectedSection(protectedBlocks, protectedBudget);
   const base = removeTaggedBlocks(normalized, protectedBlocks);
   const remainingBudget = Math.max(240, budget - protectedSection.length - 8);

@@ -1,3 +1,4 @@
+import { enforceCraftContextPrecedence } from "./craft_prompts.js";
 // Centralized prompt assembly (T08).
 //
 // The single function that produces every model-bound prompt the
@@ -19,6 +20,8 @@
 // output.
 
 import { buildTraitsBlockForPrompt } from "./trait_library.js";
+import { asksForDialogueNotes, isScreenplayRevisionRequest, DIALOGUE_NOTES_CONTRACT } from "./dialogue_notes.js";
+import { analyzeScreenplayWriteInstruction, requestsStoryPages } from "./screenplay_write_instruction.js";
 import { buildAcceptedTwistsBlockForPrompt } from "./accepted_twist_log.js";
 import {
   FEATURE_MAP_BLOCK_OPEN,
@@ -73,6 +76,7 @@ const DIALOGUE_LOOP_INTENTS = Object.freeze([
   "rewrite_scene",
   "continue_script",
   "dialogue_punchup",
+  "dialogue_notes",
   "momentum_rescue",
 ]);
 const CLEMENTINE_DIALOGUE_LOOP_CONTRACT = Object.freeze([
@@ -487,9 +491,19 @@ function inferStoryMomentumDiagnostic(userInput = "", task = {}) {
 }
 
 function inferScreenplayTask(userInput = "") {
-  const text = trimToString(userInput);
+  const instruction = analyzeScreenplayWriteInstruction(userInput);
+  if (instruction.refusesPageWrite) return {
+    intent: "story_discussion", label: "Story Discussion",
+    output: "The writer refused page changes. Answer their current question in spoken prose; do not write, continue, replace or revise screenplay text. Discuss the story without changing the draft.",
+  };
+  const text = trimToString(instruction.routingText).replace(/^Intent:[^\n]+\n\s*Writer request:\s*/i, "");
   const lower = text.toLowerCase();
   if (!lower) return null;
+  // Classify the requested artifact, not incidental dialogue/voice words in
+  // the story. Conceptual artifacts remain planning rather than page writes.
+  const storyRequestTail = lower.split(/\bstory\b/, 2)[1] || "";
+  const storyWriteLike = requestsStoryPages(text)
+    && !/^\s+(?:outline|beat sheet|synopsis|premise|logline|notes|feedback|treatment)\b/.test(storyRequestTail);
   const featureMetadata = inferFeatureRequestMetadata(lower);
   const sceneDoctorLike = hasAny(lower, [
     /\b(scene doctor|doctor this|doctor the scene|coverage|feedback|notes|diagnose|what'?s wrong|what'?s not working|fix this scene|why isn'?t this working)\b/,
@@ -498,9 +512,7 @@ function inferScreenplayTask(userInput = "") {
     /\b(dialogue|line|lines|exchange|argument|conversation|voice|voices|banter|monologue|subtext)\b/,
     /\b(what should (?:he|she|they) say|what does (?:he|she|they) say)\b/,
   ]);
-  const rewriteLike = hasAny(lower, [
-    /\b(rewrite|revise|polish|replace|swap out|another pass|do another pass|make it better|elevate|professionalize|pro pass|expert pass)\b/,
-    /\b(make (?:this|it|this script|the script|this screenplay|the screenplay|this passage|this scene|the scene|this line|the line|this exchange|the exchange) (?:shorter|tighter|sharper|cleaner|faster|smarter|more expert|more professional|more cinematic|more emotional|more sophisticated|more filmic|less on[- ]the[- ]nose))\b/,
+  const rewriteLike = isScreenplayRevisionRequest(lower) || hasAny(lower, [
     /\bmake\b.{0,80}\b(?:act\s*(?:ii|2|two|iii|3|three)|second act|third act|final act|finale|midpoint|sequence)\b.{0,100}\b(?:better|stronger|smarter|faster|sharper|cleaner|more expert|more cinematic|more emotional|less generic)\b/,
   ]) || (hasAny(lower, [/\bpunch up\b/]) && !dialogueLike);
   const explicitDialoguePunchupLike = dialogueLike && hasAny(lower, [
@@ -508,6 +520,9 @@ function inferScreenplayTask(userInput = "") {
     /\bmake (?:the )?(?:dialogue|line|lines|exchange|argument|conversation|voices?) (?:sharper|tighter|cleaner)\b/,
   ]);
   const dialoguePunchupLike = explicitDialoguePunchupLike && (!rewriteLike || hasAny(lower, [/\bpunch[- ]up\b/]));
+  // Dialogue notes: the writer reads a line and wants it judged, not rewritten
+  // wholesale. Wins over scene_doctor when the ask is line-sized.
+  const dialogueNotesLike = asksForDialogueNotes(text);
   const continueLike = hasAny(lower, [
     /\b(continue|keep going|keep writing|carry on|carry this forward|take it from here|next page|next scene|what happens next|what should happen next|finish this scene|from here)\b/,
   ]);
@@ -547,7 +562,11 @@ function inferScreenplayTask(userInput = "") {
   let label = "General Story Help";
   let output = "Give specific, cinematic story guidance with one concrete next move.";
 
-  if (sceneDoctorLike && !rewriteLike) {
+  if (dialogueNotesLike) {
+    intent = "dialogue_notes";
+    label = "Dialogue Notes";
+    output = "Give a dialogue note the way a writers' room does: name what the line is doing in one sentence, then give exactly one rewritten line in quotes that carries the feeling through behavior or tactic, then stop. Spoken prose, no Fountain block, no list. Never praise a line that announces its feeling.";
+  } else if (sceneDoctorLike && !rewriteLike) {
     intent = "scene_doctor";
     label = "Scene Doctor";
     output = "Give concise script-doctor notes: what works, what is not landing, and the highest-leverage fix. Include sample replacement lines only when useful.";
@@ -571,7 +590,7 @@ function inferScreenplayTask(userInput = "") {
     intent = "continue_script";
     label = "Continue Script";
     output = "Continue from the current draft in screenplay/Fountain style, matching tone, character voice, pacing, subtext, and emotional continuity. Treat the supplied draft as active continuity and do not restart the scene unless the user asks.";
-  } else if (hasAny(lower, [/\b(write|draft|generate|compose)\b.*\b(scene|sequence|beat|pages?|dialogue|monologue)\b/, /\b(scene|sequence|beat)\b.*\b(write|draft|generate|compose)\b/])) {
+  } else if (storyWriteLike || hasAny(lower, [/\b(write|draft|generate|compose)\b.*\b(scene|sequence|beat|pages?|dialogue|monologue)\b/, /\b(scene|sequence|beat)\b.*\b(write|draft|generate|compose)\b/])) {
     intent = "write_scene";
     label = "Write Scene";
     output = "Write usable screenplay pages in clean Fountain style with scene headings, action, character cues, dialogue, and restrained parentheticals.";
@@ -768,6 +787,12 @@ function buildScreenplayTaskBlock(screenplayTask) {
   if (DIALOGUE_LOOP_INTENTS.includes(intent)) {
     lines.push("dialogue_loop:");
     for (const item of CLEMENTINE_DIALOGUE_LOOP_CONTRACT) {
+      lines.push(`  - ${item}`);
+    }
+  }
+  if (intent === "dialogue_notes") {
+    lines.push("dialogue_notes_contract:");
+    for (const item of DIALOGUE_NOTES_CONTRACT) {
       lines.push(`  - ${item}`);
     }
   }
@@ -2086,7 +2111,7 @@ function buildModelPrompt({
   const inputText = trimToString(userInput);
   if (inputText) parts.push(inputText);
 
-  return parts.join("\n\n");
+  return enforceCraftContextPrecedence(parts.join("\n\n"));
 }
 
 // For tests and diagnostics — lets callers inspect what would have

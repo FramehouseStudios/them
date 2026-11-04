@@ -1,4 +1,7 @@
 import { inferScreenplayTask } from "./prompt_assembly.js";
+import { analyzeScreenplayWriteInstruction, currentScreenplayInstruction, requestsStoryPages } from "./screenplay_write_instruction.js";
+import { isShortFilmBetaEnabled } from "./clementine/short_film_beta.js";
+import { parseShortFilmIntent } from "./clementine/short_film_intent.js";
 
 function trimToString(value = "", maxLength = 8_000) {
   return String(value ?? "").trim().slice(0, Math.max(1, Number(maxLength || 8_000)));
@@ -217,7 +220,10 @@ function shouldAutoRouteTaskToPage({
 
 function inferScreenplayTargetFromRequest(input = {}) {
   if (!input || typeof input !== "object") return "";
-  const text = textFromRequest(input);
+  const instruction = analyzeScreenplayWriteInstruction(currentScreenplayInstruction(input));
+  if (instruction.refusesPageWrite) return "";
+  const text = instruction.hadRefusal ? instruction.routingText : textFromRequest(input);
+  if (requestsStoryPages(currentScreenplayInstruction(input))) return "page";
   if (!text) {
     return positiveIntegerOrZero(
       input.screenplayTargetPages ??
@@ -245,6 +251,7 @@ function inferScreenplayTargetFromRequest(input = {}) {
 
 function resolveScreenplayTargetFromRequest(input = {}) {
   if (!input || typeof input !== "object") return "";
+  if (analyzeScreenplayWriteInstruction(currentScreenplayInstruction(input)).refusesPageWrite) return "voice_pin";
   const explicit = normalizeScreenplayTarget(
     input.screenplayTarget ??
     input.screenplay_target ??
@@ -254,8 +261,39 @@ function resolveScreenplayTargetFromRequest(input = {}) {
   return explicit || inferScreenplayTargetFromRequest(input);
 }
 
+// Audio can arrive with Page hints before ASR knows the current words. Revoke
+// that permission before prompt/generation; keep the transcript itself intact.
+function enforceScreenplayWriteRefusal(req, studioMeta, transcript) {
+  if (!analyzeScreenplayWriteInstruction(transcript).refusesPageWrite) return false;
+  if (studioMeta) studioMeta.screenplayTarget = "voice_pin";
+  req.body = { ...req.body, client_transcript: transcript, screenplay_target: "voice_pin", screenplayTarget: "voice_pin" };
+  req.clementine?.refusePageWrite?.();
+  return true;
+}
+
+// The authoritative ASR words must settle routing before any model work. Reuse
+// the same Page reservation/Reflex owner as typed turns, not a second wallet path.
+async function reconcileScreenplayTranscript(req, res, studioMeta, transcript) {
+  const refused = enforceScreenplayWriteRefusal(req, studioMeta, transcript);
+  if (!refused && studioMeta && !studioMeta.screenplayTarget) {
+    studioMeta.screenplayTarget = resolveScreenplayTargetFromRequest({ ...req.body, client_transcript: transcript });
+    if (!studioMeta.screenplayTarget && isShortFilmBetaEnabled(process.env) && parseShortFilmIntent(transcript)) {
+      studioMeta.screenplayTarget = "page";
+      studioMeta.screenplayPromptSource = "short_film_beta";
+    }
+  }
+  if (req.clementine?.resolveTranscript) {
+    req.body = { ...req.body, screenplay_target: studioMeta?.screenplayTarget || "" };
+    await req.clementine.resolveTranscript(transcript);
+    if (refused) enforceScreenplayWriteRefusal(req, studioMeta, transcript);
+  }
+  return !refused && studioMeta?.screenplayTarget === "page";
+}
+
 export {
   inferScreenplayTargetFromRequest,
   normalizeScreenplayTarget,
   resolveScreenplayTargetFromRequest,
+  enforceScreenplayWriteRefusal,
+  reconcileScreenplayTranscript,
 };

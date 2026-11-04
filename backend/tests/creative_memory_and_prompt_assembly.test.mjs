@@ -1127,6 +1127,32 @@ test("[screenplay-task] inferScreenplayTask routes core Clementine writing jobs"
   );
 });
 
+test("[screenplay-task] explicit story writes outrank incidental voice and character words", () => {
+  const exact = "Write a story about two astronauts who discover the observatory sky is a painted set. Put HOME VOICE HANDOFF on the panel.";
+  const prepared = text => `Intent: Produce screenplay-ready rewritten material that directly answers the writer.\n\nWriter request: ${text}`;
+  for (const prompt of [exact, prepared(exact), "Please write a short story about a character who hears a voice.",
+    "Can you draft me a story about two astronauts?", "Compose a new story about an argument."]) {
+    assert.equal(inferScreenplayTask(prompt).intent, "write_scene", prompt);
+  }
+});
+
+test("[screenplay-task] story writing does not swallow planning, advice, revisions or refusal", () => {
+  const cases = [
+    ["Write a story outline about two astronauts and their voices.", "outline_structure"],
+    ["Write a story premise about two astronauts.", "general_story"],
+    ["How do I write a story?", "general_story"],
+    ["Give me advice on writing a story.", "general_story"],
+    ["Polish the character's voice in this story.", "rewrite_scene"],
+    ["Punch up this dialogue with more subtext.", "dialogue_punchup"],
+    ["Don't write a story. Just discuss the premise.", "story_discussion"],
+    ['Discuss the request "write a story about a voice" without writing it.', "dialogue_punchup"],
+  ];
+  for (const [prompt, expected] of cases) {
+    assert.equal(inferScreenplayTask(prompt).intent, expected, prompt);
+    assert.equal(inferScreenplayTask(`Intent: Produce screenplay-ready rewritten material that directly answers the writer.\n\nWriter request: ${prompt}`).intent, expected, `prepared: ${prompt}`);
+  }
+});
+
 test("[screenplay-task] inferScreenplayTask handles targeted Clementine Studio modes", () => {
   assert.equal(inferScreenplayTask("Replace that line with something sharper.").intent, "rewrite_scene");
   assert.equal(inferScreenplayTask("Keep writing from here without restarting the scene.").intent, "continue_script");

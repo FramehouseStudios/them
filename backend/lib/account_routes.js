@@ -22,7 +22,28 @@ const EXPORTABLE_DOMAINS = Object.freeze([
   "craft_loglines",
   "accepted_twists",
   "telemetry_first_page_written",
+  "talk_turns",
+  "talk_idempotency",
 ]);
+
+// Export writer-owned content, never the private session authority needed to
+// replay an accepted HTTP response. Existing non-talk domains keep their shape.
+function accountExportPersistenceValue(domain, value) {
+  if (domain !== 'talk_turns' && domain !== 'talk_idempotency') return value;
+  const source = value && typeof value === 'object' ? value : {};
+  const keys = domain === 'talk_turns'
+    ? ['turnId', 'userId', 'stateVersion', 'transcript', 'reply', 'audioDurationMs', 'timingSource',
+      'screenplayCues', 'screenplayOutput', 'dialogueTimeline', 'renderContract', 'knowledgeTopics',
+      'knowledgeCitations', 'knowledgeQueryRaw', 'knowledgeQueryRewrite', 'knowledgeContradictionRisk',
+      'requestId', 'createdAt', 'updatedAt', 'expiresAt']
+    : ['key', 'userId', 'status', 'statusCode', 'body', 'createdAt', 'completedAt', 'expiresAt'];
+  const exported = Object.fromEntries(keys.filter(key => Object.hasOwn(source, key)).map(key => [key, source[key]]));
+  if (domain === 'talk_idempotency' && source.turnMetadata && typeof source.turnMetadata === 'object'
+    && source.turnMetadata.userId === source.userId) {
+    exported.turnMetadata = accountExportPersistenceValue('talk_turns', source.turnMetadata);
+  }
+  return exported;
+}
 
 function mountAccountRoutes(app, deps) {
   if (!app || typeof app.post !== "function") {
@@ -159,6 +180,7 @@ function mountAccountRoutes(app, deps) {
 }
 
 export {
+  accountExportPersistenceValue,
   mountAccountRoutes,
   EXPORTABLE_DOMAINS,
   DEFAULT_SOFT_DELETE_WINDOW_MS,

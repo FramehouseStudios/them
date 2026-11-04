@@ -1,0 +1,20 @@
+[
+  {"text":"Do not rewrite this scene. Just discuss it.","refused":true,"hadRefusal":true},
+  {"text":"Don’t write a screenplay. Tell me what you think.","refused":true,"hadRefusal":true},
+  {"text":"Please don't continue the scene.","refused":true,"hadRefusal":true},
+  {"text":"I don't want you to rewrite my script.","refused":true,"hadRefusal":true},
+  {"text":"Never replace the last line.","refused":true,"hadRefusal":true},
+  {"text":"Do not rewrite the scene; continue from here instead.","refused":false,"hadRefusal":true},
+  {"text":"Don't write act one, but rewrite act two.","refused":false,"hadRefusal":true},
+  {"text":"Don't rewrite the scene; how can I make it better?","refused":true,"hadRefusal":true},
+  {"text":"Write a scene where Mara says: 'Do not rewrite my memories.'","refused":false,"hadRefusal":false},
+  {"text":"INT. ROOM - DAY\n\nMARA\nDo not rewrite my memories.","refused":false,"hadRefusal":false},
+  {"text":"Notes on this line: “Don't rewrite my memories.”","refused":false,"hadRefusal":false},
+  {"text":"Don't stop writing.","refused":false,"hadRefusal":false},
+  {"text":"Let's not change the scene.","refused":true,"hadRefusal":true},
+  {"text":"Don't rewrite and replace the scene.","refused":true,"hadRefusal":true},
+  {"text":"Don't rewrite the scene; please write a logline.","refused":true,"hadRefusal":true},
+  {"text":"Don't write a new scene; keep writing from here.","refused":false,"hadRefusal":true},
+  {"text":"Don't worry; rewrite this scene.","refused":false,"hadRefusal":false},
+  {"text":"Hey Clementine, don't rewrite the scene.","refused":true,"hadRefusal":true}
+]

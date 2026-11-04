@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
+import { classifyIntent } from "../lib/clementine/intents.js";
+import { laneForIntent } from "../lib/clementine/lanes.js";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -61,5 +63,14 @@ test("[clementine voice eval] covers required category mix", () => {
     "wallet_empty",
   ]) {
     assert.ok(cats.has(need), `missing category ${need}`);
+  }
+});
+
+test("writer-block golden labels match the real classifier and lane policy", () => {
+  const scenes = loadScenes(scenesPath);
+  for (const id of ["comfort_01_stuck", "wallet_empty_02_companion", "comfort_02_anxious"]) {
+    const scene = scenes.find((item) => item.id === id);
+    assert.equal(classifyIntent(scene.input), scene.intent, id);
+    assert.equal(laneForIntent(scene.intent).lane.toLowerCase(), scene.lane.toLowerCase(), id);
   }
 });

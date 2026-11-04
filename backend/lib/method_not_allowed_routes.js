@@ -54,6 +54,7 @@ function registerMethodNotAllowedRoutes(app) {
   app.all("/recap", methodNotAllowed("GET"));
   app.all("/recap/today", methodNotAllowed("GET"));
   app.all("/screenplay/projects", methodNotAllowed("GET, POST"));
+  app.all("/screenplay/projects/initialize", methodNotAllowed("POST"));
   app.all("/screenplay/projects/:projectId", methodNotAllowed("GET"));
   app.all("/screenplay/projects/:projectId/outline", methodNotAllowed("GET, POST"));
   app.all("/screenplay/projects/:projectId/scenes", methodNotAllowed("POST"));
@@ -63,6 +64,7 @@ function registerMethodNotAllowedRoutes(app) {
   app.all("/screenplay/projects/:projectId/version", methodNotAllowed("POST"));
   app.all("/screenplay/prompt/build", methodNotAllowed("POST"));
   app.all("/screenplay/paginate", methodNotAllowed("POST"));
+  app.all("/screenplay/coverage", methodNotAllowed("POST"));
   app.all("/screenplay/revision-colors", methodNotAllowed("POST"));
   app.all("/screenplay/export", methodNotAllowed("POST"));
   app.all("/history/annotate_turn", methodNotAllowed("POST"));

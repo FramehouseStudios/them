@@ -373,6 +373,7 @@ function createUserAuthSubsystem(options = {}) {
     if (!isProtectedRoute(req.path)) return next();
     if (!authConfigured) return authMisconfigured(res, "auth_user");
     if (req.authUser) return next();
+    res.setHeader("Cache-Control", "no-store");
     return res.status(401).json({
       stage: "auth_user",
       error: req.authUserError || "user_auth_required",

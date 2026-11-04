@@ -1,4 +1,5 @@
-// LivePaperStreamView — types pages as they arrive (P1 live paper stream, not gated)
+// Legacy unmounted preview. The canonical editor owns live document text;
+// do not mount this as a second document writer or claim it is connected.
 import SwiftUI
 import ScreenplayStudio
 

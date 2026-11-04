@@ -158,6 +158,7 @@ test("[wallet] POST /talk/wallet returns calm balance only", async () => {
     initialBalances: { alice: { companion: 40, page: 12 } },
   });
   const app = express();
+  app.use((req, _res, next) => { req.authUser = { id: "alice" }; next(); });
   mountTalkWalletRoute(app, { walletStore: wallet });
   const server = app.listen(0);
   await new Promise((resolve) => server.once("listening", resolve));
@@ -217,6 +218,7 @@ test("[wallet] POST /talk/page-cancel releases wallet funds", async () => {
   });
 
   const app = express();
+  app.use((req, _res, next) => { req.authUser = { id: "http" }; next(); });
   mountPageCancelRoute(app, { pageReservationStore: pages });
   const server = app.listen(0);
   await new Promise((resolve) => server.once("listening", resolve));

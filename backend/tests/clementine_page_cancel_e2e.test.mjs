@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import express from "express";
+import { listenEphemeral } from "./helpers/ephemeral_server.mjs";
 
 import { createPageReservationStore } from "../lib/clementine/page_cancel.js";
 import { LANE, INTENT } from "../lib/clementine/index.js";
@@ -80,11 +81,12 @@ test("[page-cancel-e2e] resolveTalkLane wires classifyIntent → laneForIntent",
 
 test("[page-cancel-e2e] POST /talk/page-cancel cancels by reservation id", async () => {
   const store = createPageReservationStore({ now: () => 200 });
-  const r = store.reserve({ sessionId: "s-http", maxOutputTokens: 64 });
+  const r = store.reserve({ sessionId: "s-http", userId: "u", maxOutputTokens: 64 });
 
   const app = express();
+  app.use((req, _res, next) => { req.authUser = { id: "u" }; next(); });
   mountPageCancelRoute(app, { pageReservationStore: store });
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   try {
@@ -118,8 +120,9 @@ test("[page-cancel-e2e] POST /talk/page-cancel cancelByOwner via session_id", as
   store.reserve({ sessionId: "keep-sess", maxOutputTokens: 5 });
 
   const app = express();
+  app.use((req, _res, next) => { req.authUser = { id: "u" }; next(); });
   mountPageCancelRoute(app, { pageReservationStore: store });
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   try {
@@ -160,7 +163,7 @@ test("[page-cancel-e2e] talk adapter attaches reservation for pageMode body", as
   const app = express();
   app.use(express.json());
   app.post("/talk", (req, res) => wrapped(req, res));
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   try {
@@ -193,8 +196,9 @@ test("[page-cancel-e2e] talk adapter attaches reservation for pageMode body", as
 
 test("[page-cancel-e2e] mountTalkPipelineRoutes wires cancel when store provided", async () => {
   const store = createPageReservationStore({ now: () => 500 });
-  const r = store.reserve({ sessionId: "pipe-s", maxOutputTokens: 1 });
+  const r = store.reserve({ sessionId: "pipe-s", userId: "u", maxOutputTokens: 1 });
   const app = express();
+  app.use((req, _res, next) => { req.authUser = { id: "u" }; next(); });
   mountTalkPipelineRoutes(app, {
     talkRateLimitGuard: (_req, _res, next) => next(),
     requireClientTokenForTalk: (_req, _res, next) => next(),
@@ -208,7 +212,7 @@ test("[page-cancel-e2e] mountTalkPipelineRoutes wires cancel when store provided
     canReadTalkTurnMeta: () => true,
     pageReservationStore: store,
   });
-  const server = app.listen(0);
+  const server = listenEphemeral(app);
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
   try {

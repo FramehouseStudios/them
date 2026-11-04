@@ -3,6 +3,28 @@ import { describe, it } from "node:test";
 import { buildSuggestionHeader, buildUncertaintyHeader, buildCollabCursorHeader, applyClementineTalkHeaders } from "../lib/clementine/talk_clementine_headers.js";
 
 describe("talk_clementine_headers", () => {
+  it("derived cursors use formatted pages, not scene count or physical lines", () => {
+    const short = "INT. A - DAY\n\nA clock ticks.\n\nEXT. B - NIGHT\n\nA bell rings.";
+    const cursor = JSON.parse(buildCollabCursorHeader({ draft: "Title: ASHES\n\n" + short, project: { characterContexts: [{ name: "JOHN" }] } }));
+    assert.deepEqual(cursor, { page: 1, line: 1, basis: "provided_text", authoritative: false });
+    const speech = "INT. A - DAY\n\nMARA\n" + "We hear the signal. ".repeat(400);
+    const longCursor = JSON.parse(buildCollabCursorHeader({ draft: speech }));
+    assert.ok(longCursor.page > 2, "one physical dialogue line can span several printed pages");
+    assert.equal(longCursor.authoritative, false);
+  });
+  it("title-only or absent text cannot invent an inferred page cursor", () => {
+    for (const draft of ["", "  ", "Title: ASHES\nAuthor: Zoë\n\n", undefined]) {
+      assert.equal(buildCollabCursorHeader({ draft }), "");
+    }
+  });
+  it("invalid explicit cursors fail closed instead of silently choosing page one", () => {
+    for (const value of [NaN, Infinity, -1, 0, "not-a-page", "", Number.MAX_SAFE_INTEGER + 1]) {
+      assert.equal(buildCollabCursorHeader({ draft: "Some text.", collabCursor: { page: value, line: 1 } }), "");
+      assert.equal(buildCollabCursorHeader({ draft: "Some text.", collabCursor: { page: 1, line: value } }), "");
+    }
+    const explicit = JSON.parse(buildCollabCursorHeader({ collabCursor: { page: 25, line: 4, character: "John" } }));
+    assert.deepEqual(explicit, { page: 25, line: 4, character: "John", basis: "explicit", authoritative: false });
+  });
   it("x-suggestion present when pressure high or draft thin", () => {
     const project = { tone: "tense", characterContexts: [{ name: "John", arcState: { pressure: 6 } }] };
     const s = buildSuggestionHeader({ project, draft: "x", parsed: { genre: "horror" } });

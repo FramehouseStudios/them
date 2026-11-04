@@ -31,6 +31,9 @@ try {
       OPENAI_API_KEY: "not-a-real-provider-key",
       CLEMENTINE_MUSE_ENABLED: "0",
       KNOWLEDGE_RAG_EMBEDDINGS_ENABLED: "0",
+      THEM_HOME_VOICE_PROVIDER_FIXTURE: "1",
+      THEM_SAVE_AUTH_REFRESH_PROOF: "1",
+      NODE_OPTIONS: `--import=${new URL('./home_voice_provider_fixture.mjs', import.meta.url).href} --import=${new URL('./save_auth_refresh_observer.mjs', import.meta.url).href}`,
     },
   });
 
@@ -78,7 +81,7 @@ try {
     const summary = readResult("summary", bundle);
     assert(summary.status === 0,
       `Missing recovery summary: ${bundle}\n${failureOutputTail(summary.stderr || summary.stdout)}`);
-    assertPassedTestSummary(JSON.parse(summary.stdout), process.env.SCREENPLAY_SAVE_TEST_IDENTIFIER ? 1 : 2,
+    assertPassedTestSummary(JSON.parse(summary.stdout), process.env.SCREENPLAY_SAVE_TEST_IDENTIFIER ? 1 : 3,
       `Signed screenplay recovery did not execute every requested test: ${bundle}`);
   }
   console.log(JSON.stringify({

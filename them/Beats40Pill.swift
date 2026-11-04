@@ -1,5 +1,5 @@
-// Beats40Pill — 40-beat Save-The-Cat pill for feature 60p+ (D009 Swift, not gated)
-// Consumes x-live-paper-beats40 / x-live-paper-beat-count via BackendClient.
+// Legacy unmounted preview. The app currently has no consumer for these headers;
+// use the canonical outline/Beats owner when integrating the feature.
 import SwiftUI
 
 struct Beats40Pill: View {

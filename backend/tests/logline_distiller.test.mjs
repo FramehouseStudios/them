@@ -108,6 +108,18 @@ test("distillLogline (LLM mode) routes through classifier.classifyScene", async 
   assert.ok(recordedScene.text.includes("Write a single screenplay logline"));
 });
 
+test("distillLogline classifier receives the canonical default and preserves explicit selection", async () => {
+  const { DEFAULT_FRAMEWORK_ID } = await import("../lib/craft_frameworks.js");
+  const seen = [];
+  const classifier = { kind: "openai", async classifyScene({ framework }) {
+    seen.push(framework);
+    return { rationale: "A ferryman faces a dangerous crossing." };
+  } };
+  await distillLogline({ text: "INT. FERRY - DAY", classifier });
+  await distillLogline({ text: "INT. FERRY - DAY", classifier, frameworkId: "story-circle" });
+  assert.deepEqual(seen, [DEFAULT_FRAMEWORK_ID, "story-circle"]);
+});
+
 test("distillLogline (LLM mode) falls back to stub on classifier error", async () => {
   const breaker = {
     kind: "openai",

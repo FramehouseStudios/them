@@ -38,6 +38,12 @@
 // owner record. Caller-supplied X-User-Id is never trusted.
 
 import express from "express";
+import { createScreenplayProjectInitializer, createEmptyScreenplayProjectRecord } from "./screenplay_project_initialization.js";
+import { createScreenplayVersionRecord } from "./screenplay_version_record.js";
+import {
+  buildScreenplayVersionReplayHash,
+  legacyScreenplayVersionMatchesReplay,
+} from "./screenplay_version_replay_identity.js";
 import {
   defaultResolveScreenplayUserId,
   requireScreenplayUserId,
@@ -152,6 +158,7 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     throw new Error("mountScreenplayProjectsRoutes: resolveScreenplayUserId must be a function");
   }
   const activeOutlineMutations = new Map();
+  const initializeProject = createScreenplayProjectInitializer({ ...deps, getAuthorizedScreenplayOwner });
 
   function getAuthorizedScreenplayOwner(req, res, stage) {
     const userId = requireScreenplayUserId(req, res, {
@@ -791,7 +798,14 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
 
   // ---------- Phase 2b: write routes ----------
 
-  app.post("/screenplay/projects", express.json({ limit: "512kb" }), async (req, res) => {
+  // A dedicated path fails without mutation on older servers; clients must not
+  // fall back to metadata-only creation when the atomic capability is absent.
+  app.post("/screenplay/projects/initialize", express.json({ limit: "2mb" }), initializeProject);
+  app.post("/screenplay/projects", express.json({ limit: "2mb" }), async (req, res) => {
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, "initial_draft")
+        || Object.prototype.hasOwnProperty.call(req.body || {}, "blank_project")) {
+      return initializeProject(req, res);
+    }
     const owner = await getFreshAuthorizedScreenplayOwner(req, res, "screenplay_project");
     if (!owner) return;
     const now = Date.now();
@@ -821,39 +835,9 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
       || Object.prototype.hasOwnProperty.call(req.body, "studio_exchange_history")
       || Object.prototype.hasOwnProperty.call(req.body, "studioExchangeHistory")
     );
-    const project = existing || {
-      id: requestedProjectId || createScreenplayId("project"),
-      title,
-      archived: false,
-      tags: [],
-      characters: [],
-      setting: "",
-      tone: "",
-      promptSeed: "",
-      logline: "",
-      themeArgument: "",
-      centralQuestion: "",
-      protagonistWant: "",
-      protagonistNeed: "",
-      antagonisticForce: "",
-      actPosition: "",
-      endingImage: "",
-      unresolvedSetups: [],
-      createdAt: now,
-      updatedAt: now,
-      lastPhase: "scene_draft",
-      activeVersionId: "",
-      lastVersionId: "",
-      lastVersionAt: 0,
-      studioThreadViewState: null,
-      studioDiffAcknowledgedKeys: [],
-      studioDiffAcknowledgedEntries: [],
-      studioAskNoteHistory: [],
-      outline: createEmptyScreenplayOutline(),
-      versions: [],
-      collaborators: [],
-      comments: [],
-    };
+    const project = existing || createEmptyScreenplayProjectRecord({
+      id: requestedProjectId || createScreenplayId("project"), title, now, createEmptyScreenplayOutline,
+    });
     project.title = title;
     project.tags = normalizeScreenplayStringList(req.body?.tags, 24, 48);
     project.characters = normalizeScreenplayStringList(req.body?.characters, 24, 48);
@@ -1539,8 +1523,8 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
       return res.status(404).json({ stage: "screenplay_version", error: "project_not_found" });
     }
     const now = Date.now();
-    const draft = String(req.body?.draft || "").replace(/\r\n/g, "\n").trim();
-    if (!draft) {
+    const draft = req.body?.draft;
+    if (typeof draft !== "string" || draft.length === 0) {
       return res.status(400).json({ stage: "screenplay_version", error: "draft_required" });
     }
     const phase = normalizeScreenplayPhaseValue(req.body?.phase || project.lastPhase);
@@ -1549,8 +1533,19 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     const studioWriteAnchors = normalizeStoredScreenplayWriteAnchors(req.body?.studio_write_anchors);
     const screenplayBindings = normalizeStoredScreenplayBindings(req.body?.screenplay_bindings);
     const baseVersionId = normalizeSnippet(req.body?.base_version_id, 64);
+    const title = normalizeSnippet(req.body?.title, 160);
     const clientRequestId = normalizeSnippet(req.body?.client_request_id, 96);
     const conflictStrategy = String(req.body?.conflict_strategy || "reject_if_stale").trim().toLowerCase();
+    const saveRequestHash = buildScreenplayVersionReplayHash({
+      draft,
+      phase,
+      source,
+      notes,
+      studioWriteAnchors,
+      screenplayBindings,
+      baseVersionId,
+      title,
+    });
     const latestVersion = getLatestScreenplayVersion(project);
     const currentVersionId = project.activeVersionId || latestVersion?.id || "";
     const replayedVersion = clientRequestId
@@ -1568,7 +1563,16 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
           replayed: false,
         }));
       }
-      const requestMatches = String(replayedVersion.draft || "").replace(/\r\n/g, "\n").trim() === draft;
+      const requestMatches = replayedVersion.saveRequestHash
+        ? replayedVersion.saveRequestHash === saveRequestHash && String(replayedVersion.draft || "") === draft
+        : legacyScreenplayVersionMatchesReplay(replayedVersion, {
+            draft,
+            phase,
+            source,
+            notes,
+            studioWriteAnchors,
+            screenplayBindings,
+          });
       const replayWasSuperseded = Boolean(currentVersionId && currentVersionId !== replayedVersion.id);
       applyReadStateHeaders(res, buildScreenplayReadMeta(req, owner));
       return res.status(requestMatches && !replayWasSuperseded ? 200 : 409).json(buildScreenplayEnvelope(req, owner, {
@@ -1631,34 +1635,30 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
       ownerActiveProjectId: owner.activeProjectId,
       ownerUpdatedAt: owner.updatedAt,
     };
-    const version = {
+    const version = createScreenplayVersionRecord({
       id: createScreenplayId("version"),
       projectId: project.id,
       phase,
       source,
       clientRequestId,
-      createdAt: now,
-      updatedAt: now,
-      prompt: "",
+      now,
       notes,
-      formatScore: score.formatScore,
-      storyScore: score.storyScore,
-      confidenceClass: score.confidenceClass,
-      warnings: score.warnings,
+      score,
       draft,
       draftExcerpt: buildDraftExcerpt(draft, 220),
       studioWriteAnchors,
       screenplayBindings,
       persistencePending: Boolean(clientRequestId),
-    };
+      saveRequestHash: clientRequestId ? saveRequestHash : "",
+    });
     project.versions = Array.isArray(project.versions) ? project.versions : [];
     project.versions.unshift(version);
     project.activeVersionId = version.id;
     project.lastVersionId = version.id;
     project.lastVersionAt = now;
     project.lastPhase = phase;
-    if (normalizeSnippet(req.body?.title, 160)) {
-      project.title = normalizeSnippet(req.body?.title, 160);
+    if (title) {
+      project.title = title;
     }
     project.updatedAt = now;
     owner.activeProjectId = project.id;

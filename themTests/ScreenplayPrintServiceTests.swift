@@ -46,6 +46,79 @@ final class ScreenplayPrintServiceTests: XCTestCase {
         XCTAssertNil(ScreenplayPrintService.pageCount(of: Data("not a pdf".utf8)))
     }
 
+    func testTitleOnlyDraftRendersOneUnnumberedTitlePage() throws {
+        let draft = """
+        Title:
+            ASHES
+        Credit:
+            Written by
+        Author:
+            Zoë Chen
+        """
+
+        let pdf = try ScreenplayPrintService.makePDF(draft: draft, title: "Ashes")
+        let document = try XCTUnwrap(PDFDocument(data: pdf))
+        let titlePage = document.page(at: 0)?.string ?? ""
+        let sample = XCTAttachment(data: pdf, uniformTypeIdentifier: "com.adobe.pdf")
+        sample.name = "title-only-native"
+        sample.lifetime = .keepAlways
+        add(sample)
+
+        XCTAssertEqual(document.pageCount, 1)
+        XCTAssertTrue(titlePage.contains("ASHES"))
+        XCTAssertTrue(titlePage.contains("Written by"))
+        XCTAssertTrue(titlePage.contains("Zoë Chen"))
+        XCTAssertFalse(titlePage.contains("1."))
+        XCTAssertEqual(ScreenplayPrintService.pageCountEstimate(for: draft), 0)
+        XCTAssertFalse(ScreenplayDraftGate.hasFormatErrors(draft: draft))
+    }
+
+    func testTitlePageIsSeparateAndBodyStartsAtScreenplayPageOne() throws {
+        let draft = """
+        Title:
+            ASHES
+        Credit:
+            Written by
+        Author:
+            Zoë Chen
+
+        INT. MOTEL ROOM - NIGHT
+
+        Rain needles the glass.
+        """
+
+        let pdf = try ScreenplayPrintService.makePDF(draft: draft, title: "Ashes")
+        let document = try XCTUnwrap(PDFDocument(data: pdf))
+        let titlePage = document.page(at: 0)?.string ?? ""
+        let firstScriptPage = document.page(at: 1)?.string ?? ""
+        let sample = XCTAttachment(data: pdf, uniformTypeIdentifier: "com.adobe.pdf")
+        sample.name = "title-and-body-native"
+        sample.lifetime = .keepAlways
+        add(sample)
+
+        XCTAssertEqual(document.pageCount, 2)
+        XCTAssertTrue(titlePage.contains("ASHES"))
+        XCTAssertFalse(titlePage.contains("INT. MOTEL ROOM"))
+        XCTAssertFalse(titlePage.contains("1."))
+        XCTAssertTrue(firstScriptPage.contains("1."))
+        XCTAssertTrue(firstScriptPage.contains("INT. MOTEL ROOM - NIGHT"))
+        XCTAssertFalse(firstScriptPage.contains("Title:"))
+        XCTAssertEqual(ScreenplayPrintService.pageCountEstimate(for: draft), 1)
+    }
+
+    func testDraftWithoutTitlePageKeepsSingleScriptPageBehavior() throws {
+        let draft = "INT. KITCHEN - DAY\n\nA kettle screams."
+
+        let pdf = try ScreenplayPrintService.makePDF(draft: draft, title: "Kitchen")
+        let document = try XCTUnwrap(PDFDocument(data: pdf))
+        let page = document.page(at: 0)?.string ?? ""
+
+        XCTAssertEqual(document.pageCount, 1)
+        XCTAssertTrue(page.contains("INT. KITCHEN - DAY"))
+        XCTAssertFalse(page.contains("Kitchen"))
+        XCTAssertEqual(ScreenplayPrintService.pageCountEstimate(for: draft), 1)
+    }
+
     // MARK: - MORE / CONT'D across a forced dialogue break
 
     func testMoreAndContdAppearAcrossDialoguePageBreak() throws {
@@ -61,6 +134,32 @@ final class ScreenplayPrintServiceTests: XCTestCase {
     }
 
     // MARK: - Format gate
+
+    func testImportedLineEndingsPreserveEveryWordAndContinuationPage() throws {
+        UserDefaults.standard.set(ScreenplayPrintPaper.letter.rawValue, forKey: paperKey)
+        let lines = ["Title: ASHES", "Author: Zoë Chen", "", "INT. CAFÉ - NIGHT", "", "MAYA"]
+            + (1...120).map { "Marker\(String(format: "%03d", $0)) Zoë hears the signal and knows we are still here." }
+        var reference: [String]?
+        for (label, newline) in [("lf", "\n"), ("crlf", "\r\n"), ("cr", "\r")] {
+            let draft = lines.joined(separator: newline)
+            let pdf = try ScreenplayPrintService.makePDF(draft: draft, title: "Ashes")
+            let document = try XCTUnwrap(PDFDocument(data: pdf))
+            let pages = (0..<document.pageCount).map { document.page(at: $0)?.string ?? "" }
+            let text = pages.joined(separator: "\n")
+            let sample = XCTAttachment(data: pdf, uniformTypeIdentifier: "com.adobe.pdf")
+            sample.name = "imported-line-endings-\(label)"
+            sample.lifetime = .keepAlways
+            add(sample)
+            XCTAssertGreaterThan(document.pageCount, 3)
+            XCTAssertTrue(text.contains("MAYA (CONT'D)"), label)
+            for index in 1...120 {
+                XCTAssertEqual(text.components(separatedBy: String(format: "Marker%03d", index)).count - 1, 1, "\(label) marker\(index) must survive once")
+            }
+            if let reference { XCTAssertEqual(pages, reference, "\(label) must print exactly like LF, including continuation labels") }
+            else { reference = pages }
+            XCTAssertEqual(draft, lines.joined(separator: newline), "export cannot mutate original source")
+        }
+    }
 
     func testGatePassesSixLineSpeech() {
         let draft = """

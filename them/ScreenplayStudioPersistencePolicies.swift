@@ -39,17 +39,11 @@ struct ScreenplayProjectScopedState {
 }
 
 struct ScreenplayCharacterTraitsRefreshPolicy {
-    static func shouldFallbackToUserLibrary(
-        response: BackendCharacterTraitsResponse,
-        projectID: String?,
-        projectTitle: String?
-    ) -> Bool {
-        let scopedProjectID = (projectID ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let scopedProjectTitle = (projectTitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let responseError = (response.error ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        return response.characters.isEmpty &&
-            responseError.isEmpty &&
-            (!scopedProjectID.isEmpty || !scopedProjectTitle.isEmpty)
+    // An empty project library is authoritative. Global-library display is an
+    // explicitly unscoped request, never a fallback retagged as project data.
+    static func projectIDForRequest(_ projectID: String?) -> String? {
+        let value = (projectID ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
     }
 }
 
@@ -135,6 +129,35 @@ struct ScreenplayProjectDraftRestorePolicy {
     }
 }
 
+/// An empty-base save may proceed only against a complete, authoritative
+/// project read. A historical fallback is useful for display but is not proof
+/// of the active head when a save could overwrite another device's work.
+enum ScreenplaySaveHeadPreflight {
+    case versionless
+    case current(BackendScreenplayVersion)
+    case unverified
+
+    static func evaluate(_ project: BackendScreenplayProjectSummary) -> Self {
+        let active = (project.activeVersionId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let last = (project.lastVersionId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let head = active.isEmpty ? last : active
+        guard let versions = project.versions else { return .unverified }
+        if !head.isEmpty {
+            guard let version = versions.first(where: { $0.id == head }), version.draft != nil else {
+                return .unverified
+            }
+            if let versionProject = version.projectId,
+               versionProject.trimmingCharacters(in: .whitespacesAndNewlines) !=
+                project.id.trimmingCharacters(in: .whitespacesAndNewlines) {
+                return .unverified
+            }
+            return .current(version)
+        }
+        guard versions.isEmpty, project.versionCount == 0 else { return .unverified }
+        return .versionless
+    }
+}
+
 struct ScreenplayUnconfirmedSaveRecoveryPolicy {
     static func shouldPersist(projectId: String, draft: String) -> Bool {
         // An empty draft can be the writer's intentional deletion.
@@ -208,7 +231,23 @@ struct ScreenplayProgrammaticDraftAutosavePolicy {
             autosaveEnabled &&
             hasUnsavedDraftChanges &&
             !isStreamingDraftPreviewActive &&
-            !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            !draft.isEmpty
+    }
+}
+
+// Capture the write anchor before the first page-save request is created.
+struct ScreenplayCommittedWriteAnchorPolicy {
+    static func merging(_ write: ScreenplayCommittedWrite, sceneLabel: String?,
+                        into anchors: [BackendScreenplayWriteAnchor]) -> [BackendScreenplayWriteAnchor] {
+        let id = write.normalizedWriteID.lowercased()
+        guard write.isAuthoritativeWrite, !id.isEmpty else { return anchors }
+        let clean = write.insertedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let excerpt = String(clean.prefix(220)).trimmingCharacters(in: .whitespacesAndNewlines)
+        let prior = anchors.first { $0.writeId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == id }
+        let anchor = BackendScreenplayWriteAnchor(writeId: id, anchorLine: write.startLine,
+            anchorEndLine: write.endLine, anchorSceneLabel: sceneLabel ?? prior?.anchorSceneLabel, anchorExcerpt: excerpt,
+            insertedText: write.insertedText, updatedAt: write.committedAt.timeIntervalSince1970 * 1000)
+        return [anchor] + anchors.filter { $0.writeId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != id }.prefix(127)
     }
 }
 
@@ -239,18 +278,18 @@ struct ScreenplayDraftSaveIntentPolicy {
         let selectedProject = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !selectedProject.isEmpty,
               selectedProject == committedWrite.normalizedProjectID,
-              normalizedDraft(draft) == normalizedDraft(committedWrite.committedDraft) else {
+              draft.utf8.elementsEqual(committedWrite.committedDraft.utf8) else {
             return .autosave
         }
         return .clementinePageWrite
     }
+}
 
-    private static func normalizedDraft(_ draft: String) -> String {
-        draft
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
+/// Swift String equality treats different Unicode encodings as equal. Draft
+/// observers must follow exact writer bytes, without normalizing or hashing.
+nonisolated struct ScreenplayDraftTextObservation: Equatable, Sendable {
+    let text: String
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.text.utf8.elementsEqual(rhs.text.utf8) }
 }
 
 struct ScreenplayDraftSaveCompletionPolicy {
@@ -311,6 +350,14 @@ struct ScreenplayDraftSaveRetryPolicy {
 }
 
 struct ScreenplayCommittedDraftAdoptionPolicy {
+    /// Reverse a commit only in the same project with the exact committed bytes.
+    /// Scratch documents (both IDs empty) remain undoable; unknown legacy scope
+    /// must not authorize a rollback into a selected project.
+    static func canRevert(selectedProjectID: String, committedProjectID: String, currentDraft: String, committedDraft: String) -> Bool {
+        selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == committedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) &&
+        currentDraft.utf8.elementsEqual(committedDraft.utf8)
+    }
+
     static func shouldAdopt(
         selectedProjectID: String,
         committedProjectID: String,
@@ -320,15 +367,14 @@ struct ScreenplayCommittedDraftAdoptionPolicy {
     ) -> Bool {
         let selectedProject = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         let committedProject = committedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let current = normalizedDraft(currentDraft)
-        let previous = normalizedDraft(previousDraft)
         let committed = normalizedDraft(committedDraft)
         guard !selectedProject.isEmpty,
               selectedProject == committedProject,
               !committed.isEmpty else {
             return false
         }
-        return current == previous || current == committed
+        return currentDraft.utf8.elementsEqual(previousDraft.utf8) ||
+            currentDraft.utf8.elementsEqual(committedDraft.utf8)
     }
 
     private static func normalizedDraft(_ draft: String) -> String {

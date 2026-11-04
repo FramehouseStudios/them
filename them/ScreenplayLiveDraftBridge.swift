@@ -323,71 +323,6 @@ private func writeMirroredScreenplayDebugPreferenceString(_ value: String, forKe
 }
 #endif
 
-struct ScreenplayInsertionRequest: Identifiable, Equatable {
-    enum Mode: String, Equatable {
-        case insert
-        case streamPreview
-        case streamCommit
-        case streamCancel
-        case streamInsertProgress
-        case streamInsertFinalize
-        case streamInsertCancel
-        case voiceRevealPrepare
-        case voiceRevealUpdate
-        case voiceRevealFinalize
-        case voiceRevealCancel
-    }
-
-    let id: UUID
-    let text: String
-    let mode: Mode
-    let replacementTarget: ScreenplayPendingReplacementTarget?
-    let voiceRevealState: ScreenplayVoiceRevealPresentationState?
-
-    init(
-        id: UUID = UUID(),
-        text: String,
-        mode: Mode = .insert,
-        replacementTarget: ScreenplayPendingReplacementTarget? = nil,
-        voiceRevealState: ScreenplayVoiceRevealPresentationState? = nil
-    ) {
-        self.id = id
-        self.text = text
-        self.mode = mode
-        self.replacementTarget = replacementTarget
-        self.voiceRevealState = voiceRevealState
-    }
-}
-
-struct ScreenplayLineJumpRequest: Identifiable, Equatable {
-    let id: UUID
-    let line: Int
-}
-
-struct ScreenplayLineHighlightRequest: Identifiable, Equatable {
-    let id: UUID
-    let startLine: Int
-    let endLine: Int
-}
-
-struct ScreenplayAnchoredTextRectRequest: Identifiable, Equatable {
-    let id: UUID
-    let startLine: Int
-    let endLine: Int
-}
-
-struct ScreenplayAnchoredTextRectSnapshot: Equatable {
-    let requestID: UUID
-    let startLine: Int
-    let endLine: Int
-    let rect: CGRect
-    let visibleRect: CGRect
-}
-
-struct ScreenplayEditorFocusRequest: Identifiable, Equatable {
-    let id: UUID
-}
-
 struct ScreenplayVoiceCue: Codable, Equatable {
     let index: Int
     let text: String
@@ -537,67 +472,11 @@ struct ScreenplayDialogueTimelineRevision: Codable, Equatable {
     }
 }
 
-struct ScreenplayVoiceRevealPresentationState: Equatable {
-    enum Phase: String, Equatable {
-        case prepared
-        case playing
-        case completed
-    }
-
-    let sessionID: String
-    let timeline: ScreenplayDialogueTimelineRevision
-    let visibleUTF16Length: Int
-    let activeSegmentID: String?
-    let phase: Phase
-}
-
-struct ScreenplayTurnPlaybackSession: Equatable {
-    let fullText: String
-    let timeline: ScreenplayDialogueTimelineRevision
-    let audioDurationMs: Int
-    let requestID: String
-    let timingSource: String
-    let replacementTarget: ScreenplayPendingReplacementTarget?
-
-    var cues: [ScreenplayVoiceCue] {
-        timeline.compatibilityCues
-    }
-
-    var cueCount: Int {
-        timeline.totalRevealUnitCount
-    }
-}
-
-typealias ScreenplayVoiceInsertPlan = ScreenplayTurnPlaybackSession
-
 enum ScreenplaySyncedInsertInterruptionReason: String, Codable, Equatable {
     case manualTyping = "manual_typing"
     case bargeIn = "barge_in"
     case cancel = "cancel"
     case other = "other"
-}
-
-enum ScreenplaySyncedVoiceReplyRole: String, Codable, Equatable {
-    case preview
-    case final
-}
-
-struct ScreenplaySyncedVoiceRenderContract: Equatable {
-    let replyRole: ScreenplaySyncedVoiceReplyRole
-    let authoritativePageTextAvailable: Bool
-    let syncReady: Bool
-
-    nonisolated static let `default` = ScreenplaySyncedVoiceRenderContract(
-        replyRole: .final,
-        authoritativePageTextAvailable: false,
-        syncReady: false
-    )
-
-    nonisolated static let pageWritePreview = ScreenplaySyncedVoiceRenderContract(
-        replyRole: .preview,
-        authoritativePageTextAvailable: false,
-        syncReady: false
-    )
 }
 
 enum ScreenplaySyncedVoiceTurnPhase: String, Codable, Equatable {
@@ -771,68 +650,6 @@ struct ScreenplayStudioActionPreview: Identifiable, Equatable {
     }
 }
 
-struct ScreenplayCommittedWrite: Identifiable, Equatable {
-    let id: UUID
-    let writeID: String
-    let projectID: String
-    let versionID: String
-    let previousDraft: String
-    let committedDraft: String
-    let insertedText: String
-    let replacementApplied: Bool
-    let replacedWriteID: String?
-    let startLine: Int
-    let endLine: Int
-    let committedAt: Date
-
-    init(
-        id: UUID,
-        writeID: String,
-        projectID: String = "",
-        versionID: String = "",
-        previousDraft: String,
-        committedDraft: String,
-        insertedText: String,
-        replacementApplied: Bool,
-        replacedWriteID: String?,
-        startLine: Int,
-        endLine: Int,
-        committedAt: Date
-    ) {
-        self.id = id
-        self.writeID = writeID
-        self.projectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.versionID = versionID.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.previousDraft = previousDraft
-        self.committedDraft = committedDraft
-        self.insertedText = insertedText
-        self.replacementApplied = replacementApplied
-        self.replacedWriteID = replacedWriteID
-        self.startLine = startLine
-        self.endLine = endLine
-        self.committedAt = committedAt
-    }
-
-    var normalizedWriteID: String {
-        writeID.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    var normalizedProjectID: String {
-        projectID.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    var normalizedVersionID: String {
-        versionID.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    var isPlaceholderWrite: Bool {
-        normalizedWriteID.hasPrefix("stub-")
-    }
-
-    var isAuthoritativeWrite: Bool {
-        !normalizedWriteID.isEmpty && !isPlaceholderWrite
-    }
-}
 
 struct ScreenplayRenderedCharacterMention: Equatable, Hashable {
     let characterName: String
@@ -917,7 +734,7 @@ struct ScreenplayPendingReplacementTarget: Identifiable, Equatable {
     let currentText: String
 }
 
-private func screenplayEditorPreparedInsertionCoreText(
+func screenplayEditorPreparedInsertionCoreText(
     _ raw: String,
     existing: String,
     insertionRange: NSRange,
@@ -1712,17 +1529,6 @@ struct ScreenplayStudioAppliedMemoryPersistencePolicy {
     }
 }
 
-struct ScreenplayCharacterVoiceMemoryCacheSnapshot: Codable, Equatable {
-    let userID: String
-    let memories: [BackendScreenplayCharacterVoiceMemory]
-    let updatedAt: Date
-
-    var isMeaningful: Bool {
-        !userID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        memories.contains(where: \.isMeaningful)
-    }
-}
-
 struct ScreenplayStudioUserPrompt: Identifiable, Equatable {
     enum Source: String, Codable, Equatable {
         case typed
@@ -2101,33 +1907,6 @@ struct ScreenplayProjectBindingSnapshot: Codable, Equatable, Hashable {
         projectCharacterCount: 0,
         boundCharacterCount: 0,
         sceneBindings: []
-    )
-}
-
-struct ScreenplayLiveDraftOriginSnapshot: Codable, Equatable, Hashable {
-    let updatedAt: Date
-    let projectID: String
-    let versionID: String
-
-    init(
-        updatedAt: Date = Date(),
-        projectID: String,
-        versionID: String
-    ) {
-        self.updatedAt = updatedAt
-        self.projectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.versionID = versionID.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    var isEmpty: Bool {
-        projectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-            versionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    static let empty = ScreenplayLiveDraftOriginSnapshot(
-        updatedAt: .distantPast,
-        projectID: "",
-        versionID: ""
     )
 }
 
@@ -2869,7 +2648,7 @@ struct ScreenplayFeatureWorkflowContextPersistencePolicy {
     ) -> Bool {
         let activeProjectID = normalizedIdentifier(projectID)
         guard !activeProjectID.isEmpty else { return false }
-        guard let current, !current.isEmpty else { return true }
+        guard let current, !current.isEmpty, current.planFacts != nil else { return true }
         guard isFreshForProjectFallback(current, now: now),
               projectScopedContext(current, matchesProjectID: activeProjectID) else {
             return true
@@ -2944,7 +2723,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
 
     @Published var draftText: String = "" {
         didSet {
-            guard draftText != oldValue else { return }
+            guard !draftText.utf8.elementsEqual(oldValue.utf8) else { return }
             syncStructuredDraftSnapshot(text: draftText)
         }
     }
@@ -2956,12 +2735,14 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         didSet {
             guard preferredProjectID != oldValue else { return }
             persistPreferredProjectContext()
+            if draftText.isEmpty { persistDraftOriginForCurrentContext(event: .acceptedLoad, projectID: preferredProjectID, versionID: preferredVersionID) }
         }
     }
     @Published var preferredVersionID: String = "" {
         didSet {
             guard preferredVersionID != oldValue else { return }
             persistPreferredProjectContext()
+            persistDraftOriginForCurrentContext()
         }
     }
     @Published var debugProjectLoadToken: Int = 0
@@ -2982,9 +2763,11 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         }
     }
     @Published private(set) var draftOrigin: ScreenplayLiveDraftOriginSnapshot = .empty
+    @Published var initialProjectReceipt: ScreenplayInitialProjectReceipt? = nil
     @Published var featureSpine: ScreenplayFeatureSpine = .empty
     @Published private(set) var characterVoiceMemories: [BackendScreenplayCharacterVoiceMemory] = []
     private var characterVoiceMemoryUserID: String = ""
+    private var characterVoiceMemoryRequestScope: ScreenplayCharacterVoiceMemoryRequestScope?
     @Published var latestStudioRouteTarget: ScreenplayStudioUserPrompt.Target = .voicePin {
         didSet {
             persistStudioRoutingDebugMirror()
@@ -3127,6 +2910,26 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         draftOrigin.versionID.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    func captureLiveTalkDocument() -> ScreenplayLiveTalkDocument? {
+        let owner = ScreenplayStudioAuthContext.current()
+        guard !isReconcilingAccountStorage, storageOwnerUserID == owner.userID,
+              draftOrigin.projectID == committedWriteProjectIDSnapshot() else { return nil }
+        if draftOrigin.documentID == nil { persistDraftOriginForCurrentContext() }
+        guard let documentID = draftOrigin.documentID else { return nil }
+        return .init(owner: owner, projectID: draftOrigin.projectID, documentID: documentID)
+    }
+
+    func permitsLiveTalkDocument(_ document: ScreenplayLiveTalkDocument) -> Bool {
+        guard !isReconcilingAccountStorage, storageOwnerUserID == document.owner.userID,
+              draftOrigin.projectID == committedWriteProjectIDSnapshot() else { return false }
+        let initial = initialProjectReceipt
+        let promoted = initial?.project.id == draftOrigin.projectID && initial?.entry.initialization?.sourceProjectID == ""
+            && initial?.versionID.isEmpty == false && initial?.owner.ownerContext == document.owner
+            ? initial?.entry.initialization?.documentID : nil
+        return document.permits(owner: .current(), projectID: draftOrigin.projectID,
+            documentID: draftOrigin.documentID, promotedFromDocument: promoted)
+    }
+
     func makeCommittedWrite(
         id: UUID,
         writeID: String? = nil,
@@ -3196,6 +2999,8 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     private var stagedSyncedVoiceTurnTimingSource: String = ""
     private var stagedSyncedVoiceTurnAudioDurationMs: Int?
     private var stagedSyncedVoiceTurnRequestID: String = ""
+    private var stagedSyncedVoiceTurnLivePageContext: ScreenplayLiveTalkPageContext?
+    private var stagedSyncedVoiceTurnRequiresLivePageContext = false
     private var stagedSyncedVoiceTurnPlaybackStarted: Bool = false
     private var stagedSyncedVoiceTurnRenderContract: ScreenplaySyncedVoiceRenderContract = .default
     private var stagedSyncedVoiceTurnFailureReason: String?
@@ -3238,6 +3043,9 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     }
 
     private init() {
+        // @Published setters can fire observers during initialization. Do not
+        // persist partial project context over the owner’s saved draft origin.
+        isReconcilingAccountStorage = true
         let storageOwnerUserID = Self.currentAuthenticatedUserID()
         self.storageOwnerUserID = storageOwnerUserID
         Self.migrateLegacyWorkspaceIfNeeded()
@@ -3261,11 +3069,11 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             bindingVersionID: restoredProjectBinding.versionID
         )
         self.projectBinding = restoredProjectBinding
-        self.draftOrigin = Self.restoreLiveDraftOriginSnapshot(
-            ownerUserID: storageOwnerUserID,
-            restoredDraftText: restoredDraftText,
-            restoredProjectID: self.preferredProjectID,
-            restoredVersionID: self.preferredVersionID,
+        self.draftOrigin = ScreenplayLiveDraftOriginPolicy.restored(
+            encoded: UserDefaults.standard.string(forKey: Self.ownerScopedKey(Self.draftOriginStorageKey, ownerUserID: storageOwnerUserID)),
+            draft: restoredDraftText,
+            projectID: self.preferredProjectID,
+            versionID: self.preferredVersionID,
             fallbackProjectID: restoredProjectBinding.projectID,
             fallbackVersionID: restoredProjectBinding.versionID
         )
@@ -3277,9 +3085,12 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         self.latestAppliedMemory = Self.restoreLatestAppliedMemory(ownerUserID: storageOwnerUserID)
         if let voiceMemorySnapshot = Self.restoreCharacterVoiceMemorySnapshot() {
             self.characterVoiceMemoryUserID = voiceMemorySnapshot.userID
+            self.characterVoiceMemoryRequestScope = voiceMemorySnapshot.scope
             self.characterVoiceMemories = voiceMemorySnapshot.memories
         }
+        isReconcilingAccountStorage = false
         persistPreferredProjectContext()
+        persistDraftOriginForCurrentContext()
         persistActiveElementDebugMirror()
         persistStudioRoutingDebugMirror()
         persistProjectBindingDebugMirror()
@@ -3347,36 +3158,6 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         return (try? decoder.decode(ScreenplayProjectBindingSnapshot.self, from: data)) ?? .empty
     }
 
-    private static func restoreLiveDraftOriginSnapshot(
-        ownerUserID: String,
-        restoredDraftText: String,
-        restoredProjectID: String,
-        restoredVersionID: String,
-        fallbackProjectID: String,
-        fallbackVersionID: String
-    ) -> ScreenplayLiveDraftOriginSnapshot {
-        guard ScreenplayLiveDraftTextPersistencePolicy.draftForStorage(restoredDraftText) != nil else {
-            return .empty
-        }
-        if let stored = UserDefaults.standard.string(forKey: ownerScopedKey(draftOriginStorageKey, ownerUserID: ownerUserID)),
-           let data = stored.data(using: .utf8) {
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            if let snapshot = try? decoder.decode(ScreenplayLiveDraftOriginSnapshot.self, from: data),
-               !snapshot.isEmpty {
-                return snapshot
-            }
-        }
-        let projectID = ScreenplayLivePreferredContextPersistencePolicy.valueForStorage(restoredProjectID)
-            ?? ScreenplayLivePreferredContextPersistencePolicy.valueForStorage(fallbackProjectID)
-            ?? ""
-        let versionID = ScreenplayLivePreferredContextPersistencePolicy.valueForStorage(restoredVersionID)
-            ?? ScreenplayLivePreferredContextPersistencePolicy.valueForStorage(fallbackVersionID)
-            ?? ""
-        let snapshot = ScreenplayLiveDraftOriginSnapshot(projectID: projectID, versionID: versionID)
-        return snapshot.isEmpty ? .empty : snapshot
-    }
-
     private static func restoreConversationTurns(forKey key: String, ownerUserID: String) -> [ScreenplayConversationTurn] {
         guard let stored = UserDefaults.standard.string(forKey: ownerScopedKey(key, ownerUserID: ownerUserID)),
               let data = stored.data(using: .utf8) else {
@@ -3442,7 +3223,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         guard !currentUserID.isEmpty, currentUserID == characterVoiceMemoryUserID else { return }
         if let payload = ScreenplayCharacterVoiceMemoryPersistencePolicy.payloadForStorage(
             userID: currentUserID,
-            memories: characterVoiceMemories
+            memories: characterVoiceMemories, scope: characterVoiceMemoryRequestScope
         ) {
             UserDefaults.standard.set(payload, forKey: Self.characterVoiceMemoriesStorageKey)
         } else {
@@ -3463,13 +3244,20 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         guard !isReconcilingAccountStorage else { return }
         if let draft = ScreenplayLiveDraftTextPersistencePolicy.draftForStorage(text) {
             UserDefaults.standard.set(draft, forKey: ownerScopedKey(Self.draftTextStorageKey))
-            persistDraftOriginForCurrentContext()
+            if preferredProjectID.isEmpty { ScreenplayLiveDraftFileStore.persist(draft, ownerUserID: storageOwnerUserID) }
         } else {
             UserDefaults.standard.removeObject(forKey: ownerScopedKey(Self.draftTextStorageKey))
             ScreenplayLiveDraftFileStore.remove(ownerUserID: storageOwnerUserID)
-            draftOrigin = .empty
-            UserDefaults.standard.removeObject(forKey: ownerScopedKey(Self.draftOriginStorageKey))
         }
+        persistDraftOriginForCurrentContext()
+    }
+
+    func initialProjectDocumentID(owner: BackendAuthRequestIdentity) throws -> String {
+        try owner.requireCurrentOwner(BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: false))
+        guard !isReconcilingAccountStorage, storageOwnerUserID == owner.userID else { throw BackendMemoryAPIError.server(status: 409, message: "auth_request_superseded") }
+        persistDraftText(draftText)
+        guard let id = draftOrigin.documentID, !id.isEmpty, UserDefaults.standard.synchronize() else { throw BackendMemoryAPIError.invalidResponse }
+        return id
     }
 
     private func persistAuthoritativeCommittedDraft(_ committedWrite: ScreenplayCommittedWrite?) {
@@ -3482,22 +3270,47 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         UserDefaults.standard.synchronize()
     }
 
-    private func persistDraftOriginForCurrentContext() {
+    private func persistDraftOriginForCurrentContext(event: ScreenplayLiveDraftOriginEvent = .edit,
+        projectID explicitProjectID: String? = nil, versionID explicitVersionID: String? = nil) {
         guard !isReconcilingAccountStorage else { return }
-        let snapshot = ScreenplayLiveDraftOriginSnapshot(
-            projectID: committedWriteProjectIDSnapshot(),
-            versionID: committedWriteVersionIDSnapshot()
-        )
+        let projectID = explicitProjectID ?? committedWriteProjectIDSnapshot()
+        let promotedDocument = initialProjectReceipt?.project.id == projectID ? initialProjectReceipt?.entry.initialization?.documentID : nil
+        let snapshot = ScreenplayLiveDraftOriginPolicy.next(from: draftOrigin, event: event,
+            projectID: projectID, versionID: explicitVersionID ?? committedWriteVersionIDSnapshot(), promotedDocumentID: promotedDocument)
         draftOrigin = snapshot
-        guard !snapshot.isEmpty else {
-            UserDefaults.standard.removeObject(forKey: ownerScopedKey(Self.draftOriginStorageKey))
-            return
-        }
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        guard let data = try? encoder.encode(snapshot),
-              let encoded = String(data: data, encoding: .utf8) else { return }
+        guard let encoded = ScreenplayLiveDraftOriginPolicy.encoded(snapshot) else { return }
         UserDefaults.standard.set(encoded, forKey: ownerScopedKey(Self.draftOriginStorageKey))
+    }
+
+    @discardableResult
+    func adoptLoadedProjectDraft(_ draft: String, projectID: String, versionID: String,
+                                 owner: ScreenplayStudioAuthContext, queuedEntry: ScreenplayDraftSaveOutboxEntry? = nil) -> Bool {
+        let restored = queuedEntry.flatMap { ScreenplayDraftSaveOrigin.restoredSnapshot(entry: $0, draft: draft,
+            owner: owner, currentOwner: .current(), backendURL: BackendAuthClient.resolvedBackendBaseURL()) }
+        guard !isReconcilingAccountStorage, storageOwnerUserID == owner.userID,
+              ScreenplayStudioAuthContextPolicy.matches(expected: owner, current: .current()),
+              queuedEntry == nil || (restored?.projectID == projectID && restored?.versionID == versionID) else { return false }
+        if projectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           versionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            projectBindingContext = nil
+            projectBinding = .empty
+        }
+        if let restored {
+            draftOrigin = restored
+            if let encoded = ScreenplayLiveDraftOriginPolicy.encoded(restored) {
+                UserDefaults.standard.set(encoded, forKey: ownerScopedKey(Self.draftOriginStorageKey))
+            }
+        }
+        preferredProjectID = projectID
+        preferredVersionID = versionID
+        if restored == nil { persistDraftOriginForCurrentContext(event: .acceptedLoad, projectID: projectID, versionID: versionID) }
+        if projectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           versionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            featureSpine = .empty
+            reconcileFeatureWorkflowContextWithActiveProject()
+        }
+        draftText = draft
+        return true
     }
 
     private func persistPreferredProjectContext() {
@@ -3647,10 +3460,9 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     }
 
     private func refreshProjectBindingSnapshot() {
-        guard let context = projectBindingContext else {
-            projectBinding = .empty
-            return
-        }
+        // A restored binding remains authoritative until an explicit unbind
+        // or fresh project hydration supplies a new binding context.
+        guard let context = projectBindingContext else { return }
 
         let actTitlesByID = Dictionary(
             context.outline.acts.map { ($0.id, $0.title.trimmingCharacters(in: .whitespacesAndNewlines)) },
@@ -4732,30 +4544,11 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         projectId: String,
         versionId: String,
         userTranscript: String = "",
-        forceInsert: Bool = false
+        forceInsert: Bool = false,
+        livePageContext: ScreenplayLiveTalkPageContext? = nil
     ) {
-        let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-
-        let normalizedPack = pack.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedPhase = phase.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedProject = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedVersion = versionId.trimmingCharacters(in: .whitespacesAndNewlines)
-        let key = [text, normalizedPack, normalizedPhase, normalizedProject, normalizedVersion].joined(separator: "|")
-
-        if key == lastIngestKey {
-            return
-        }
-
-        cancelStream()
-        lastIngestKey = key
-        latestVoiceTurn = text
-        latestPack = normalizedPack
-        latestPhase = normalizedPhase
-        latestUserTranscript = userTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
-        preferredProjectID = normalizedProject
-        preferredVersionID = normalizedVersion
-        lastUpdatedAt = Date()
+        let turn = ScreenplayIncomingVoiceTurn(rawText, pack: pack, phase: phase, projectID: projectId, versionID: versionId, transcript: userTranscript)
+        guard prepareIncomingVoiceTurn(turn, livePageContext: livePageContext, deduplicate: true) else { return }
 
         if autoInsertEnabled || forceInsert {
             // Typed Studio page writes should always land on the draft even when
@@ -4763,10 +4556,29 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             // Always insert at cursor — regardless of whether the draft is empty.
             // Previously this bailed under certain conditions, causing voice
             // turns after the first one to be dropped.
-            streamInsert(text)
+            streamInsert(turn.text, livePageContext: livePageContext)
         } else {
             autoInsertStatusText = ""
         }
+    }
+
+    private func prepareIncomingVoiceTurn(_ turn: ScreenplayIncomingVoiceTurn,
+        livePageContext: ScreenplayLiveTalkPageContext?, deduplicate: Bool) -> Bool {
+        let key = livePageContext.map { turn.key + "|" + $0.request.admission.entryID } ?? turn.key
+        guard !turn.text.isEmpty, !deduplicate || key != lastIngestKey else { return false }
+        if let livePageContext {
+            guard livePageContext.permitsDelivery(in: self), turn.projectID == preferredProjectID else { return false }
+        }
+        cancelStream()
+        lastIngestKey = key
+        latestVoiceTurn = turn.text
+        latestPack = turn.pack
+        latestPhase = turn.phase
+        latestUserTranscript = turn.transcript
+        preferredProjectID = turn.projectID
+        preferredVersionID = turn.versionID
+        lastUpdatedAt = Date()
+        return true
     }
 
     func insertLatestAtCursor() {
@@ -4830,51 +4642,35 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         projectId: String,
         versionId: String,
         userTranscript: String = "",
-        forceInsert: Bool = false
+        forceInsert: Bool = false,
+        livePageContext: ScreenplayLiveTalkPageContext? = nil
     ) {
-        let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else {
+        guard livePageContext?.permitsDelivery(in: self) != false else { return }
+        let turn = ScreenplayIncomingVoiceTurn(rawText, pack: pack, phase: phase, projectID: projectId, versionID: versionId, transcript: userTranscript)
+        guard !turn.text.isEmpty else {
             cancelStreamingVoiceTurnPreview()
             return
         }
-
-        let normalizedPack = pack.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedPhase = phase.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedProject = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedVersion = versionId.trimmingCharacters(in: .whitespacesAndNewlines)
-        let key = [text, normalizedPack, normalizedPhase, normalizedProject, normalizedVersion].joined(separator: "|")
-
-        if key != lastIngestKey {
-            lastIngestKey = key
-        }
-        cancelStream()
-        latestVoiceTurn = text
-        latestPack = normalizedPack
-        latestPhase = normalizedPhase
-        latestUserTranscript = userTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
-        preferredProjectID = normalizedProject
-        preferredVersionID = normalizedVersion
-        lastUpdatedAt = Date()
-        streamingPreviewText = text
+        guard prepareIncomingVoiceTurn(turn, livePageContext: livePageContext, deduplicate: false) else { return }
+        streamingPreviewText = turn.text
 
         if autoInsertEnabled || forceInsert {
             pendingInsertion = ScreenplayInsertionRequest(
-                text: text,
+                text: turn.text,
                 mode: .streamCommit,
-                replacementTarget: currentInsertionReplacementTarget()
+                replacementTarget: currentInsertionReplacementTarget(),
+                requiresLivePageContext: livePageContext != nil, livePageContext: livePageContext
             )
-            autoInsertStatusText = ""
-        } else {
-            autoInsertStatusText = ""
         }
+        autoInsertStatusText = ""
 
         isStreamingDraftPreviewActive = false
         streamingPreviewBaseDraft = ""
     }
 
     func cancelStreamingVoiceTurnPreview() {
-        cancelStream()
         guard isStreamingDraftPreviewActive else { return }
+        cancelStream()
         isStreamingDraftPreviewActive = false
         streamingPreviewText = ""
         streamingPreviewBaseDraft = ""
@@ -4882,7 +4678,8 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         autoInsertStatusText = ""
     }
 
-    func streamInsert(_ text: String) {
+    func streamInsert(_ text: String, livePageContext: ScreenplayLiveTalkPageContext? = nil) {
+        guard livePageContext?.permitsDelivery(in: self) != false else { return }
         _ = cancelActiveSyncedVoiceInsert(notifyCancellation: false, reason: .other)
         streamTask?.cancel()
         streamTask = nil
@@ -4890,6 +4687,13 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
 
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
+            autoInsertStatusText = ""
+            return
+        }
+
+        if let livePageContext {
+            pendingInsertion = .init(text: trimmed, mode: .insert, replacementTarget: currentInsertionReplacementTarget(),
+                requiresLivePageContext: true, livePageContext: livePageContext)
             autoInsertStatusText = ""
             return
         }
@@ -4949,12 +4753,14 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
 
     func prepareSyncedVoiceTurn(
         requestID: String,
-        renderContract: ScreenplaySyncedVoiceRenderContract = .default
+        renderContract: ScreenplaySyncedVoiceRenderContract = .default,
+        requiresLivePageContext: Bool = false
     ) {
         _ = cancelActiveSyncedVoiceInsert(notifyCancellation: false, reason: .other)
         let cleanRequestID = requestID.trimmingCharacters(in: .whitespacesAndNewlines)
         resetSyncedVoiceTurnTracking()
         stagedSyncedVoiceTurnRequestID = cleanRequestID
+        stagedSyncedVoiceTurnRequiresLivePageContext = requiresLivePageContext
         stagedSyncedVoiceTurnRenderContract = renderContract
         syncedVoiceTurnState = ScreenplaySyncedVoiceTurnState(
             requestID: cleanRequestID,
@@ -4987,6 +4793,8 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         stagedSyncedVoiceTurnTimingSource = ""
         stagedSyncedVoiceTurnAudioDurationMs = nil
         stagedSyncedVoiceTurnRequestID = ""
+        stagedSyncedVoiceTurnLivePageContext = nil
+        stagedSyncedVoiceTurnRequiresLivePageContext = false
         stagedSyncedVoiceTurnPlaybackStarted = false
         stagedSyncedVoiceTurnRenderContract = .default
         stagedSyncedVoiceTurnFailureReason = nil
@@ -5006,6 +4814,29 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         guard !stagedSyncedVoiceTurnRequestID.isEmpty || syncedVoiceTurnState.phase != .idle else { return }
         stagedSyncedVoiceTurnRenderContract = renderContract
         refreshSyncedVoiceTurnState()
+    }
+
+    func stageLiveTalkPageContext(_ request: BackendTalkLiveRequestContext?, document: ScreenplayLiveTalkDocument) {
+        guard let request, request.requestID == stagedSyncedVoiceTurnRequestID,
+              request.owner == document.owner, permitsLiveTalkDocument(document) else {
+            if stagedSyncedVoiceTurnRequiresLivePageContext {
+                stagedSyncedVoiceTurnLivePageContext = nil
+                failSyncedVoiceTurn(reason: "The reply is kept, but its writing account and document could not be matched. Sign in and review the kept reply before changing this page.")
+            }
+            return
+        }
+        stagedSyncedVoiceTurnLivePageContext = .init(request: request, document: document)
+    }
+
+    func queueStagedLiveTalkPageFallback(_ text: String) -> String? {
+        guard let context = stagedSyncedVoiceTurnLivePageContext, permitsLiveTalkDocument(context.document),
+              context.request.requestID == stagedSyncedVoiceTurnRequestID else { return nil }
+        let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return nil }
+        latestVoiceTurn = clean
+        lastUpdatedAt = Date()
+        pendingInsertion = .init(text: clean, replacementTarget: currentInsertionReplacementTarget(), requiresLivePageContext: true, livePageContext: context)
+        return clean
     }
 
     func stageSyncedVoiceTurnPreviewText(_ text: String?) {
@@ -5101,6 +4932,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         playbackTimeProvider: @escaping @MainActor @Sendable () -> TimeInterval?,
         playbackObservationProvider: @escaping @MainActor @Sendable () -> SegmentedPlaybackObservation?
     ) -> ScreenplayVoiceInsertPlan? {
+        guard !stagedSyncedVoiceTurnRequiresLivePageContext || stagedSyncedVoiceTurnLivePageContext?.permitsDelivery(in: self) == true else { return nil }
         guard !isSyncedVoiceInsertSuppressedAfterManualInterruption() else { return nil }
         let cleanText = stagedSyncedVoiceTurnAuthoritativeText
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -5256,7 +5088,9 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             audioDurationMs: durationMs,
             requestID: resolvedRequestID,
             timingSource: resolvedTimingSource,
-            replacementTarget: currentInsertionReplacementTarget()
+            replacementTarget: currentInsertionReplacementTarget(),
+            livePageContext: stagedSyncedVoiceTurnLivePageContext,
+            requiresLivePageContext: stagedSyncedVoiceTurnRequiresLivePageContext
         )
         activeSyncedVoiceInsertPlan = plan
         activeSyncedVoiceAppliedCueCount = 0
@@ -5286,6 +5120,8 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             text: plan.fullText,
             mode: .voiceRevealPrepare,
             replacementTarget: plan.replacementTarget,
+            requiresLivePageContext: plan.requiresLivePageContext,
+            livePageContext: plan.livePageContext,
             voiceRevealState: voiceRevealState(
                 for: plan,
                 visibleUTF16Length: 0,
@@ -5368,6 +5204,8 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             text: plan.fullText,
             mode: .voiceRevealFinalize,
             replacementTarget: plan.replacementTarget,
+            requiresLivePageContext: plan.requiresLivePageContext,
+            livePageContext: plan.livePageContext,
             voiceRevealState: voiceRevealState(
                 for: plan,
                 visibleUTF16Length: (plan.fullText as NSString).length,
@@ -5433,6 +5271,9 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         rollbackDraft: Bool,
         reason: ScreenplaySyncedInsertInterruptionReason
     ) -> Bool {
+        if pendingInsertion?.mode == .insert, pendingInsertion?.livePageContext != nil || pendingInsertion?.requiresLivePageContext == true {
+            pendingInsertion = nil // Revoke a delayed live fallback; its durable intention stays kept.
+        }
         let queuedInsertMode = pendingInsertion?.mode
         let hadQueuedSyncedInsert = queuedInsertMode == .streamInsertProgress
             || queuedInsertMode == .streamInsertFinalize
@@ -5449,7 +5290,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             reason: reason
         )
         streamingProgress = 0
-        if rollbackDraft, wasStreaming || cancelledSynced {
+        if rollbackDraft, wasStreaming || cancelledSynced, pendingInsertion?.mode != .voiceRevealCancel {
             pendingInsertion = ScreenplayInsertionRequest(text: "", mode: .streamInsertCancel)
         } else if !rollbackDraft, hadQueuedSyncedInsert {
             pendingInsertion = nil
@@ -5579,6 +5420,8 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             text: plan.fullText,
             mode: shouldFinalize ? .voiceRevealFinalize : .voiceRevealUpdate,
             replacementTarget: plan.replacementTarget,
+            requiresLivePageContext: plan.requiresLivePageContext,
+            livePageContext: plan.livePageContext,
             voiceRevealState: voiceRevealState(
                 for: plan,
                 visibleUTF16Length: nextVisibleUTF16Length,
@@ -5635,6 +5478,8 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             text: plan.fullText,
             mode: .voiceRevealCancel,
             replacementTarget: plan.replacementTarget,
+            requiresLivePageContext: plan.requiresLivePageContext,
+            livePageContext: plan.livePageContext,
             voiceRevealState: nil
         )
         refreshSyncedVoiceTurnState(phaseOverride: .interrupted)
@@ -5697,6 +5542,8 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             text: plan.fullText,
             mode: .voiceRevealFinalize,
             replacementTarget: plan.replacementTarget,
+            requiresLivePageContext: plan.requiresLivePageContext,
+            livePageContext: plan.livePageContext,
             voiceRevealState: voiceRevealState(
                 for: plan,
                 visibleUTF16Length: (plan.fullText as NSString).length,
@@ -5758,7 +5605,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         )
         let effectiveCues: [ScreenplayVoiceCue]
         if normalizedCues.isEmpty {
-            let inferredElementRaw = ScreenplayEditorElement.inferredSequence(for: trimmed)
+            let inferredElementRaw = ScreenplayEditorElement.inferredDocumentSequence(for: trimmed)
                 .compactMap { $0 }
                 .first?
                 .rawValue ?? ScreenplayEditorElement.action.rawValue
@@ -5888,14 +5735,14 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             )
         }
 
-        let lines = text
+        let lines = FountainTitlePageCodec.parse(text).scriptPageText
             .components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
 
         guard !lines.isEmpty else { return [] }
 
-        let inferredElements = ScreenplayEditorElement.inferredSequence(for: text)
+        let inferredElements = ScreenplayEditorElement.inferredScreenplaySequence(for: text)
         let nonEmptyElements = inferredElements.compactMap { $0 }
         let segmentDuration = max(audioDurationMs / max(lines.count, 1), 1)
 
@@ -6440,8 +6287,10 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     }
 
     func clearDraft() {
+        initialProjectReceipt = nil
         cancelStream()
         draftText = ""
+        persistDraftOriginForCurrentContext(event: .newDocument, projectID: preferredProjectID, versionID: preferredVersionID)
         isStreamingDraftPreviewActive = false
         streamingPreviewText = ""
         streamingPreviewBaseDraft = ""
@@ -6581,7 +6430,8 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
 
     func updateCharacterVoiceMemories(
         from response: BackendCharacterTraitsResponse,
-        authenticatedUserID: String? = nil
+        authenticatedUserID: String? = nil,
+        requestScope: ScreenplayCharacterVoiceMemoryRequestScope? = nil
     ) {
         let currentUserID = (authenticatedUserID ?? Self.currentAuthenticatedUserID())
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -6590,15 +6440,21 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         let resolvedUserID = responseUserID.isEmpty ? currentUserID : responseUserID
         guard !resolvedUserID.isEmpty,
               currentUserID.isEmpty || resolvedUserID == currentUserID else { return }
+        if let requestScope {
+            let owner = ScreenplayStudioAuthContext(userID: currentUserID, sessionIntentGeneration: BackendAuthClient.currentAuthSessionIntentGeneration())
+            guard requestScope.permitsPage, (response.error ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  requestScope.matches(owner: owner, projectID: committedWriteProjectIDSnapshot(), backendURL: BackendAuthClient.resolvedBackendBaseURL()) else { return }
+        }
 
         var seen = Set<String>()
         var memories: [BackendScreenplayCharacterVoiceMemory] = []
-        for record in response.characters {
+        let records = requestScope.map { ScreenplayCharacterVoiceMemoryPersistencePolicy.projectRecords(response.characters, scope: $0) } ?? response.characters
+        for record in records {
             let character = record.name.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !character.isEmpty,
                   let traits = record.traits,
                   traits.voiceFingerprint.isMeaningful else { continue }
-            let key = Self.normalizedVoiceCharacterKey(character)
+            let key = ScreenplayCharacterVoiceMemoryPersistencePolicy.normalizedCharacterKey(character)
             guard !key.isEmpty, seen.insert(key).inserted else { continue }
             memories.append(
                 BackendScreenplayCharacterVoiceMemory(
@@ -6609,6 +6465,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             if memories.count >= 24 { break }
         }
         characterVoiceMemoryUserID = resolvedUserID
+        characterVoiceMemoryRequestScope = requestScope
         characterVoiceMemories = memories
         persistCharacterVoiceMemories()
     }
@@ -6624,6 +6481,10 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         Self.migrateLegacyWorkspaceIfNeeded()
         isReconcilingAccountStorage = true
         storageOwnerUserID = nextOwnerUserID
+        // Draft observers rebuild bindings synchronously. Drop the previous
+        // owner's context before assigning the newly restored draft.
+        projectBindingContext = nil
+        projectBinding = .empty
 
         let restoredBinding = Self.restoreProjectBindingSnapshot(ownerUserID: nextOwnerUserID)
         let restoredDraft = Self.restoreDraftText(ownerUserID: nextOwnerUserID)
@@ -6638,17 +6499,17 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
 
         preferredProjectID = restoredProjectID
         preferredVersionID = restoredVersionID
-        projectBinding = restoredBinding
-        draftOrigin = Self.restoreLiveDraftOriginSnapshot(
-            ownerUserID: nextOwnerUserID,
-            restoredDraftText: restoredDraft,
-            restoredProjectID: restoredProjectID,
-            restoredVersionID: restoredVersionID,
+        draftOrigin = ScreenplayLiveDraftOriginPolicy.restored(
+            encoded: UserDefaults.standard.string(forKey: Self.ownerScopedKey(Self.draftOriginStorageKey, ownerUserID: nextOwnerUserID)),
+            draft: restoredDraft,
+            projectID: restoredProjectID,
+            versionID: restoredVersionID,
             fallbackProjectID: restoredBinding.projectID,
             fallbackVersionID: restoredBinding.versionID
         )
         structuredDraft = Self.restoreStructuredDraft(ownerUserID: nextOwnerUserID)
         draftText = restoredDraft
+        projectBinding = restoredBinding
         projectRecentTurns = Self.restoreConversationTurns(
             forKey: Self.projectRecentTurnsStorageKey,
             ownerUserID: nextOwnerUserID
@@ -6659,6 +6520,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         )
         latestFeatureWorkflowContext = Self.restoreFeatureWorkflowContext(ownerUserID: nextOwnerUserID)
         latestAppliedMemory = Self.restoreLatestAppliedMemory(ownerUserID: nextOwnerUserID)
+        initialProjectReceipt = nil
         lastCommittedWrite = nil
         pendingInsertion = nil
         pendingReplacementTarget = nil
@@ -6669,6 +6531,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         projectBindingContext = nil
         isReconcilingAccountStorage = false
 
+        persistDraftOriginForCurrentContext()
         reconcileCharacterVoiceMemoryAccount()
         reconcileFeatureWorkflowContextWithActiveProject()
         refreshIntelligenceReport()
@@ -6682,15 +6545,18 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             currentUserID: currentUserID
         ) {
             characterVoiceMemoryUserID = snapshot.userID
+            characterVoiceMemoryRequestScope = snapshot.scope
             characterVoiceMemories = snapshot.memories
         } else {
             characterVoiceMemoryUserID = currentUserID
+            characterVoiceMemoryRequestScope = nil
             characterVoiceMemories = []
         }
     }
 
     func clearCharacterVoiceMemoryCache() {
         characterVoiceMemoryUserID = ""
+        characterVoiceMemoryRequestScope = nil
         characterVoiceMemories = []
         UserDefaults.standard.removeObject(forKey: Self.characterVoiceMemoriesStorageKey)
     }
@@ -6701,12 +6567,12 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     ) {
         let currentUserID = (authenticatedUserID ?? Self.currentAuthenticatedUserID())
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let targetKey = Self.normalizedVoiceCharacterKey(characterName)
+        let targetKey = ScreenplayCharacterVoiceMemoryPersistencePolicy.normalizedCharacterKey(characterName)
         guard !currentUserID.isEmpty,
               currentUserID == characterVoiceMemoryUserID,
               !targetKey.isEmpty else { return }
         let remaining = characterVoiceMemories.filter {
-            Self.normalizedVoiceCharacterKey($0.character) != targetKey
+            ScreenplayCharacterVoiceMemoryPersistencePolicy.normalizedCharacterKey($0.character) != targetKey
         }
         guard remaining.count != characterVoiceMemories.count else { return }
         characterVoiceMemories = remaining
@@ -6718,41 +6584,11 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         limit: Int = 8,
         authenticatedUserID: String? = nil
     ) -> [BackendScreenplayCharacterVoiceMemory] {
-        let currentUserID = (authenticatedUserID ?? Self.currentAuthenticatedUserID())
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !currentUserID.isEmpty, currentUserID == characterVoiceMemoryUserID else { return [] }
-        let safeLimit = max(1, min(8, limit))
-        let memories = characterVoiceMemories.filter(\.isMeaningful)
-        guard !memories.isEmpty else { return [] }
-
-        var memoriesByCharacter: [String: BackendScreenplayCharacterVoiceMemory] = [:]
-        for memory in memories {
-            let key = Self.normalizedVoiceCharacterKey(memory.character)
-            if !key.isEmpty, memoriesByCharacter[key] == nil {
-                memoriesByCharacter[key] = memory
-            }
-        }
-
-        var selected: [BackendScreenplayCharacterVoiceMemory] = []
-        var selectedKeys = Set<String>()
-        for characterName in characterNames {
-            let key = Self.normalizedVoiceCharacterKey(characterName)
-            guard !key.isEmpty,
-                  selectedKeys.insert(key).inserted,
-                  let memory = memoriesByCharacter[key] else { continue }
-            selected.append(memory)
-            if selected.count >= safeLimit { return selected }
-        }
-        if !selected.isEmpty { return selected }
-        return characterNames.isEmpty ? Array(memories.prefix(safeLimit)) : []
-    }
-
-    private static func normalizedVoiceCharacterKey(_ value: String) -> String {
-        value
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: #"\s*\([^)]*\)\s*$"#, with: "", options: .regularExpression)
-            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
-            .lowercased()
+        let userID = (authenticatedUserID ?? Self.currentAuthenticatedUserID()).trimmingCharacters(in: .whitespacesAndNewlines)
+        let owner = ScreenplayStudioAuthContext(userID: userID, sessionIntentGeneration: BackendAuthClient.currentAuthSessionIntentGeneration())
+        guard userID == characterVoiceMemoryUserID else { return [] }
+        return ScreenplayCharacterVoiceMemoryPersistencePolicy.pageMemories(characterVoiceMemories, scope: characterVoiceMemoryRequestScope,
+            owner: owner, projectID: committedWriteProjectIDSnapshot(), backendURL: BackendAuthClient.resolvedBackendBaseURL(), matching: characterNames, limit: limit)
     }
 
     func recordStudioUserPrompt(
@@ -8608,7 +8444,10 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     }
 
     @discardableResult
-    func saveInlineAppliedMemoryCorrection(_ correction: String) async throws -> String {
+    func saveInlineAppliedMemoryCorrection(_ correction: String, isCurrent: @MainActor () -> Bool = { true }) async throws -> String {
+        guard isCurrent() else { throw CancellationError() }
+        let originalMemory = latestAppliedMemory, originalDocument = draftOrigin.documentID
+        let originalOwner = ScreenplayStudioAuthContext.current(), originalBackend = BackendAuthClient.resolvedBackendBaseURL()
         let cleanCorrection = correction
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
@@ -8644,6 +8483,9 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             key: "character:\(character)",
             characterBible: bible
         )
+        guard isCurrent(), latestAppliedMemory == originalMemory, draftOrigin.documentID == originalDocument,
+              ScreenplayStudioAuthContextPolicy.matches(expected: originalOwner, current: .current()),
+              OfflineTalkRecoveryScope.sameBackend(originalBackend, BackendAuthClient.resolvedBackendBaseURL()) else { throw CancellationError() }
         latestAppliedMemory = ScreenplayStudioAppliedMemoryState(
             id: UUID(),
             source: latestAppliedMemory.source,
@@ -8903,6 +8745,7 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
         var lastKnownActiveElement: ScreenplayEditorElement
         var isApplyingProgrammaticChange = false
         var lastAppliedInsertionID: UUID?
+        var livePageMutationGate = ScreenplayLivePageMutationGate()
         var lastAppliedLineJumpID: UUID?
         var lastAppliedLineHighlightID: UUID?
         var lastAppliedEditorFocusID: UUID?
@@ -9081,6 +8924,9 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
         }
 
         func applyInsertion(_ request: ScreenplayInsertionRequest) {
+            guard !request.requiresLivePageContext || request.livePageContext != nil else { return }
+            if let context = request.livePageContext,
+               !context.permitsDelivery(in: ScreenplayLiveDraftBridge.shared) { return }
             switch request.mode {
             case .insert:
                 applyStandardInsertion(request)
@@ -9563,6 +9409,14 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
             let mutable = NSMutableString(string: current)
             mutable.replaceCharacters(in: selection, with: insertion)
             let nextText = String(mutable)
+            if livePageMutationGate.shouldDefer(request.livePageContext, before: current, range: selection,
+                insertion: insertion, after: nextText, isCurrent: { [weak self] in
+                    guard let self, self.parent.insertionRequest?.id == request.id,
+                          let context = request.livePageContext else { return false }
+                    return context.permitsDelivery(in: ScreenplayLiveDraftBridge.shared)
+                }, resume: { [weak self] in self?.applyStandardInsertion(request) }, onFailure: {
+                    ScreenplayLiveDraftBridge.shared.autoInsertStatusText = "The reply is kept, but the page could not be safely changed. Review recovery before trying again."
+                }) { return }
             let caretLocation = min(selection.location + (insertion as NSString).length, (nextText as NSString).length)
             let highlightRange = insertionContext.isReplacement
                 ? NSRange(location: selection.location, length: (committedText as NSString).length)
@@ -9650,7 +9504,7 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
                 if replacementContext.isReplacement {
                     affixes = ("", "")
                 } else {
-                    affixes = insertionAffixes(existing: current, selection: replacementContext.range)
+                    affixes = screenplayEditorInsertionAffixes(existing: current, selection: replacementContext.range)
                 }
                 streamingPreviewOriginalSelection = replacementContext.range
                 streamingPreviewOriginalText = replacementContext.range.length > 0
@@ -9708,7 +9562,9 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
                         id: request.id,
                         text: request.text,
                         mode: .insert,
-                        replacementTarget: request.replacementTarget
+                        replacementTarget: request.replacementTarget,
+                        requiresLivePageContext: request.requiresLivePageContext,
+                        livePageContext: request.livePageContext
                     )
                 )
                 resetStreamingPreviewState()
@@ -9717,26 +9573,21 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
 
             let current = textView.string
             guard let replacementRange = streamingPreviewRange else { return }
-            let committedText = screenplayEditorPreparedInsertionCoreText(
-                trimmed,
-                existing: streamingPreviewBaseText.isEmpty ? current : streamingPreviewBaseText,
-                insertionRange: streamingPreviewOriginalSelection,
-                replacementTarget: streamingPreviewReplacementTarget
-            )
-            guard !committedText.isEmpty else {
-                cancelStreamingPreview()
+            guard let mutation = ScreenplayStreamingCommitMutation(before: streamingPreviewBaseText, current: current,
+                selection: streamingPreviewOriginalSelection, previewRange: replacementRange, text: trimmed,
+                prefix: streamingPreviewPrefix, suffix: streamingPreviewSuffix, replacementTarget: streamingPreviewReplacementTarget) else {
+                ScreenplayLiveDraftBridge.shared.autoInsertStatusText = "The page changed during the preview. Your words are kept; review the reply before applying it."
                 return
             }
-            let previewText = streamingPreviewPrefix + committedText + streamingPreviewSuffix
-            let mutable = NSMutableString(string: current)
-            mutable.replaceCharacters(in: replacementRange, with: previewText)
-            let nextText = String(mutable)
-            let nextRange = NSRange(location: replacementRange.location, length: (previewText as NSString).length)
-            let caretLocation = min(nextRange.location + nextRange.length, (nextText as NSString).length)
-            let highlightRange = NSRange(
-                location: replacementRange.location + (streamingPreviewPrefix as NSString).length,
-                length: (committedText as NSString).length
-            )
+            if livePageMutationGate.shouldDefer(request.livePageContext, before: mutation.before, range: mutation.range,
+                insertion: mutation.insertion, after: mutation.after, isCurrent: { [weak self] in
+                    guard let self, self.parent.insertionRequest?.id == request.id, let context = request.livePageContext else { return false }
+                    return context.permitsDelivery(in: ScreenplayLiveDraftBridge.shared)
+                }, resume: { [weak self] in self?.applyStreamingCommit(request) }, onFailure: {
+                    ScreenplayLiveDraftBridge.shared.autoInsertStatusText = "The reply is kept, but its original page change could not be stored. Review recovery before applying it."
+                }) { return }
+            let committedText = mutation.core, nextText = mutation.after
+            let highlightRange = mutation.highlightRange, caretLocation = mutation.caretLocation
             let committedLines = committedLineRange(for: highlightRange, in: nextText)
 
             isApplyingProgrammaticChange = true
@@ -9753,7 +9604,7 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
             )
             parent.lastCommittedWrite = ScreenplayLiveDraftBridge.shared.makeCommittedWrite(
                 id: request.id,
-                previousDraft: streamingPreviewBaseText.isEmpty ? current : streamingPreviewBaseText,
+                previousDraft: mutation.before,
                 committedDraft: nextText,
                 insertedText: committedText,
                 replacementApplied: replacementTarget != nil,
@@ -9822,7 +9673,7 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
                 if replacementContext.isReplacement {
                     affixes = ("", "")
                 } else {
-                    affixes = insertionAffixes(existing: current, selection: replacementContext.range)
+                    affixes = screenplayEditorInsertionAffixes(existing: current, selection: replacementContext.range)
                 }
                 streamingInsertPrefix = affixes.prefix
                 streamingInsertSuffix = affixes.suffix
@@ -9876,7 +9727,9 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
                         id: request.id,
                         text: request.text,
                         mode: .insert,
-                        replacementTarget: request.replacementTarget
+                        replacementTarget: request.replacementTarget,
+                        requiresLivePageContext: request.requiresLivePageContext,
+                        livePageContext: request.livePageContext
                     )
                 )
                 resetStreamingInsertState()
@@ -10046,7 +9899,9 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
                         id: request.id,
                         text: request.text,
                         mode: .insert,
-                        replacementTarget: request.replacementTarget
+                        replacementTarget: request.replacementTarget,
+                        requiresLivePageContext: request.requiresLivePageContext,
+                        livePageContext: request.livePageContext
                     )
                 )
                 return
@@ -10075,6 +9930,14 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
             let mutable = NSMutableString(string: current)
             mutable.replaceCharacters(in: selection, with: insertion)
             let nextText = String(mutable)
+            if livePageMutationGate.shouldDefer(request.livePageContext, before: current, range: selection,
+                insertion: insertion, after: nextText, isCurrent: { [weak self] in
+                    guard let self, self.parent.insertionRequest?.id == request.id,
+                          let context = request.livePageContext else { return false }
+                    return context.permitsDelivery(in: ScreenplayLiveDraftBridge.shared)
+                }, resume: { [weak self] in self?.applyVoiceRevealPrepare(request) }, onFailure: {
+                    ScreenplayLiveDraftBridge.shared.autoInsertStatusText = "The reply is kept, but the page could not be safely changed. Review recovery before trying again."
+                }) { return }
             let insertedRange = NSRange(location: selection.location, length: (insertion as NSString).length)
             let coreText = committedText.isEmpty ? (trimmed.isEmpty ? request.text : trimmed) : committedText
             let coreRange = ((insertion as NSString).range(of: coreText))
@@ -10131,7 +9994,9 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
                         id: request.id,
                         text: request.text,
                         mode: .insert,
-                        replacementTarget: request.replacementTarget
+                        replacementTarget: request.replacementTarget,
+                        requiresLivePageContext: request.requiresLivePageContext,
+                        livePageContext: request.livePageContext
                     )
                 )
                 return
@@ -10440,40 +10305,8 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
             }
         }
 
-        private func insertionAffixes(existing: String, selection: NSRange) -> (prefix: String, suffix: String) {
-            guard !existing.isEmpty else { return ("", "") }
-
-            let ns = existing as NSString
-            let start = selection.location
-            let end = selection.location + selection.length
-
-            let before = start > 0 ? ns.substring(with: NSRange(location: start - 1, length: 1)) : ""
-            let after = end < ns.length ? ns.substring(with: NSRange(location: end, length: 1)) : ""
-
-            let prefix: String
-            if before.isEmpty || before == "\n" {
-                prefix = before.isEmpty ? "" : "\n"
-            } else {
-                prefix = "\n\n"
-            }
-
-            let suffix: String
-            if after.isEmpty || after == "\n" {
-                suffix = after.isEmpty ? "" : "\n"
-            } else {
-                suffix = "\n\n"
-            }
-
-            return (prefix, suffix)
-        }
-
         private func insertionText(for raw: String, existing: String, selection: NSRange) -> String {
-            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return "" }
-            guard !existing.isEmpty else { return trimmed }
-
-            let affixes = insertionAffixes(existing: existing, selection: selection)
-            return affixes.prefix + trimmed + affixes.suffix
+            screenplayEditorInsertionText(for: raw, existing: existing, selection: selection)
         }
 
         private func resolvedReplacementContext(
@@ -10717,9 +10550,11 @@ private func hollywoodScreenplayEditorUIFont() -> UIFont {
     UIFont(name: "Courier", size: 12) ?? UIFont.monospacedSystemFont(ofSize: 12, weight: .regular)
 }
 
+
 struct IOSCursorInsertTextEditor: UIViewRepresentable {
     @Binding var text: String
     var documentID: String = ""
+    var externalMutationRevision: UInt64 = 0
     @Binding var activeScreenplayElement: ScreenplayEditorElement
     @Binding var insertionRequest: ScreenplayInsertionRequest?
     @Binding var lineJumpRequest: ScreenplayLineJumpRequest?
@@ -10808,6 +10643,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
         let previousSubmittedID = context.coordinator.parent.submittedReplacementTarget?.id
         let previousInsertionID = context.coordinator.parent.insertionRequest?.id
         let previousDocumentID = context.coordinator.parent.documentID
+        let previousExternalMutationRevision = context.coordinator.parent.externalMutationRevision
         context.coordinator.parent = self
         let currentPendingID = pendingReplacementTarget?.id
         let currentSubmittedID = submittedReplacementTarget?.id
@@ -10839,10 +10675,11 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
         }
 
         if !context.coordinator.isApplyingProgrammaticChange,
-           context.coordinator.shouldApplyModelText(
-               incomingText: text,
-               to: uiView,
-               documentDidChange: previousDocumentID != documentID
+           context.coordinator.shouldApplyBoundText(
+               text,
+               currentText: uiView.text ?? "",
+               documentDidChange: previousDocumentID != documentID,
+               externalMutationDidChange: previousExternalMutationRevision != externalMutationRevision
            ) {
             let previousSelection = uiView.selectedRange
             context.coordinator.isApplyingProgrammaticChange = true
@@ -10920,6 +10757,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
         var lastKnownActiveElement: ScreenplayEditorElement
         var isApplyingProgrammaticChange = false
         var lastAppliedInsertionID: UUID?
+        var livePageMutationGate = ScreenplayLivePageMutationGate()
         var lastAppliedLineJumpID: UUID?
         var lastAppliedLineHighlightID: UUID?
         var lastAppliedEditorFocusID: UUID?
@@ -11018,9 +10856,27 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             scheduleDeferredPublicationFlush()
         }
 
+        func shouldApplyBoundText(
+            _ text: String,
+            currentText: String,
+            documentDidChange: Bool,
+            externalMutationDidChange: Bool
+        ) -> Bool {
+            return ScreenplayDeferredPublicationGate.shouldApplyBoundText(
+                text,
+                currentText: currentText,
+                documentDidChange: documentDidChange,
+                externalMutationDidChange: externalMutationDidChange
+            )
+        }
+
+        private func publishBoundNativeText(_ value: String) {
+            publishEditorText(value)
+        }
+
         private func publishText(_ value: String, requestID: UUID? = nil) {
             guard representableUpdateDepth > 0 else {
-                publishEditorText(value)
+                publishBoundNativeText(value)
                 return
             }
             coalesce(&deferredText, current: parent.text, value: value, requestID: requestID)
@@ -11213,9 +11069,8 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 }
 
                 if let text,
-                   self.parent.text == text.expected,
-                   requestIsCurrent(text.requestID) {
-                    self.publishEditorText(text.value)
+                   ScreenplayDeferredPublicationGate.acceptsNativeTextPublication(expectedBinding: text.expected, currentBinding: self.parent.text, queuedText: text.value, nativeText: self.textView?.text, requestID: text.requestID, activeRequestID: self.parent.insertionRequest?.id) {
+                    self.publishBoundNativeText(text.value)
                 }
                 if let activeElement,
                    generationIsAccepted(activeElement.generation),
@@ -11425,6 +11280,9 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
         }
 
         func applyInsertion(_ request: ScreenplayInsertionRequest) {
+            guard !request.requiresLivePageContext || request.livePageContext != nil else { return }
+            if let context = request.livePageContext,
+               !context.permitsDelivery(in: ScreenplayLiveDraftBridge.shared) { return }
             switch request.mode {
             case .insert:
                 applyStandardInsertion(request)
@@ -11459,7 +11317,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             case .voiceRevealFinalize:
                 finalizeVoiceReveal(request)
             case .voiceRevealCancel:
-                cancelVoiceReveal()
+                clearVoiceRevealPresentation(in: textView, preserveCurrentText: false)
                 lastAppliedInsertionID = request.id
                 DispatchQueue.main.async {
                     if self.parent.insertionRequest?.id == request.id {
@@ -11916,6 +11774,14 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             let mutable = NSMutableString(string: current)
             mutable.replaceCharacters(in: selection, with: insertion)
             let nextText = String(mutable)
+            if livePageMutationGate.shouldDefer(request.livePageContext, before: current, range: selection,
+                insertion: insertion, after: nextText, isCurrent: { [weak self] in
+                    guard let self, self.parent.insertionRequest?.id == request.id,
+                          let context = request.livePageContext else { return false }
+                    return context.permitsDelivery(in: ScreenplayLiveDraftBridge.shared)
+                }, resume: { [weak self] in self?.applyStandardInsertion(request) }, onFailure: {
+                    ScreenplayLiveDraftBridge.shared.autoInsertStatusText = "The reply is kept, but the page could not be safely changed. Review recovery before trying again."
+                }) { return }
             let caretLocation = min(selection.location + (insertion as NSString).length, (nextText as NSString).length)
             let highlightRange = insertionContext.isReplacement
                 ? NSRange(location: selection.location, length: (committedText as NSString).length)
@@ -12000,7 +11866,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 if replacementContext.isReplacement {
                     affixes = ("", "")
                 } else {
-                    affixes = insertionAffixes(existing: current, selection: replacementContext.range)
+                    affixes = screenplayEditorInsertionAffixes(existing: current, selection: replacementContext.range)
                 }
                 streamingPreviewOriginalSelection = replacementContext.range
                 streamingPreviewOriginalText = replacementContext.range.length > 0
@@ -12058,7 +11924,9 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                         id: request.id,
                         text: request.text,
                         mode: .insert,
-                        replacementTarget: request.replacementTarget
+                        replacementTarget: request.replacementTarget,
+                        requiresLivePageContext: request.requiresLivePageContext,
+                        livePageContext: request.livePageContext
                     )
                 )
                 resetStreamingPreviewState()
@@ -12067,26 +11935,21 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
 
             let current = textView.text ?? ""
             guard let replacementRange = streamingPreviewRange else { return }
-            let committedText = screenplayEditorPreparedInsertionCoreText(
-                trimmed,
-                existing: streamingPreviewBaseText.isEmpty ? current : streamingPreviewBaseText,
-                insertionRange: streamingPreviewOriginalSelection,
-                replacementTarget: streamingPreviewReplacementTarget
-            )
-            guard !committedText.isEmpty else {
-                cancelStreamingPreview()
+            guard let mutation = ScreenplayStreamingCommitMutation(before: streamingPreviewBaseText, current: current,
+                selection: streamingPreviewOriginalSelection, previewRange: replacementRange, text: trimmed,
+                prefix: streamingPreviewPrefix, suffix: streamingPreviewSuffix, replacementTarget: streamingPreviewReplacementTarget) else {
+                ScreenplayLiveDraftBridge.shared.autoInsertStatusText = "The page changed during the preview. Your words are kept; review the reply before applying it."
                 return
             }
-            let previewText = streamingPreviewPrefix + committedText + streamingPreviewSuffix
-            let mutable = NSMutableString(string: current)
-            mutable.replaceCharacters(in: replacementRange, with: previewText)
-            let nextText = String(mutable)
-            let nextRange = NSRange(location: replacementRange.location, length: (previewText as NSString).length)
-            let caretLocation = min(nextRange.location + nextRange.length, (nextText as NSString).length)
-            let highlightRange = NSRange(
-                location: replacementRange.location + (streamingPreviewPrefix as NSString).length,
-                length: (committedText as NSString).length
-            )
+            if livePageMutationGate.shouldDefer(request.livePageContext, before: mutation.before, range: mutation.range,
+                insertion: mutation.insertion, after: mutation.after, isCurrent: { [weak self] in
+                    guard let self, self.parent.insertionRequest?.id == request.id, let context = request.livePageContext else { return false }
+                    return context.permitsDelivery(in: ScreenplayLiveDraftBridge.shared)
+                }, resume: { [weak self] in self?.applyStreamingCommit(request) }, onFailure: {
+                    ScreenplayLiveDraftBridge.shared.autoInsertStatusText = "The reply is kept, but its original page change could not be stored. Review recovery before applying it."
+                }) { return }
+            let committedText = mutation.core, nextText = mutation.after
+            let highlightRange = mutation.highlightRange, caretLocation = mutation.caretLocation
             let committedLines = committedLineRange(for: highlightRange, in: nextText)
 
             isApplyingProgrammaticChange = true
@@ -12103,7 +11966,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             )
             let committedWrite = ScreenplayLiveDraftBridge.shared.makeCommittedWrite(
                 id: request.id,
-                previousDraft: streamingPreviewBaseText.isEmpty ? current : streamingPreviewBaseText,
+                previousDraft: mutation.before,
                 committedDraft: nextText,
                 insertedText: committedText,
                 replacementApplied: replacementTarget != nil,
@@ -12173,7 +12036,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 if replacementContext.isReplacement {
                     affixes = ("", "")
                 } else {
-                    affixes = insertionAffixes(existing: current, selection: replacementContext.range)
+                    affixes = screenplayEditorInsertionAffixes(existing: current, selection: replacementContext.range)
                 }
                 streamingInsertPrefix = affixes.prefix
                 streamingInsertSuffix = affixes.suffix
@@ -12227,7 +12090,9 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                         id: request.id,
                         text: request.text,
                         mode: .insert,
-                        replacementTarget: request.replacementTarget
+                        replacementTarget: request.replacementTarget,
+                        requiresLivePageContext: request.requiresLivePageContext,
+                        livePageContext: request.livePageContext
                     )
                 )
                 resetStreamingInsertState()
@@ -12398,7 +12263,9 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                         id: request.id,
                         text: request.text,
                         mode: .insert,
-                        replacementTarget: request.replacementTarget
+                        replacementTarget: request.replacementTarget,
+                        requiresLivePageContext: request.requiresLivePageContext,
+                        livePageContext: request.livePageContext
                     )
                 )
                 return
@@ -12427,6 +12294,14 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             let mutable = NSMutableString(string: current)
             mutable.replaceCharacters(in: selection, with: insertion)
             let nextText = String(mutable)
+            if livePageMutationGate.shouldDefer(request.livePageContext, before: current, range: selection,
+                insertion: insertion, after: nextText, isCurrent: { [weak self] in
+                    guard let self, self.parent.insertionRequest?.id == request.id,
+                          let context = request.livePageContext else { return false }
+                    return context.permitsDelivery(in: ScreenplayLiveDraftBridge.shared)
+                }, resume: { [weak self] in self?.applyVoiceRevealPrepare(request) }, onFailure: {
+                    ScreenplayLiveDraftBridge.shared.autoInsertStatusText = "The reply is kept, but the page could not be safely changed. Review recovery before trying again."
+                }) { return }
             let insertedRange = NSRange(location: selection.location, length: (insertion as NSString).length)
             let coreText = committedText.isEmpty ? (trimmed.isEmpty ? request.text : trimmed) : committedText
             let coreRange = (insertion as NSString).range(of: coreText)
@@ -12483,7 +12358,9 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                         id: request.id,
                         text: request.text,
                         mode: .insert,
-                        replacementTarget: request.replacementTarget
+                        replacementTarget: request.replacementTarget,
+                        requiresLivePageContext: request.requiresLivePageContext,
+                        livePageContext: request.livePageContext
                     )
                 )
                 return
@@ -12529,10 +12406,6 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                     self.parent.insertionRequest = nil
                 }
             }
-        }
-
-        private func cancelVoiceReveal() {
-            clearVoiceRevealPresentation(in: textView, preserveCurrentText: false)
         }
 
         private func resetVoiceRevealState() {
@@ -12772,40 +12645,8 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             }
         }
 
-        private func insertionAffixes(existing: String, selection: NSRange) -> (prefix: String, suffix: String) {
-            guard !existing.isEmpty else { return ("", "") }
-
-            let ns = existing as NSString
-            let start = selection.location
-            let end = selection.location + selection.length
-
-            let before = start > 0 ? ns.substring(with: NSRange(location: start - 1, length: 1)) : ""
-            let after = end < ns.length ? ns.substring(with: NSRange(location: end, length: 1)) : ""
-
-            let prefix: String
-            if before.isEmpty || before == "\n" {
-                prefix = before.isEmpty ? "" : "\n"
-            } else {
-                prefix = "\n\n"
-            }
-
-            let suffix: String
-            if after.isEmpty || after == "\n" {
-                suffix = after.isEmpty ? "" : "\n"
-            } else {
-                suffix = "\n\n"
-            }
-
-            return (prefix, suffix)
-        }
-
         private func insertionText(for raw: String, existing: String, selection: NSRange) -> String {
-            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return "" }
-            guard !existing.isEmpty else { return trimmed }
-
-            let affixes = insertionAffixes(existing: existing, selection: selection)
-            return affixes.prefix + trimmed + affixes.suffix
+            screenplayEditorInsertionText(for: raw, existing: existing, selection: selection)
         }
 
         private func resolvedReplacementContext(

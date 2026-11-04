@@ -4,17 +4,90 @@ import ScreenplayStudio
 
 @MainActor
 final class StudioThreadViewStateSupportTests: XCTestCase {
+    func testNewChunkDoesNotDiscardStillCurrentNativeTextButCannotCommitOldReceipt() {
+        let old = UUID(), next = UUID()
+        XCTAssertFalse(them.ScreenplayDeferredPublicationGate.requestIsCurrent(old, lastAppliedInsertionID: old, activeInsertionRequestID: next))
+        XCTAssertTrue(them.ScreenplayDeferredPublicationGate.acceptsNativeTextPublication(expectedBinding: "", currentBinding: "", queuedText: "INT. OBSERVATORY - NIGHT", nativeText: "INT. OBSERVATORY - NIGHT", requestID: old, activeRequestID: next))
+        XCTAssertFalse(them.ScreenplayDeferredPublicationGate.acceptsNativeTextPublication(expectedBinding: "", currentBinding: "", queuedText: "INT. OBSERVATORY - NIGHT", nativeText: "INT. OBSERVATORY - NIGHT", requestID: old, activeRequestID: nil))
+    }
+
+    func testQueuedNativeTextCannotOverwriteAnExternalEditOrNewerNativeText() {
+        XCTAssertFalse(them.ScreenplayDeferredPublicationGate.acceptsNativeTextPublication(expectedBinding: "", currentBinding: "Writer's correction", queuedText: "Old chunk", nativeText: "Old chunk"))
+        XCTAssertFalse(them.ScreenplayDeferredPublicationGate.acceptsNativeTextPublication(expectedBinding: "", currentBinding: "", queuedText: "Old chunk", nativeText: "New chunk"))
+    }
+
+    func testDelayedNativeEchoCannotReplaceNewerEditorText() {
+        XCTAssertFalse(them.ScreenplayDeferredPublicationGate.shouldApplyBoundText(
+            "motel sig",
+            currentText: "motel sign",
+            documentDidChange: false,
+            externalMutationDidChange: false
+        ), "A bound value without external authority is a native publication echo.")
+    }
+
+    func testExplicitByteDistinctRestoreApplies() {
+        let composed = "caf\u{00E9}"
+        let decomposed = "cafe\u{0301}"
+        XCTAssertEqual(composed, decomposed, "The test requires Swift canonical String equality.")
+        XCTAssertFalse(composed.utf8.elementsEqual(decomposed.utf8))
+
+        XCTAssertTrue(them.ScreenplayDeferredPublicationGate.shouldApplyBoundText(
+            decomposed,
+            currentText: composed,
+            documentDidChange: false,
+            externalMutationDidChange: true
+        ))
+    }
+
+    func testNativeUndoAcknowledgementDoesNotReapplyText() {
+        XCTAssertFalse(them.ScreenplayDeferredPublicationGate.shouldApplyBoundText(
+            "motel sig",
+            currentText: "motel sig",
+            documentDidChange: false,
+            externalMutationDidChange: false
+        ))
+    }
+
+    func testExplicitRestoreCanReuseEarlierTypedBytes() {
+        XCTAssertTrue(them.ScreenplayDeferredPublicationGate.shouldApplyBoundText(
+            "first draft",
+            currentText: "second draft",
+            documentDidChange: false,
+            externalMutationDidChange: true
+        ), "An explicit restore is authoritative even when its bytes match an earlier native publication.")
+    }
+
+    func testSameProjectNewDocumentAppliesItsText() {
+        XCTAssertTrue(them.ScreenplayDeferredPublicationGate.shouldApplyBoundText(
+            "shared bytes",
+            currentText: "new blank document",
+            documentDidChange: true,
+            externalMutationDidChange: false
+        ), "A durable document-ID change must win even when the project ID is unchanged.")
+    }
+
+    func testViewModelDistinguishesNativePublicationFromExternalRestore() {
+        let model = ScreenplayStudioViewModel()
+        let initialRevision = model.editorExternalDraftMutationRevision
+
+        model.publishNativeEditorDraft("typed page")
+        XCTAssertEqual(model.editorExternalDraftMutationRevision, initialRevision)
+
+        model.fountainDraft = "restored page"
+        XCTAssertEqual(model.editorExternalDraftMutationRevision, initialRevision &+ 1)
+    }
+
     func testDeferredEditorTransactionRejectsMetadataWhenQueuedTextLosesItsBaseline() {
         let generation = 41
         let requirements = [
-            generation: ScreenplayDeferredTextPublicationRequirement(
+            generation: them.ScreenplayDeferredTextPublicationRequirement(
                 text: "queued draft",
                 requestID: nil
             )
         ]
 
         XCTAssertFalse(
-            ScreenplayDeferredPublicationGate.acceptsTextGeneration(
+            them.ScreenplayDeferredPublicationGate.acceptsTextGeneration(
                 generation,
                 requirements: requirements,
                 currentText: "newer external draft",
@@ -28,14 +101,14 @@ final class StudioThreadViewStateSupportTests: XCTestCase {
         let generation = 42
         let requestID = UUID()
         let requirements = [
-            generation: ScreenplayDeferredTextPublicationRequirement(
+            generation: them.ScreenplayDeferredTextPublicationRequirement(
                 text: "queued insertion",
                 requestID: requestID
             )
         ]
 
         XCTAssertFalse(
-            ScreenplayDeferredPublicationGate.acceptsTextGeneration(
+            them.ScreenplayDeferredPublicationGate.acceptsTextGeneration(
                 generation,
                 requirements: requirements,
                 currentText: "queued insertion",
@@ -411,7 +484,7 @@ final class StudioThreadViewStateSupportTests: XCTestCase {
         )
     }
 
-    func testCharacterVoiceMemorySelectionFollowsActiveSceneCharacters() {
+    func testCharacterVoiceLibrarySelectionRemainsDisplayOnlyWithoutProjectProvenance() {
         let bridge = ScreenplayLiveDraftBridge.shared
         let original = bridge.characterVoiceMemories
         let originalUserID = BackendAuthClient.currentAuthSessionState().user?.userId
@@ -462,13 +535,11 @@ final class StudioThreadViewStateSupportTests: XCTestCase {
             authenticatedUserID: "usr_test"
         )
 
-        let selected = bridge.screenplayCharacterVoiceMemories(
-            matching: ["ELI (V.O.)"],
-            authenticatedUserID: "usr_test"
-        )
+        let selected = ScreenplayCharacterVoiceMemoryPersistencePolicy.select(bridge.characterVoiceMemories, matching: ["ELI (V.O.)"], limit: 8)
 
         XCTAssertEqual(selected.map(\.character), ["ELI"])
         XCTAssertEqual(selected.first?.voiceFingerprint.tactics, ["asks questions"])
+        XCTAssertTrue(bridge.screenplayCharacterVoiceMemories(matching: ["ELI"], authenticatedUserID: "usr_test").isEmpty)
 
         bridge.updateCharacterVoiceMemories(
             from: BackendCharacterTraitsResponse(
@@ -480,10 +551,7 @@ final class StudioThreadViewStateSupportTests: XCTestCase {
             authenticatedUserID: "usr_test"
         )
         XCTAssertEqual(
-            bridge.screenplayCharacterVoiceMemories(
-                matching: ["ELI"],
-                authenticatedUserID: "usr_test"
-            ).map(\.character),
+            ScreenplayCharacterVoiceMemoryPersistencePolicy.select(bridge.characterVoiceMemories, matching: ["ELI"], limit: 8).map(\.character),
             ["ELI"]
         )
 
@@ -503,8 +571,41 @@ final class StudioThreadViewStateSupportTests: XCTestCase {
                 matching: [],
                 authenticatedUserID: "usr_test"
             ).map(\.character),
-            ["MARA"]
+            []
         )
+        XCTAssertEqual(bridge.characterVoiceMemories.map(\.character), ["MARA"], "Explicit library display still retains its own inventory")
+    }
+
+    func testCharacterVoicePageSelectionRequiresSameOwnerProjectBackendAndLoginIntent() throws {
+        let owner = ScreenplayStudioAuthContext(userID: "writer", sessionIntentGeneration: 7)
+        let backend = URL(string: "https://voices.test")!
+        let scope = ScreenplayCharacterVoiceMemoryRequestScope(owner: owner, projectID: "project-b", backendURL: backend)
+        let memories = [BackendScreenplayCharacterVoiceMemory(character: "MARA", voiceFingerprint: .init(tactics: ["B-only tactic"]))]
+        let records = [BackendCharacterTraitRecord(name: "MARA", traits: nil, projectId: "project-a"),
+            BackendCharacterTraitRecord(name: "MARA", traits: nil, projectId: "project-b"),
+            BackendCharacterTraitRecord(name: "MARA", traits: nil)]
+        XCTAssertEqual(ScreenplayCharacterVoiceMemoryPersistencePolicy.projectRecords(records, scope: scope).map(\.projectId), ["project-b"],
+            "A name match or scoped request cannot retag foreign or legacy response records")
+        for focus in [[], ["MARA"]] {
+            XCTAssertTrue(ScreenplayCharacterVoiceMemoryPersistencePolicy.pageMemories(memories, scope: scope,
+                owner: owner, projectID: "project-a", backendURL: backend, matching: focus).isEmpty)
+            XCTAssertTrue(ScreenplayCharacterVoiceMemoryPersistencePolicy.pageMemories(memories, scope: nil,
+                owner: owner, projectID: "project-b", backendURL: backend, matching: focus).isEmpty)
+            XCTAssertEqual(ScreenplayCharacterVoiceMemoryPersistencePolicy.pageMemories(memories, scope: scope,
+                owner: owner, projectID: "project-b", backendURL: backend, matching: focus), memories)
+        }
+        for other in [ScreenplayStudioAuthContext(userID: "other-writer", sessionIntentGeneration: 7),
+                      ScreenplayStudioAuthContext(userID: owner.userID, sessionIntentGeneration: 8)] {
+            XCTAssertTrue(ScreenplayCharacterVoiceMemoryPersistencePolicy.pageMemories(memories, scope: scope,
+                owner: other, projectID: "project-b", backendURL: backend, matching: []).isEmpty)
+        }
+        XCTAssertTrue(ScreenplayCharacterVoiceMemoryPersistencePolicy.pageMemories(memories, scope: scope,
+            owner: owner, projectID: "project-b", backendURL: URL(string: "https://other.test")!, matching: ["MARA"]).isEmpty)
+        let payload = try XCTUnwrap(ScreenplayCharacterVoiceMemoryPersistencePolicy.payloadForStorage(userID: owner.userID, memories: memories, scope: scope))
+        let restored = try XCTUnwrap(ScreenplayCharacterVoiceMemoryPersistencePolicy.restoredSnapshot(from: payload, currentUserID: owner.userID))
+        XCTAssertEqual(restored.scope, scope)
+        XCTAssertTrue(ScreenplayCharacterVoiceMemoryPersistencePolicy.pageMemories(restored.memories, scope: restored.scope,
+            owner: owner, projectID: "project-a", backendURL: backend, matching: []).isEmpty, "Relaunch cannot retag B as A")
     }
 
     func testCharacterVoiceMemoryCacheRestoresOnlyForFreshMatchingAccount() throws {
@@ -535,6 +636,9 @@ final class StudioThreadViewStateSupportTests: XCTestCase {
 
         XCTAssertEqual(restored.userID, "user-a")
         XCTAssertEqual(restored.memories, [memory])
+        XCTAssertNil(restored.scope, "An untagged library snapshot must not acquire current project provenance")
+        XCTAssertTrue(ScreenplayCharacterVoiceMemoryPersistencePolicy.pageMemories(restored.memories, scope: restored.scope,
+            owner: .init(userID: "user-a", sessionIntentGeneration: 0), projectID: "new-project", backendURL: URL(string: "https://voices.test")!, matching: []).isEmpty)
         XCTAssertNil(
             ScreenplayCharacterVoiceMemoryPersistencePolicy.restoredSnapshot(
                 from: payload,

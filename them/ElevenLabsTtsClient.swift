@@ -63,7 +63,7 @@ final class ElevenLabsTtsClient: CompanionTtsProviding, @unchecked Sendable {
         self.init(
             dependencies: Dependencies(
                 dataForRequest: { request in
-                    try await session.data(for: request)
+                    try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
                 }
             )
         )

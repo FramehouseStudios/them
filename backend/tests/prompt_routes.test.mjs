@@ -66,7 +66,20 @@ async function postJson(baseURL, path, payload, headers = {}) {
   return { status: r.status, body };
 }
 
-test("POST /screenplay/prompt/build assembles persona, memory, session, user input, and craft block", async () => {
+test("POST /screenplay/prompt/build defaults mentor craft to three-act without a feature map", async () => {
+  const { buildCraftContextBlock } = await import("../lib/craft_prompts.js");
+  await withTestServer(async ({ baseURL }) => {
+    const { status, body } = await postJson(baseURL, "/screenplay/prompt/build", {
+      persona: "Screenwriting mentor", user_input: "What makes good dialogue?", include_craft_context: true,
+    });
+    assert.equal(status, 200);
+    assert.equal(body.craft_framework_id, "three-act");
+    assert.equal(body.craft_context_applied, true);
+    assert.match(body.prompt, /<craft>[\s\S]*p8-15[\s\S]*<\/craft>/);
+  }, { promptRouteDeps: { buildCraftContextBlock } });
+});
+
+test("POST /screenplay/prompt/build retains feature map instead of a competing craft block", async () => {
   await withTestServer(
     async ({ baseURL, requestedMemoryUserId, requestedMemoryArgs }) => {
       const { status, body } = await postJson(baseURL, "/screenplay/prompt/build", {
@@ -114,7 +127,7 @@ test("POST /screenplay/prompt/build assembles persona, memory, session, user inp
       assert.equal(body.source, "buildModelPrompt");
       assert.equal(body.memory_applied, true);
       assert.equal(body.session_context_applied, true);
-      assert.equal(body.craft_context_applied, true);
+      assert.equal(body.craft_context_applied, false, "target-scaled feature map takes precedence");
       assert.equal(body.craft_framework_id, "story-circle");
       assert.equal(body.screenplay_task_intent, "write_scene");
       assert.equal(body.screenplay_task_label, "Write Scene");
@@ -172,7 +185,7 @@ test("POST /screenplay/prompt/build assembles persona, memory, session, user inp
       assert.ok(body.prompt.includes("draft_excerpt:"));
       assert.ok(body.prompt.includes("MARA watches the tide"));
       assert.ok(body.prompt.includes("Write the all-is-lost beat."));
-      assert.ok(body.prompt.includes("CRAFT CONTEXT (story-circle)"));
+      assert.ok(!body.prompt.includes("CRAFT CONTEXT"), "no competing fixed page plan");
     },
     {
       memory: {
@@ -238,6 +251,8 @@ test("POST /screenplay/prompt/build carries rewrite, scene-doctor, and dialogue 
       ["Replace that line with something sharper.", "rewrite_scene", "Preserve the writer's intention"],
       ["Scene doctor this kitchen confrontation and tell me what's not working.", "scene_doctor", "highest-leverage fix"],
       ["Punch up this exchange so it has more subtext.", "dialogue_punchup", "silently repair the weakest line"],
+      ["Notes on this line: I'm so angry at you right now.", "dialogue_notes", "one rewritten line in quotes"],
+      ["Does this line work? She says: I love you and I always have.", "dialogue_notes", "never praise a line that announces its feeling"],
       ["Help me finish this feature-length screenplay.", "finish_feature", "Operate at feature scale"],
       ["Help me write the whole feature from Act 1 through Act 2 into Act 3.", "finish_feature", "Locate the current act/sequence"],
       ["Help me write act three of my feature screenplay.", "finish_feature", "next three turns"],
@@ -258,6 +273,22 @@ test("POST /screenplay/prompt/build carries rewrite, scene-doctor, and dialogue 
       assert.ok(body.prompt.includes(expectedContract));
     }
   });
+});
+
+test("POST /screenplay/prompt/build hydrates authenticated project continuity for dialogue notes", async () => {
+  await withTestServer(async ({ baseURL, requestedMemoryUserId }) => {
+    const { status, body } = await postJson(baseURL, "/screenplay/prompt/build", {
+      persona: "Clementine",
+      screenplay_task_hint: "Notes on this line: I'm fine.",
+    });
+    assert.equal(status, 200);
+    assert.equal(requestedMemoryUserId(), "user-prompt-1");
+    assert.equal(body.screenplay_task_intent, "dialogue_notes");
+    assert.equal(body.session_context_hydrated, true);
+    assert.match(body.prompt, /project: notes-project/);
+    assert.match(body.prompt, /MARA conceals the broken key/);
+    assert.match(body.prompt, /dialogue_notes_contract:/);
+  }, { memory: { screenplayProjectMemory: [{ projectId: "notes-project", updatedAt: 42, lastWritePreview: "MARA conceals the broken key", sceneLabel: "INT. KITCHEN - NIGHT" }] } });
 });
 
 test("POST /screenplay/prompt/build carries writer-block rescue lenses and runway", async () => {

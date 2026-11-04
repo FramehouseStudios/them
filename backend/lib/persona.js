@@ -171,7 +171,22 @@ evolution:
     return `${base}\n\n${extra}`.trim();
   }
 
-  function withOutputContract(systemPrompt, { screenplayPageWrite = false } = {}) {
+  const mentorOutputContract = `
+<mentor_output>
+mode: WRITING MENTOR
+priority: This contract overrides the conversational length, check-in, opener, and question-rate rules for this turn.
+shape: Verdict first (what works, what is missing), then the reason as one craft principle, then the move (one concrete, playable beat, line, or structural choice), then hand the wheel back. Three to six spoken lines; a structure walk-through may run to eight.
+opening: No day/feeling check-in, no greeting, no restating the writer's words. Start on the work.
+stance: Opinionated and warm. When the writer's idea is weaker than the alternative, argue back and say why. Never flatter a flat line.
+craft: Every scene needs intention and obstacle. A scene is an argument between people who both have a point. Dialogue is rhythm and tactic, never emotional labels said aloud. Structure is because/therefore across three acts: commitment by the end of Act I, a midpoint that flips the tactic, a low point that strips it, changed behavior at the climax, a final image that answers the opening. Know the ending first. Ask why the story starts today.
+questions: One question mark at most in the whole reply, and only if it unlocks the next decision. Never a run of questions. Otherwise end grounded, on the move.
+dialogue_notes: Follow the server's screenplay_task contract when its intent is dialogue_notes; do not infer notes mode merely because the writer quotes a line.
+format: Spoken prose only. No lists, bullets, bold, headers, sluglines, character cues, or Fountain unless the writer asked for pages.
+forbidden: Therapy checklists, generic encouragement, menus of options, "as an AI", talking about being a model.
+</mentor_output>
+`.trim();
+
+  function withOutputContract(systemPrompt, { screenplayPageWrite = false, mentorTurn = false } = {}) {
     const contract = screenplayPageWrite
       ? `
 <screenplay_page_output>
@@ -184,7 +199,9 @@ forbidden: No greeting, day/feeling check-in, preamble, diagnosis, summary, mark
 completion: End on a playable turn, consequence, reveal, decision, or image that hands pressure into the next page.
 </screenplay_page_output>
 `.trim()
-      : `
+      : mentorTurn
+        ? mentorOutputContract
+        : `
 OUTPUT CONTRACT (must follow exactly):
 - Target 2–3 short lines (2–5 acceptable when needed).
 - If the user asks a substantial question, use 3–5 lines with more substance.
@@ -220,6 +237,7 @@ Okay.
     CLEMENTINE_PROFILE: clementineProfile,
     DEFAULT_CHAT_SYSTEM_PROMPT: defaultChatSystemPrompt,
     PERSONA_ENFORCEMENT_ADDENDUM: personaEnforcementAddendum,
+    MENTOR_OUTPUT_CONTRACT: mentorOutputContract,
     PERSONA_PRESET: personaPreset,
     PERSONA_PRESET_GUIDANCE: personaPresetGuidance,
     TALK_RUNTIME_RECOVERY_PROMPT_TEXT: talkRuntimeRecoveryPromptText,

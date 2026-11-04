@@ -38,13 +38,14 @@ function resetState() {
   __test.reset();
 }
 
-function stubRequest({ headers = {}, requestId = "req_test" } = {}) {
+function stubRequest({ headers = {}, requestId = "req_test", authUser = null } = {}) {
   const lowerHeaders = {};
   for (const [k, v] of Object.entries(headers)) {
     lowerHeaders[String(k).toLowerCase()] = v;
   }
   return {
     requestId,
+    authUser,
     headers,
     get(name) {
       const lower = String(name).toLowerCase();
@@ -283,6 +284,51 @@ function stubScaleBackplane() {
   };
 }
 
+test("failed capacity admission publishes no phantom pending entry and can retry", async () => {
+  resetState();
+  let full = true, nextCalls = 0;
+  const sb = stubScaleBackplane();
+  const put = sb.setIdempotency;
+  sb.setIdempotency = async (...args) => {
+    if (full) { const error = new Error("capacity"); error.code = "TALK_IDEMPOTENCY_CAPACITY"; throw error; }
+    return put(...args);
+  };
+  const guard = createTalkIdempotencyGuard({
+    isSpeculativePrepareRequest: () => false, talkIdempotencyEnabled: true,
+    normalizeIdempotencyKey: value => value, resolveTalkSessionKey: () => "capacity-proof",
+    scaleBackplane: sb, recordTalkMetric: () => {}, talkIdempotencyTtlMs: 60000,
+    talkIdempotencyMaxEntries: 1, logger: { log() {} },
+  });
+  const req = stubRequest({ headers: { "Idempotency-Key": "capacity-proof" } });
+  const res = stubResponse();
+  await guard(req, res, () => nextCalls++);
+  assert.equal(res._recorded.statusCode, 503);
+  assert.equal(res._recorded.body.error, "replay_capacity");
+  assert.equal(talkIdempotencyCacheSize(), 0);
+  assert.equal(nextCalls, 0);
+  full = false;
+  await guard(req, stubResponse(), () => nextCalls++);
+  assert.equal(nextCalls, 1);
+});
+
+test("an evicted process cache entry still completes its durable pending result", async () => {
+  resetState();
+  const sb = stubScaleBackplane();
+  const guard = createTalkIdempotencyGuard({
+    isSpeculativePrepareRequest: () => false, talkIdempotencyEnabled: true,
+    normalizeIdempotencyKey: value => value, resolveTalkSessionKey: () => "eviction-proof",
+    scaleBackplane: sb, recordTalkMetric: () => {}, talkIdempotencyTtlMs: 60000,
+    talkIdempotencyMaxEntries: 1, logger: { log() {} },
+  });
+  const req = stubRequest({ headers: { "Idempotency-Key": "eviction-proof" } });
+  await guard(req, stubResponse(), () => {});
+  __test.reset();
+  const helper = createTalkIdempotencyHelpers({ scaleBackplane: sb, talkIdempotencyEnabled: true,
+    talkIdempotencyTtlMs: 60000, talkIdempotencyMaxEntries: 1 });
+  await helper.commitSuccess(req, { body: Buffer.from('accepted bytes') });
+  assert.equal((await sb.getIdempotency(req.talkIdempotency.cacheKey)).status, 'completed');
+});
+
 test("idempotency guard cache miss calls next()", async () => {
   resetState();
   const metrics = [];
@@ -337,7 +383,7 @@ test("idempotency guard cache hit returns cached response with replay header", a
   });
   const req1 = stubRequest({ headers: { "Idempotency-Key": "k1" } });
   await guard(req1, stubResponse(), () => {});
-  helpers.commitSuccess(req1, {
+  await helpers.commitSuccess(req1, {
     statusCode: 200,
     headers: { "Content-Type": "application/json" },
     body: Buffer.from('{"ok":true}'),
@@ -813,7 +859,7 @@ test("idempotency helpers commitSuccess marks pending as completed", async () =>
   });
   const req = stubRequest({ headers: { "Idempotency-Key": "ch" } });
   await guard(req, stubResponse(), () => {});
-  helpers.commitSuccess(req, {
+  await helpers.commitSuccess(req, {
     statusCode: 200,
     headers: { "Content-Type": "application/json" },
     body: Buffer.from('{"x":1}'),
@@ -864,8 +910,307 @@ test("idempotency helpers disabled: commitSuccess no-ops", async () => {
   });
   const fakeReq = { talkIdempotency: { cacheKey: "no-real-key" } };
   // Should not throw, should not touch the cache.
-  helpers.commitSuccess(fakeReq, { statusCode: 200, body: Buffer.from("x") });
+  await helpers.commitSuccess(fakeReq, { statusCode: 200, body: Buffer.from("x") });
   assert.equal(talkIdempotencyCacheSize(), 0);
+});
+
+test("Page settlement is awaited even when replay idempotency is disabled or unkeyed", async () => {
+  resetState();
+  const sb = stubScaleBackplane();
+  for (const talkIdempotencyEnabled of [false, true]) {
+    const helpers = createTalkIdempotencyHelpers({
+      scaleBackplane: sb,
+      talkIdempotencyEnabled,
+      talkIdempotencyTtlMs: 60_000,
+      talkIdempotencyMaxEntries: 256,
+    });
+    const events = [];
+    const req = {
+      requestId: `request-${talkIdempotencyEnabled}`,
+      clementine: {
+        walletReservationId: `reservation-${talkIdempotencyEnabled}`,
+        buildWalletSettlement(key) {
+          events.push(["prepared", key]);
+          return { settlementKey: key, actualOutputTokens: 80 };
+        },
+        async settleWalletDurably(settlement) {
+          await Promise.resolve();
+          events.push(["settled", settlement.settlementKey]);
+        },
+      },
+    };
+    await helpers.commitSuccess(req, { body: Buffer.from("accepted") });
+    assert.deepEqual(events, [
+      ["prepared", `talk-wallet:reservation-${talkIdempotencyEnabled}`],
+      ["settled", `talk-wallet:reservation-${talkIdempotencyEnabled}`],
+    ]);
+  }
+  const failing = createTalkIdempotencyHelpers({
+    scaleBackplane: sb,
+    talkIdempotencyEnabled: false,
+    talkIdempotencyTtlMs: 60_000,
+    talkIdempotencyMaxEntries: 256,
+  });
+  await assert.rejects(
+    failing.commitSuccess({
+      clementine: {
+        walletReservationId: "reservation-failure",
+        buildWalletSettlement: key => ({ settlementKey: key, actualOutputTokens: 80 }),
+        settleWalletDurably: async () => { throw new Error("durable settlement unavailable"); },
+      },
+    }),
+    /durable settlement unavailable/
+  );
+});
+
+test("authenticated idempotency scope ignores a previous owner's client token", async () => {
+  resetState();
+  const sb = stubScaleBackplane();
+  const helpers = createTalkIdempotencyHelpers({
+    scaleBackplane: sb,
+    talkIdempotencyEnabled: true,
+    talkIdempotencyTtlMs: 60_000,
+    talkIdempotencyMaxEntries: 256,
+  });
+  const guard = createTalkIdempotencyGuard({
+    isSpeculativePrepareRequest: () => false,
+    talkIdempotencyEnabled: true,
+    normalizeIdempotencyKey: (v) => String(v || "").trim(),
+    resolveTalkSessionKey: () => "token:stale-owner-token",
+    scaleBackplane: sb,
+    recordTalkMetric: () => {},
+    talkIdempotencyTtlMs: 60_000,
+    talkIdempotencyMaxEntries: 256,
+    logger: { log: () => {} },
+  });
+  const ownerReq = stubRequest({
+    headers: { "Idempotency-Key": "shared-key" },
+    authUser: { id: "writer-a" },
+  });
+  await guard(ownerReq, stubResponse(), () => {});
+  await helpers.commitSuccess(ownerReq, { body: Buffer.from("writer-a-result") });
+
+  const otherReq = stubRequest({
+    headers: { "Idempotency-Key": "shared-key" },
+    authUser: { id: "writer-b" },
+  });
+  let nextCalled = false;
+  await guard(otherReq, stubResponse(), () => { nextCalled = true; });
+  assert.equal(nextCalled, true, "another owner must not receive the prior owner's replay");
+  assert.notEqual(otherReq.talkIdempotency.cacheKey, ownerReq.talkIdempotency.cacheKey);
+});
+
+test("commitSuccess does not publish a completed local result before durable storage", async () => {
+  resetState();
+  const sb = stubScaleBackplane();
+  const durableError = new Error("durable write failed");
+  sb.setIdempotency = async (_key, value) => {
+    if (value?.status === "completed") throw durableError;
+  };
+  const helpers = createTalkIdempotencyHelpers({
+    scaleBackplane: sb,
+    talkIdempotencyEnabled: true,
+    talkIdempotencyTtlMs: 60_000,
+    talkIdempotencyMaxEntries: 256,
+  });
+  const guard = createTalkIdempotencyGuard({
+    isSpeculativePrepareRequest: () => false,
+    talkIdempotencyEnabled: true,
+    normalizeIdempotencyKey: (v) => String(v || "").trim(),
+    resolveTalkSessionKey: () => "sess:durable-failure",
+    scaleBackplane: sb,
+    recordTalkMetric: () => {},
+    talkIdempotencyTtlMs: 60_000,
+    talkIdempotencyMaxEntries: 256,
+    logger: { log: () => {} },
+  });
+  const req = stubRequest({ headers: { "Idempotency-Key": "durable-failure" } });
+  await guard(req, stubResponse(), () => {});
+  await assert.rejects(
+    helpers.commitSuccess(req, { body: Buffer.from("not-acknowledged") }),
+    durableError
+  );
+  assert.equal(
+    [...__test.peekIdempotencyCache().values()][0]?.status,
+    "prepared",
+    "memory must retain the exact prepared response when completion persistence failed"
+  );
+});
+
+test("a late recovery completion cannot replace already accepted reply bytes", async () => {
+  resetState();
+  const sb = stubScaleBackplane();
+  const helpers = createTalkIdempotencyHelpers({ scaleBackplane: sb,
+    talkIdempotencyEnabled: true, talkIdempotencyTtlMs: 60_000, talkIdempotencyMaxEntries: 256 });
+  const guard = createTalkIdempotencyGuard({
+    isSpeculativePrepareRequest: () => false, talkIdempotencyEnabled: true,
+    normalizeIdempotencyKey: value => String(value || '').trim(),
+    resolveTalkSessionKey: () => 'late-recovery', scaleBackplane: sb,
+    recordTalkMetric: () => {}, talkIdempotencyTtlMs: 60_000,
+    talkIdempotencyMaxEntries: 256, logger: { log() {} },
+  });
+  const req = stubRequest({ headers: { 'Idempotency-Key': 'late-recovery' } });
+  await guard(req, stubResponse(), () => {});
+  await helpers.commitSuccess(req, { body: Buffer.from('the exact accepted scene') });
+  const accepted = await sb.getIdempotency(req.talkIdempotency.cacheKey);
+  await assert.rejects(helpers.commitSuccess(req, { body: Buffer.from('a later generic recovery reply') }),
+    error => error?.code === 'TALK_IDEMPOTENCY_RESPONSE_COMPLETED');
+  assert.deepEqual(await sb.getIdempotency(req.talkIdempotency.cacheKey), accepted);
+});
+
+test("commitSuccess durably prepares exact bytes before settlement and completion", async () => {
+  resetState();
+  const sb = stubScaleBackplane();
+  const transitions = [];
+  const baseSet = sb.setIdempotency.bind(sb);
+  sb.setIdempotency = async (key, value) => {
+    transitions.push(value.status);
+    await baseSet(key, value);
+  };
+  const helpers = createTalkIdempotencyHelpers({
+    scaleBackplane: sb, talkIdempotencyEnabled: true,
+    talkIdempotencyTtlMs: 60_000, talkIdempotencyMaxEntries: 256,
+  });
+  const guard = createTalkIdempotencyGuard({
+    isSpeculativePrepareRequest: () => false, talkIdempotencyEnabled: true,
+    normalizeIdempotencyKey: (v) => String(v || "").trim(),
+    resolveTalkSessionKey: () => "sess:settlement-order", scaleBackplane: sb,
+    recordTalkMetric: () => {}, talkIdempotencyTtlMs: 60_000,
+    talkIdempotencyMaxEntries: 256, logger: { log() {} },
+  });
+  const req = stubRequest({ headers: { "Idempotency-Key": "settlement-order" } });
+  await guard(req, stubResponse(), () => {});
+  req.clementine = {
+    buildWalletSettlement: (key) => ({ settlementKey: key, ownerId: "writer", lane: "page",
+      settledMilliturns: 200, actualOutputTokens: 200 }),
+    settleWalletDurably: async (settlement) => {
+      const durable = await sb.getIdempotency(req.talkIdempotency.cacheKey);
+      assert.equal(durable.status, "prepared");
+      assert.deepEqual(durable.body, Buffer.from("exact accepted bytes"));
+      assert.equal(settlement.settledMilliturns, 200);
+      transitions.push("settled");
+    },
+  };
+  await helpers.commitSuccess(req, {
+    headers: { "Content-Type": "audio/mpeg" },
+    body: Buffer.from("exact accepted bytes"),
+  });
+  assert.deepEqual(transitions, ["pending", "prepared", "settled", "completed"]);
+});
+
+test("prepared settlement failure is replayed only after durable reconciliation", async () => {
+  resetState();
+  const sb = stubScaleBackplane();
+  const helpers = createTalkIdempotencyHelpers({
+    scaleBackplane: sb, talkIdempotencyEnabled: true,
+    talkIdempotencyTtlMs: 60_000, talkIdempotencyMaxEntries: 256,
+  });
+  const initialGuard = createTalkIdempotencyGuard({
+    isSpeculativePrepareRequest: () => false, talkIdempotencyEnabled: true,
+    normalizeIdempotencyKey: (v) => String(v || "").trim(),
+    resolveTalkSessionKey: () => "sess:recover", scaleBackplane: sb,
+    recordTalkMetric: () => {}, talkIdempotencyTtlMs: 60_000,
+    talkIdempotencyMaxEntries: 256, logger: { log() {} },
+  });
+  const first = stubRequest({ headers: { "Idempotency-Key": "recover" } });
+  await initialGuard(first, stubResponse(), () => {});
+  first.clementine = {
+    buildWalletSettlement: (key) => ({ settlementKey: key, ownerId: "writer", lane: "page",
+      settledMilliturns: 200, actualOutputTokens: 200 }),
+    settleWalletDurably: async () => { throw new Error("injected settlement outage"); },
+  };
+  await assert.rejects(
+    helpers.commitSuccess(first, { body: Buffer.from("replay me exactly") }),
+    /injected settlement outage/
+  );
+  const durablePrepared = await sb.getIdempotency(first.talkIdempotency.cacheKey);
+  assert.equal(durablePrepared.status, "prepared");
+  assert.equal(durablePrepared.expiresAt, 0, "unresolved billed responses must not age into regeneration");
+  helpers.clearPending(first, { keepCompleted: true });
+  assert.equal(
+    [...__test.peekIdempotencyCache().values()][0]?.status,
+    "prepared",
+    "normal cleanup must retain a recoverable prepared response"
+  );
+  __test.reset();
+
+  let reconcileCalls = 0;
+  const recoveryGuard = createTalkIdempotencyGuard({
+    isSpeculativePrepareRequest: () => false, talkIdempotencyEnabled: true,
+    normalizeIdempotencyKey: (v) => String(v || "").trim(),
+    resolveTalkSessionKey: () => "sess:recover", scaleBackplane: sb,
+    reconcilePreparedIdempotency: async (_req, settlement) => {
+      reconcileCalls += 1;
+      assert.equal(settlement.settledMilliturns, 200);
+    },
+    recordTalkMetric: () => {}, talkIdempotencyTtlMs: 60_000,
+    talkIdempotencyMaxEntries: 256, logger: { log() {}, warn() {} },
+  });
+  const retry = stubRequest({ headers: { "Idempotency-Key": "recover" } });
+  const retryRes = stubResponse();
+  let nextCalls = 0;
+  await recoveryGuard(retry, retryRes, () => { nextCalls += 1; });
+  assert.equal(nextCalls, 0);
+  assert.equal(reconcileCalls, 1);
+  assert.deepEqual(retryRes._recorded.body, Buffer.from("replay me exactly"));
+  assert.equal(retryRes._recorded.headers["x-idempotency-replay"], "1");
+  assert.equal((await sb.getIdempotency(first.talkIdempotency.cacheKey)).status, "completed");
+});
+
+for (const status of ['prepared', 'completed']) {
+  test(`${status} replay metadata write failure cannot settle, publish audio or regenerate`, async () => {
+    resetState();
+    const sb = stubScaleBackplane(), key = `user:writer|metadata-${status}`;
+    const accepted = { key: `metadata-${status}`, userId: 'writer', status, createdAt: Date.now(),
+      expiresAt: 0, body: Buffer.from('accepted audio'), headers: { 'x-turn-id': 'turn-7' },
+      turnMetadata: { turnId: 'turn-7' }, settlement: { ownerId: 'writer' } };
+    await sb.setIdempotency(key, accepted);
+    let settles = 0, generations = 0;
+    const guard = createTalkIdempotencyGuard({
+      isSpeculativePrepareRequest: () => false, talkIdempotencyEnabled: true,
+      normalizeIdempotencyKey: v => String(v || '').trim(), resolveTalkSessionKey: () => 'rotated-session',
+      scaleBackplane: sb, recordTalkMetric: () => {}, talkIdempotencyTtlMs: 60_000,
+      talkIdempotencyMaxEntries: 256, logger: { log() {}, warn() {} },
+      restoreTurnMetadata: async () => { throw new Error('metadata storage unavailable'); },
+      reconcilePreparedIdempotency: async () => { settles++; },
+    });
+    const req = stubRequest({ headers: { 'Idempotency-Key': `metadata-${status}` }, authUser: { id: 'writer' } });
+    const res = stubResponse();
+    await guard(req, res, () => { generations++; });
+    assert.equal(res._recorded.statusCode, 503);
+    assert.equal(res._recorded.body.stage, 'idempotency');
+    assert.equal(res._recorded.headers['cache-control'], 'no-store');
+    assert.equal(settles, 0); assert.equal(generations, 0);
+    assert.deepEqual(await sb.getIdempotency(key), accepted);
+  });
+}
+
+test("prepared reconciliation failure is retryable and never regenerates", async () => {
+  resetState();
+  const sb = stubScaleBackplane();
+  const key = "user:writer|still-pending";
+  await sb.setIdempotency(key, {
+    key: "still-pending", sessionKey: "sess", userId: "writer", status: "prepared",
+    body: Buffer.from("accepted"), statusCode: 200, headers: {},
+    settlement: { settlementKey: key, ownerId: "writer", lane: "page",
+      settledMilliturns: 100, actualOutputTokens: 100 },
+  });
+  const guard = createTalkIdempotencyGuard({
+    isSpeculativePrepareRequest: () => false, talkIdempotencyEnabled: true,
+    normalizeIdempotencyKey: (v) => String(v || "").trim(),
+    resolveTalkSessionKey: () => "sess", scaleBackplane: sb,
+    reconcilePreparedIdempotency: async () => { throw new Error("still down"); },
+    recordTalkMetric: () => {}, talkIdempotencyTtlMs: 60_000,
+    talkIdempotencyMaxEntries: 256, logger: { log() {}, warn() {} },
+  });
+  const req = stubRequest({ headers: { "Idempotency-Key": "still-pending" }, authUser: { id: "writer" } });
+  const res = stubResponse();
+  let nextCalls = 0;
+  await guard(req, res, () => { nextCalls += 1; });
+  assert.equal(nextCalls, 0);
+  assert.equal(res._recorded.statusCode, 503);
+  assert.equal(res._recorded.body.error, "settlement_pending");
+  assert.equal((await sb.getIdempotency(key)).status, "prepared");
 });
 
 // =====================================================================

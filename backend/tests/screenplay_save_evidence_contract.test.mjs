@@ -48,7 +48,7 @@ if(args.includes("tests")) {
 } else {
  const mode = process.env.SAVE_MODE;
  const skip = mode === "skipped" || (mode === "mac-skipped" && bundle.includes("macos"));
- const total = mode === "zero" ? 0 : (process.env.SCREENPLAY_SAVE_TEST_IDENTIFIER ? 1 : 2);
+ const total = mode === "zero" ? 0 : (process.env.SCREENPLAY_SAVE_TEST_IDENTIFIER ? 1 : 3);
  console.log(JSON.stringify({totalTestCount:total,passedTests:skip?0:total,failedTests:0,skippedTests:skip?total:0}));
 }
 `);
@@ -100,10 +100,11 @@ test("[save-evidence] an explicit single selection requires exactly one result p
   for(const args of invocations) assert.deepEqual(args.filter(x => x.startsWith("-only-testing:")), ["-only-testing:" + identifier]);
 });
 
-test("[save-evidence] the original iPhone-only gate validates its actual two-case summary", t => {
+test("[save-evidence] the iPhone-only gate validates its actual three-case summary", t => {
   const {result, invocations} = fixture(t).run("pass", "", "0");
   assert.equal(result.status, 0, result.stderr);
   assert.equal(invocations.length, 1);
+  assert.equal(invocations[0].filter(x => x.startsWith("-only-testing:")).length, 3);
   assert.match(result.stdout, /"targets":\s*\[\s*"iPhone"\s*\]/);
 });
 

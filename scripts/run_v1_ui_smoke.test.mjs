@@ -224,7 +224,7 @@ test("[v1-ui-smoke] rejects conflicting selectors and malformed inventories befo
   assert.ok(!callOrder.includes("xcodebuild"));
 });
 
-test("[v1-ui-smoke] hosted UI and voice failures remain required with retained bundles", () => {
+test("[v1-ui-smoke] hosted smoke failures remain required and retain result bundles", () => {
   const workflow = fs.readFileSync(path.join(repoRoot, ".github/workflows/quality-gate.yml"), "utf8");
   for (const name of ["Run iOS V1 UI smoke tests (required)", "Run iPhone voice-fault smoke and macOS scaffold build (required)"]) {
     const block = workflow.split(`- name: ${name}`)[1]?.split("- name:")[0];

@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import DraftStudio
 
 extension ScreenplayStudioScreen {
     enum PromptRoutingMode: String, CaseIterable, Identifiable {
@@ -20,6 +21,7 @@ extension ScreenplayStudioScreen {
 
     enum StudioPromptIntent: String, CaseIterable, Identifiable {
         case advice
+        case write
         case rewrite
         case voicePin
 
@@ -28,6 +30,7 @@ extension ScreenplayStudioScreen {
         var title: String {
             switch self {
             case .advice: return "Advice"
+            case .write: return "Write"
             case .rewrite: return "Rewrite"
             case .voicePin: return "Voice Pin"
             }
@@ -37,6 +40,8 @@ extension ScreenplayStudioScreen {
             switch self {
             case .advice:
                 return "Intent: Give concise, actionable story advice that directly answers the writer."
+            case .write:
+                return "Intent: Write screenplay-ready material that directly follows the writer's request."
             case .rewrite:
                 return "Intent: Produce screenplay-ready rewritten material that directly answers the writer."
             case .voicePin:
@@ -44,18 +49,36 @@ extension ScreenplayStudioScreen {
             }
         }
 
+        var placeholder: String {
+            switch self {
+            case .advice: return "Ask for guidance or the next move"
+            case .write: return "Describe what you want Clementine to write"
+            case .rewrite: return "Describe the rewrite you want on the page"
+            case .voicePin: return "Pin a note for io.them to hold"
+            }
+        }
+
+        func selectingDestination(_ mode: PromptRoutingMode) -> StudioPromptIntent {
+            switch mode {
+            case .automatic: return .advice
+            case .page: return compatible(routesToPage: true)
+            case .voicePin: return self == .write || self == .rewrite ? .voicePin : self
+            }
+        }
+
         func preparing(_ prompt: String) -> String {
             let cleanPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !cleanPrompt.isEmpty else { return "" }
+            if DraftStudioPageWritePolicy.analyze(cleanPrompt).hadRefusal { return cleanPrompt }
             return "\(promptInstruction)\n\nWriter request: \(cleanPrompt)"
         }
 
         func compatible(routesToPage: Bool) -> StudioPromptIntent {
             if routesToPage {
-                return .rewrite
+                return self == .rewrite ? .rewrite : .write
             }
             switch self {
-            case .rewrite:
+            case .write, .rewrite:
                 return .advice
             case .advice, .voicePin:
                 return self
@@ -684,7 +707,7 @@ enum ScreenplayStudioLiveIntentComposerPlanner {
             return ScreenplayStudioLiveIntentComposerPlan(
                 prompt: prompt,
                 routingMode: .page,
-                intent: .rewrite
+                intent: .write
             )
         case .companionSupport, .reflectiveSupport:
             return ScreenplayStudioLiveIntentComposerPlan(

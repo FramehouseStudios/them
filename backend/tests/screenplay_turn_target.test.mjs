@@ -11,6 +11,24 @@ import {
 
 const { sanitizeStudioTurnMetadata } = await import("../index.js");
 
+test("[screenplay-turn-target] an explicit Home story request needs no existing project", () => {
+  for (const transcript of [
+    'Write a story about two astronauts who discover their ship is a film set.',
+    'Clementine, please write down the story about two astronauts.',
+    'Could you draft a short story about a lost astronaut?',
+  ]) assert.equal(resolveScreenplayTargetFromRequest({ transcript }), 'page', transcript);
+});
+
+test("[screenplay-turn-target] discussing or refusing a story does not authorize pages", () => {
+  for (const transcript of [
+    'How do I write a story about two astronauts?',
+    'Write a premise for a story about two astronauts.',
+    'She says "write a story about two astronauts" and waits.',
+  ]) assert.equal(resolveScreenplayTargetFromRequest({ transcript }), '', transcript);
+  assert.equal(resolveScreenplayTargetFromRequest({ transcript: 'Do not write a story. Just talk about the idea.' }), 'voice_pin');
+  assert.equal(resolveScreenplayTargetFromRequest({ transcript: 'Write a story about astronauts.', screenplay_target: 'voice_pin' }), 'voice_pin');
+});
+
 test("[screenplay-turn-target] infers page target for continuation with live draft context", () => {
   assert.equal(resolveScreenplayTargetFromRequest({
     clientTranscript: "Keep writing from here into the next scene.",

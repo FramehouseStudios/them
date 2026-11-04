@@ -20,6 +20,17 @@ const CRAFT_BLOCK_CLOSE = "</craft>";
 const CLASSIFY_BLOCK_OPEN = "<classify_scene>";
 const CLASSIFY_BLOCK_CLOSE = "</classify_scene>";
 
+// The target-scaled feature map owns page structure when present. Do not
+// append a second, fixed 110-page framework with contradictory act boundaries.
+function shouldAppendCraftContext(systemPrompt) {
+  return !/<(?:craft|feature_film_map)\b/i.test(String(systemPrompt || ""));
+}
+
+function enforceCraftContextPrecedence(systemPrompt) {
+  const text = String(systemPrompt || "");
+  return /<feature_film_map\b/i.test(text) ? text.replace(/<craft\b[^>]*>[\s\S]*?<\/craft>/gi, "").trim() : text;
+}
+
 function compactPageRange(range) {
   if (!range || typeof range !== "object") return "";
   const { start, end } = range;
@@ -151,6 +162,8 @@ function buildClassificationPromptBlock({ framework, scene } = {}) {
 }
 
 export {
+  enforceCraftContextPrecedence,
+  shouldAppendCraftContext,
   buildCraftContextBlock,
   buildClassificationPromptBlock,
   CRAFT_BLOCK_OPEN,

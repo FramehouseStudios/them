@@ -270,9 +270,11 @@ final class MemoriesViewModel: ObservableObject {
     }
 
     func refreshPendingScreenplayQuestion(force: Bool) async {
+        let owner = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
         do {
             let session = try await BackendMemoryAPI.shared.bootstrapSession(force: force)
-            await adoptPendingScreenplayQuestion(session.pendingScreenplayQuestion)
+            try owner.requireCurrentOwner(BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: false))
+            await adoptPendingScreenplayQuestion(session.pendingScreenplayQuestion, initiatingIdentity: owner)
         } catch {
             // Preserve the last known question while the backend reconnects.
         }
@@ -303,10 +305,12 @@ final class MemoriesViewModel: ObservableObject {
     }
 
     private func adoptPendingScreenplayQuestion(
-        _ pending: BackendPendingScreenplayQuestion?
+        _ pending: BackendPendingScreenplayQuestion?,
+        initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
     ) async {
         let queuedQuestionIDs = await OfflineTalkOutbox.shared
             .pendingScreenplayQuestionResolutionIDs()
+        guard (try? owner.requireCurrentOwner(BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: false))) != nil else { return }
         pendingScreenplayQuestion = pending.flatMap { question in
             queuedQuestionIDs.contains(question.id) ? nil : question
         }

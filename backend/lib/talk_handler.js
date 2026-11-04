@@ -27,6 +27,8 @@
 // amendment: it returns the handler; it does not register routes.
 
 import { randomUUID } from "node:crypto";
+import { applyTalkResponseHeaderBudget, setTalkInlineJSONHeader } from "./talk_response_headers.js";
+import { reconcileScreenplayTranscript } from "./screenplay_turn_target.js";
 import {
   createChatSupplier,
   createSttSupplier,
@@ -75,10 +77,18 @@ import {
   isPageCancelledError,
 } from "./clementine/page_abort.js";
 import { createMuseAwareChatSupplier } from "./clementine/muse_provider.js";
-import { isShortFilmBetaEnabled } from "./clementine/short_film_beta.js";
-import { parseShortFilmIntent } from "./clementine/short_film_intent.js";
 import { buildLivePaperPayload } from "./clementine/studio_live_paper.js";
 import { applyClementineTalkHeaders } from "./clementine/talk_clementine_headers.js";
+import { isMentorTurn, elevateChatModelPlanForMentorTurn, mentorSystemPromptMaxChars } from "./mentor_turn.js";
+import {
+  parseStudioCapabilities,
+  buildStudioControlsBlock,
+  buildCoverageReadBlock,
+  extractStudioActions,
+  encodeStudioActionsHeader,
+  HEADER_NAME as STUDIO_ACTIONS_HEADER,
+} from "./studio_actions.js";
+import { resolveCompanionArcsPolicy, applyCompanionArcsPolicy } from "./companion_arcs_policy.js";
 import { composeTalkSystemPrompt } from "./talk_prompt.js";
 import { runTalkGenerate } from "./talk_generate.js";
 
@@ -1803,7 +1813,7 @@ function createTalkHandler(deps) {
       req.body?.screenplay_generation_transcript ?? req.body?.screenplayGenerationTranscript,
       8_000
     );
-    const studioMeta = sanitizeStudioTurnMetadata(req.body || null);
+    let studioMeta = sanitizeStudioTurnMetadata(req.body || null);
     let isScreenplayPageWriteTurn =
       String(studioMeta?.screenplayTarget || "").trim().toLowerCase() === "page";
     const talkTestDebugOfflineScreenplayMode = TALK_TEST_DEBUG_OFFLINE_ENABLED &&
@@ -2033,16 +2043,10 @@ function createTalkHandler(deps) {
         activeSession.memory = await persistTalkMemory(previousMemory, Date.now());
       }
     }
-    // Beta short-film: after STT, if flag on, no target, and transcript parses, promote to page-write (real voice turn)
-    if (
-      isShortFilmBetaEnabled(process.env) &&
-      !String(studioMeta?.screenplayTarget || "").trim() &&
-      parseShortFilmIntent(transcript)
-    ) {
-      studioMeta.screenplayTarget = "page";
-      studioMeta.screenplayPromptSource = "short_film_beta";
-      isScreenplayPageWriteTurn = true;
-    }
+    // Home may have no Studio metadata until ASR identifies the first page ask.
+    studioMeta ??= sanitizeStudioTurnMetadata({ ...req.body, client_transcript: transcript });
+    isScreenplayPageWriteTurn = await reconcileScreenplayTranscript(req, res, studioMeta, transcript);
+    if (res.writableEnded || res.destroyed) return;
     const forcedErrorStageRaw = TALK_TEST_DEBUG_FAILURE_ENABLED
       ? normalizeSnippet(
         req.get("x-debug-force-error") ?? req.body?.debug_force_error ?? req.body?.debugForceError,
@@ -2060,6 +2064,7 @@ function createTalkHandler(deps) {
     }
 
     const customSystemPrompt = normalizeSystemPrompt(req.body?.system_prompt || req.body?.systemPrompt);
+    const studioCapabilities = parseStudioCapabilities(req.body?.studio_capabilities ?? req.body?.studioCapabilities);
     const clientPartialTranscriptHint = normalizeSnippet(
       req.body?.partial_transcript_hint ?? req.body?.partialTranscriptHint,
       320
@@ -2749,19 +2754,28 @@ function createTalkHandler(deps) {
       turnPlanner.emotionToMatch,
     );
     const runtimeStatusSnapshot = deriveBackendRuntimeStatus();
-    const chatModelPlan = selectChatModelForTurn({
-      transcript: talkGenerationTranscript,
-      turnPlanner,
-      flags,
-      routingLane,
-      runtimeStatus: runtimeStatusSnapshot,
+    const screenplayContextActive = Boolean(
+      studioMeta?.screenplayProjectId ||
+      studioMeta?.screenplayTarget ||
+      studioMeta?.screenplayPromptSource
+    );
+    const mentorTurn = isMentorTurn({
+      customSystemPrompt,
       screenplayPageWrite: isScreenplayPageWriteTurn,
-      screenplayContextActive: Boolean(
-        studioMeta?.screenplayProjectId ||
-        studioMeta?.screenplayTarget ||
-        studioMeta?.screenplayPromptSource
-      ),
+      screenplayContextActive,
     });
+    const chatModelPlan = elevateChatModelPlanForMentorTurn(
+      selectChatModelForTurn({
+        transcript: talkGenerationTranscript,
+        turnPlanner,
+        flags,
+        routingLane,
+        runtimeStatus: runtimeStatusSnapshot,
+        screenplayPageWrite: isScreenplayPageWriteTurn,
+        screenplayContextActive,
+      }),
+      { mentorTurn },
+    );
     const boundaryEdgeSignal = deriveBoundaryEdgeSignal({
       transcript,
       memory: sessionMemory,
@@ -3078,7 +3092,7 @@ function createTalkHandler(deps) {
         })
         : null;
       if (committedTurnId) {
-        storeTalkTurnMeta({
+        req.talkTurnMetadata = await storeTalkTurnMeta({
           turnId: committedTurnId,
           sessionId: committedSessionId,
           userId: trustedUserId,
@@ -3151,13 +3165,9 @@ function createTalkHandler(deps) {
       applyCreativeMemoryTraceHeaders(res, req.creativeMemoryTrace);
       applyCanonClarificationHeader(res, creativeMemoryWriteSummary);
       applyTalkScreenplayQualityHeaders(res, talkScreenplayOutput);
-      if (talkScreenplayOutput) {
-        const screenplayOutputJson = JSON.stringify(talkScreenplayOutput);
-        if (screenplayOutputJson.length <= 5000) {
-          res.setHeader("x-screenplay-output", encodeURIComponent(screenplayOutputJson));
-        }
-      }
-      // Studio Live Paper — D009 strangler: project.logline/synopsis/beats/characterContexts via pure helper
+      setTalkInlineJSONHeader(res, "x-screenplay-output", talkScreenplayOutput, 5000);
+      // Legacy debug metadata only. The canonical editor owns live text;
+      // this response has no authoritative complete draft to paginate.
       try {
         const _livePaperSource = (() => {
           // Prefer merged studioMeta + memory project if available
@@ -3173,68 +3183,23 @@ function createTalkHandler(deps) {
           };
         })();
         const _livePaper = buildLivePaperPayload(_livePaperSource);
-        // Embed into output for Bridge fallback (non-breaking)
-        if (talkScreenplayOutput && typeof talkScreenplayOutput === "object" && !_livePaper.__embedded) {
-          talkScreenplayOutput.livePaper = _livePaper;
-        }
         const _livePaperJson = JSON.stringify(_livePaper);
         if (_livePaperJson.length <= 8000) {
           res.setHeader("x-live-paper", encodeURIComponent(_livePaperJson));
-          // Also keep per-field headers for lightweight clients (Bridge can use either)
+          // Preserve legacy metadata headers, not a second editor/state owner.
           if (_livePaper.logline) res.setHeader("x-live-paper-logline", encodeURIComponent(_livePaper.logline.slice(0, 500)));
           if (_livePaper.synopsis) res.setHeader("x-live-paper-synopsis", encodeURIComponent(_livePaper.synopsis.slice(0, 2000)));
           if (_livePaper.beats40) try { res.setHeader("x-live-paper-beats40", encodeURIComponent(JSON.stringify(_livePaper.beats40).slice(0, 4000))); } catch {}
           if (_livePaper.beatCount) res.setHeader("x-live-paper-beat-count", String(_livePaper.beatCount));
         }
         res.setHeader("x-live-paper-available", "1");
+        res.setHeader("x-live-paper-pagination-available", _livePaper.paginationAvailable ? "1" : "0");
       } catch (_) {
         try { res.setHeader("x-live-paper-available", "0"); } catch (_) {}
+        try { res.setHeader("x-live-paper-pagination-available", "0"); } catch (_) {}
       }
-      // Studio Live Paper — D009 strangler: project.logline/synopsis/beats/characterContexts via pure helper
-      try {
-        const _livePaperSource = (() => {
-          // Prefer merged studioMeta + memory project if available
-          const base = typeof studioMeta === "object" && studioMeta ? studioMeta : {};
-          const mem = (typeof memoryProject !== "undefined" && memoryProject && typeof memoryProject === "object") ? memoryProject : {};
-          // Also check creativeMemoryTrace project memory
-          const traceMem = (typeof creativeMemoryTrace !== "undefined" && creativeMemoryTrace?.screenplay_project_memory) ? creativeMemoryTrace.screenplay_project_memory : {};
-          return {
-            logline: base.screenplayLogline ?? base.logline ?? mem.logline ?? traceMem.logline ?? "",
-            synopsis: base.screenplaySynopsis ?? base.synopsis ?? mem.synopsis ?? traceMem.synopsis ?? "",
-            beats: base.screenplayBeatSequence ?? base.beats ?? mem.beats ?? mem.beatSequence ?? traceMem.beats ?? [],
-            characterContexts: base.screenplayCharacterContexts ?? base.characterContexts ?? mem.characterContexts ?? traceMem.characterContexts ?? base.character_contexts ?? {},
-          };
-        })();
-        const _livePaper = buildLivePaperPayload(_livePaperSource);
-        // Embed into output for Bridge fallback (non-breaking)
-        if (talkScreenplayOutput && typeof talkScreenplayOutput === "object" && !_livePaper.__embedded) {
-          talkScreenplayOutput.livePaper = _livePaper;
-        }
-        const _livePaperJson = JSON.stringify(_livePaper);
-        if (_livePaperJson.length <= 8000) {
-          res.setHeader("x-live-paper", encodeURIComponent(_livePaperJson));
-          // Also keep per-field headers for lightweight clients (Bridge can use either)
-          if (_livePaper.logline) res.setHeader("x-live-paper-logline", encodeURIComponent(_livePaper.logline.slice(0, 500)));
-          if (_livePaper.synopsis) res.setHeader("x-live-paper-synopsis", encodeURIComponent(_livePaper.synopsis.slice(0, 2000)));
-          if (_livePaper.beats40) try { res.setHeader("x-live-paper-beats40", encodeURIComponent(JSON.stringify(_livePaper.beats40).slice(0, 4000))); } catch {}
-          if (_livePaper.beatCount) res.setHeader("x-live-paper-beat-count", String(_livePaper.beatCount));
-        }
-        res.setHeader("x-live-paper-available", "1");
-      } catch (_) {
-        try { res.setHeader("x-live-paper-available", "0"); } catch (_) {}
-      }
-      if (Array.isArray(talkScreenplayCues) && talkScreenplayCues.length) {
-        const screenplayCuesJson = JSON.stringify(talkScreenplayCues);
-        if (screenplayCuesJson.length <= 5000) {
-          res.setHeader("x-screenplay-cues", encodeURIComponent(screenplayCuesJson));
-        }
-      }
-      if (talkDialogueTimeline) {
-        const dialogueTimelineJson = JSON.stringify(talkDialogueTimeline);
-        if (dialogueTimelineJson.length <= 12000) {
-          res.setHeader("x-dialogue-timeline", encodeURIComponent(dialogueTimelineJson));
-        }
-      }
+      setTalkInlineJSONHeader(res, "x-screenplay-cues", talkScreenplayCues, 5000);
+      setTalkInlineJSONHeader(res, "x-dialogue-timeline", talkDialogueTimeline, 12000);
       // Clementine headers: x-suggestion / x-uncertainty / x-collab-cursor (D009, no index.js growth)
       try {
         const _clemProject = (typeof memoryProject !== "undefined" && memoryProject && typeof memoryProject === "object") ? memoryProject : (typeof studioMeta === "object" && studioMeta ? studioMeta : {});
@@ -3242,10 +3207,10 @@ function createTalkHandler(deps) {
         const _clemParsed = (typeof shortFilmParsed !== "undefined" ? shortFilmParsed : null) || null;
         const _clemQuality = talkScreenplayOutput?.quality || null;
         const _clemCursor = req.body?.collabCursor ?? req.body?.collab_cursor ?? null;
-        const _clemOwnerKey = String(req.authUser?.id || req.userId || req.body?.ownerKey || "") || (typeof ownerKey !== "undefined" ? String(ownerKey) : "");
-        applyClementineTalkHeaders(res, { project: _clemProject, draft: _clemDraft, parsed: _clemParsed, quality: _clemQuality, collabCursor: _clemCursor, ownerKey: _clemOwnerKey });
+        applyClementineTalkHeaders(res, { project: _clemProject, draft: _clemDraft, parsed: _clemParsed, quality: _clemQuality, collabCursor: _clemCursor, ownerKey: trustedUserId });
       } catch (_) {}
-      commitTalkIdempotencySuccess(req, {
+      applyTalkResponseHeaderBudget(res);
+      await commitTalkIdempotencySuccess(req, {
         statusCode: 200,
         headers: captureTalkResponseHeaders(res),
         body: audioBuffer,
@@ -3317,6 +3282,7 @@ function createTalkHandler(deps) {
     const presetBoundSystem = appendDirectorAddendum(personaBoundSystem, presetGuidance);
     const systemBaseRaw = withOutputContract(presetBoundSystem, {
       screenplayPageWrite: isScreenplayPageWriteTurn,
+      mentorTurn,
     });
     // T08: augment with per-user creative memory when present (no-op for cold users).
     const systemBaseWithMemory = await wrapSystemPromptWithCreativeMemory(systemBaseRaw, req, {
@@ -3337,7 +3303,9 @@ function createTalkHandler(deps) {
     // craft-context block describing the active framework (and, when
     // available, the user's coverage state). Cheap and additive: the
     // LLM gets structural awareness without changing any other path.
-    const systemBase = isScreenplayPageWriteTurn
+    // Mentor turns get it too, so structure talk cites the same beats and
+    // page targets the page writer works from.
+    const systemBase = (isScreenplayPageWriteTurn || mentorTurn)
       ? appendCraftContextToSystem(systemBaseWithMemory, { req })
       : systemBaseWithMemory;
     const assistantSelfNameAddendum = `
@@ -3905,17 +3873,17 @@ GUIDANCE:
 ${directorOutputRule}
 `.trim();
     }
+    const studioControlsEnabled = studioCapabilities.enabled && (mentorTurn || screenplayContextActive) && !isScreenplayPageWriteTurn;
+    if (studioControlsEnabled) {
+      directorAddendum = appendDirectorAddendum(directorAddendum, buildStudioControlsBlock(studioCapabilities));
+      const coverageReadBlock = buildCoverageReadBlock(studioCapabilities);
+      if (coverageReadBlock) directorAddendum = appendDirectorAddendum(directorAddendum, coverageReadBlock);
+    }
 
     // ---- talk_prompt stage: compose system prompt ----
-    const { rawSystem, system } = composeTalkSystemPrompt({
-      systemBase,
-      appendDirectorAddendum,
-      fitSystemPromptForTurnLatency,
-      turnPlanner,
-      flags,
-      routingLane,
-      chatModelPlan,
-      addenda: {
+    const companionArcsPolicy = resolveCompanionArcsPolicy();
+    const companionArcs = applyCompanionArcsPolicy(
+      {
         assistantSelfNameAddendum,
         humanStyleAddendum,
         therapeuticDepthAddendum,
@@ -3937,11 +3905,28 @@ ${directorOutputRule}
         melancholySeedAddendum,
         directorAddendum,
       },
+      companionArcsPolicy,
+    );
+    if (companionArcs.dropped.length) {
+      logger.log(
+        `[${rid}] companion_arcs=off mentor_turn=${mentorTurn ? 1 : 0} dropped=${companionArcs.dropped.join(",")}`
+      );
+    }
+    const { rawSystem, system } = composeTalkSystemPrompt({
+      systemBase,
+      appendDirectorAddendum,
+      fitSystemPromptForTurnLatency,
+      turnPlanner,
+      flags,
+      routingLane,
+      chatModelPlan,
+      addenda: companionArcs.addenda,
+      richMaxChars: mentorTurn ? mentorSystemPromptMaxChars() : undefined,
     });
     if (process.env.NODE_ENV !== "production" && rawSystem.length !== system.length) {
       logger.log(
         `[${rid}] system_trim chars=${rawSystem.length}->${system.length} ` +
-        `budget_fast=${FAST_TURN_SYSTEM_PROMPT_MAX_CHARS} budget_rich=${RICH_TURN_SYSTEM_PROMPT_MAX_CHARS} tier=${chatModelPlan.tier}`
+        `budget_fast=${FAST_TURN_SYSTEM_PROMPT_MAX_CHARS} budget_rich=${mentorTurn ? mentorSystemPromptMaxChars() : RICH_TURN_SYSTEM_PROMPT_MAX_CHARS} tier=${chatModelPlan.tier} mentor=${mentorTurn ? 1 : 0}`
       );
     }
     const screenplayRequestedPages = isScreenplayPageWriteTurn
@@ -3977,7 +3962,7 @@ ${directorOutputRule}
 
     try {
       logger.log(
-      `[${rid}] chat_system=${customSystemPrompt ? "client" : "default"} chars=${system.length} ` +
+      `[${rid}] chat_system=${customSystemPrompt ? "client" : "default"} mentor_turn=${mentorTurn ? 1 : 0} chars=${system.length} ` +
         `preset=${activePreset} ` +
         `self_name=${assistantSelfName} ` +
         `chat_tokens=${chatMaxTokens} ` +
@@ -4160,6 +4145,15 @@ ${directorOutputRule}
       flags,
     });
     let reply = normalizeSnippet(rawReply, 8_000);
+    // Studio actions: strip [[studio: …]] tags before anything is spoken and
+    // keep the validated actions for the response header.
+    const studioActionExtraction = extractStudioActions(reply, studioCapabilities, { allowActions: studioControlsEnabled });
+    if (studioActionExtraction.stripped || studioActionExtraction.actions.length) {
+      reply = studioActionExtraction.spokenText;
+      logger.log(
+        `[${rid}] studio_actions_count=${studioActionExtraction.actions.length} rejected_count=${studioActionExtraction.rejected.length}`
+      );
+    }
     let replyRepaired = false;
     let heuristicTurnQuality = null;
     if (speculativeReuseApplied) {
@@ -5049,18 +5043,8 @@ ${directorOutputRule}
     applyCanonClarificationHeader(res, creativeMemoryWriteSummary);
     applyTalkScreenplayQualityHeaders(res, talkScreenplayOutput);
     applyTalkScreenplayRepairHeaders(res, talkScreenplayRepairTrace);
-    if (talkScreenplayOutput) {
-      const screenplayOutputJson = JSON.stringify(talkScreenplayOutput);
-      if (screenplayOutputJson.length <= 5000) {
-        res.setHeader("x-screenplay-output", encodeURIComponent(screenplayOutputJson));
-      }
-    }
-    if (Array.isArray(talkScreenplayCues) && talkScreenplayCues.length) {
-      const screenplayCuesJson = JSON.stringify(talkScreenplayCues);
-      if (screenplayCuesJson.length <= 5000) {
-        res.setHeader("x-screenplay-cues", encodeURIComponent(screenplayCuesJson));
-      }
-    }
+    setTalkInlineJSONHeader(res, "x-screenplay-output", talkScreenplayOutput, 5000);
+    setTalkInlineJSONHeader(res, "x-screenplay-cues", talkScreenplayCues, 5000);
     // Clementine headers: x-suggestion / x-uncertainty / x-collab-cursor + presence/voice (D009, no index.js growth)
     try {
       const _clemProject2 = (typeof memoryProject !== "undefined" && memoryProject && typeof memoryProject === "object") ? memoryProject : (typeof studioMeta === "object" && studioMeta ? studioMeta : {});
@@ -5068,9 +5052,12 @@ ${directorOutputRule}
       const _clemParsed2 = (typeof shortFilmParsed !== "undefined" ? shortFilmParsed : null) || null;
       const _clemQuality2 = talkScreenplayOutput?.quality || null;
       const _clemCursor2 = req.body?.collabCursor ?? req.body?.collab_cursor ?? null;
-      const _clemOwnerKey2 = String(req.authUser?.id || req.userId || req.body?.ownerKey || "") || (typeof ownerKey !== "undefined" ? String(ownerKey) : "");
-      applyClementineTalkHeaders(res, { project: _clemProject2, draft: _clemDraft2, parsed: _clemParsed2, quality: _clemQuality2, collabCursor: _clemCursor2, ownerKey: _clemOwnerKey2 });
+      applyClementineTalkHeaders(res, { project: _clemProject2, draft: _clemDraft2, parsed: _clemParsed2, quality: _clemQuality2, collabCursor: _clemCursor2, ownerKey: trustedUserId });
     } catch (_) {}
+    const studioActionsHeader = encodeStudioActionsHeader(studioActionExtraction?.actions);
+    if (studioActionsHeader) {
+      res.setHeader(STUDIO_ACTIONS_HEADER, studioActionsHeader);
+    }
     res.setHeader("x-reply-repaired", replyRepaired ? "1" : "0");
     res.setHeader("x-tts-provider", encodeURIComponent(ttsProviderUsed));
     res.setHeader(
@@ -5109,14 +5096,9 @@ ${directorOutputRule}
         studioMeta,
       })
       : null;
-    if (talkDialogueTimeline) {
-      const dialogueTimelineJson = JSON.stringify(talkDialogueTimeline);
-      if (dialogueTimelineJson.length <= 12000) {
-        res.setHeader("x-dialogue-timeline", encodeURIComponent(dialogueTimelineJson));
-      }
-    }
+    setTalkInlineJSONHeader(res, "x-dialogue-timeline", talkDialogueTimeline, 12000);
     if (committedTurnId) {
-        storeTalkTurnMeta({
+        req.talkTurnMetadata = await storeTalkTurnMeta({
           turnId: committedTurnId,
           sessionId: committedSessionId,
           userId: trustedUserId,
@@ -5225,7 +5207,8 @@ ${directorOutputRule}
         "Server-Timing",
         `stt;dur=${Math.max(0, sttMs)}, llm;dur=${Math.max(0, chatMs)}, repair;dur=${Math.max(0, Math.round(Number(talkScreenplayRepairTrace.elapsedMs || 0) + Number(structuralQualityTrace.elapsedMs || 0)))}, tts;dur=${Math.max(0, ttsMs)}, total;dur=${Math.max(0, total_ms)}`
       );
-      commitTalkIdempotencySuccess(req, {
+      applyTalkResponseHeaderBudget(res);
+      await commitTalkIdempotencySuccess(req, {
         statusCode: 200,
         headers: captureTalkResponseHeaders(res),
         body: streamedAudioBuffer,
@@ -5362,7 +5345,8 @@ ${directorOutputRule}
       "Server-Timing",
       `stt;dur=${Math.max(0, sttMs)}, llm;dur=${Math.max(0, chatMs)}, repair;dur=${Math.max(0, Math.round(Number(talkScreenplayRepairTrace.elapsedMs || 0) + Number(structuralQualityTrace.elapsedMs || 0)))}, tts;dur=${Math.max(0, ttsMs)}, total;dur=${Math.max(0, total_ms)}`
     );
-    commitTalkIdempotencySuccess(req, {
+    applyTalkResponseHeaderBudget(res);
+    await commitTalkIdempotencySuccess(req, {
       statusCode: 200,
       headers: captureTalkResponseHeaders(res),
       body: audioBuffer,
@@ -5565,7 +5549,8 @@ ${directorOutputRule}
           res.setHeader("x-backend-build", BACKEND_BUILD);
           res.setHeader("x-backend-boot-id", BACKEND_BOOT_ID);
           res.setHeader("Content-Length", String(recoveryAudio.length));
-          commitTalkIdempotencySuccess(req, {
+          applyTalkResponseHeaderBudget(res);
+          await commitTalkIdempotencySuccess(req, {
             statusCode: 200,
             headers: captureTalkResponseHeaders(res),
             body: recoveryAudio,

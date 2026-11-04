@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { paginateVisualDraft, buildVisualPaperPayload, exportVisualFDX, LINES_PER_PAGE } from "../lib/clementine/visual_pagination.js";
 import { paginateFountainDraft } from "../lib/clementine/page_flip.js";
 
-test("LINES_PER_PAGE is 55 and wraps paginateFountainDraft", () => {
-  assert.equal(LINES_PER_PAGE, 55);
+test("default is the canonical 54; explicit preview density remains supported", () => {
+  assert.equal(LINES_PER_PAGE, 54);
   // wrapping: for plain line-count input without headings, both respect 55
   const draft = Array.from({length: 120}, (_,i)=>`Line ${i+1}`).join("\n");
   const plain = paginateFountainDraft(draft, { linesPerPage: 55 });
@@ -13,6 +13,7 @@ test("LINES_PER_PAGE is 55 and wraps paginateFountainDraft", () => {
   assert.ok(visual.length >= 2);
   // visual respects 55 line budget (element-aware still within 55)
   assert.equal(plain.length, 3); // 120/55 = 3 pages
+  assert.deepEqual(plain, visual);
 });
 
 test("element-aware: character+dialogue block not split across pages", () => {
@@ -20,6 +21,7 @@ test("element-aware: character+dialogue block not split across pages", () => {
   const lines = [];
   // Fill page to 54 lines
   for (let i=0;i<54;i++) lines.push(`Action line ${i+1}`);
+  lines.push(""); // A Fountain cue starts a new block, not inline action.
   // Next element is a character block (3 lines) that should move to next page
   lines.push("JUNE");
   lines.push("(whispering)");
@@ -53,7 +55,7 @@ test("heading-aware pagination produces flip-through pages", () => {
 test("buildVisualPaperPayload wraps paginate with 55 lines and flip payload", () => {
   const draft = ["INT. A - DAY","act","INT. B - DAY","act","INT. C - DAY","act"].join("\n\n");
   const payload = buildVisualPaperPayload({ project:{id:"p1", logline:"Logline"}, draft, currentPage:1 });
-  assert.equal(payload.linesPerPage, 55);
+  assert.equal(payload.linesPerPage, 54);
   assert.ok(payload.totalPages >= 1);
   assert.equal(payload.currentPage, 1);
   assert.ok(Array.isArray(payload.pages));

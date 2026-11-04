@@ -5,6 +5,1751 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1202 — Restore pending manual saves and exact queued recovery
+
+- **Owner:** Codex (Jarvis), with bounded independent review in actual chat
+  `ZORA - THEM`. **Status:** in-progress on `codex/T-1202-required-writer-save`,
+  published #976 base36f07be. Original heads/history remain preserved.
+- **Fixed locally:** lost pending manual-save handoff, canonical durable save
+  ID, pre-await flight ownership, queued document identity restoration, retained
+  conflicts, queued anchors/bindings authority, timestamp-only binding churn,
+  consumed pending-slot replay and duplicate passive screenplay versions.
+- **Current proof:** signed focused57/0/0; authenticated recovery UI3/0/0
+  (reconnect, real auth refresh, Keep Mine); macOS scaffold build, D009 and
+  diff checks pass. Full1126/0/0 was an earlier checkpoint before final
+  projection refinements; no current broad claim is inherited. All previous
+  red/initialization results remain in the report and private proof archive.
+- **Scope discipline:** no paid calls, new backend/framework, main mutation,
+  original-head rewrite, GitHub advancement or production change. Screen and
+  Bridge shrink; orb/Clementine/aesthetic are preserved. Zora's separate
+  T1201 f826edd remains frozen and not integrated/native-proven.
+- **Next:** exact explicit Load Server retirement and late-request authority,
+  then full current publication gates before normal #976 advancement.
+- **Evidence and exact files:** `docs/required-writer-save-handoff-2026-10-28.md`.
+
+### T-1199 — Keep integrity actions readable on the narrow page
+
+- **Owner:** Codex (Jarvis), bounded Codex source handoff preserved.
+- **Status:** review on `codex/T-1199-integrity-banner-integration`,
+  base published36f07be (#976); original helper12014d0 preserved byfe1f68f.
+- **Root:** banner summary and four text actions shared one forced horizontal
+  row; labels compressed to vertical columns and pushed the page away.
+- **Fix:** existing ViewThatFits pattern, summary above actions, one/two rows
+  then column; same callbacks, colors and inspector IDs,44pt minimum targets.
+- **Binary:** actual narrow screenshot is readable, all four actions hittable,
+  nonoverlapping and contained; Review opens Draft inspector; underlying saved
+  bytes, relaunch and stale-reply custody still pass the existing A/B workflow.
+- **Proof:** signed narrow UI1/0/0 at3c82b91, including four reachable
+  contained/nonoverlapping44pt actions, real Review, exact save/relaunch and
+  stale-response recovery. Initial0/1/0 exposed parent identifier propagation;
+  existing accessibility containment pattern fixed it without weakening checks.
+  Screenshot inspected: readable two-row actions. Mac scaffold build passed; no
+  paid calls, main/original-head mutation or production change. No unchanged
+  full-unit/backend rerun for this view fix.
+- **Evidence:** `docs/integrity-banner-narrow-proof-2026-10-28.md` and original
+  `docs/T1199-integrity-banner-layout-handoff.md`.
+
+### T-1187 — Fence Studio publication and settle the original render
+
+- **Owner:** Codex (Jarvis). **Status:** review on
+  `codex/T-1187-studio-publication-owner`, base published `abeed0d`.
+- **Scope:** original request/document/auth/backend guards through Root typed
+  callbacks/final/catch/defer, Screen seed/history cleanup and internal deferred
+  commit/annotation waits. Reuse fingerprint/date and perceived-speed leases;
+  dispatch-only cleanup must not strand busy state after a document switch.
+  Voice render callbacks/callers need their own existing operation lease too.
+- **Binary:** release held A after Stop, B selection or a same-text new request;
+  B remains exact, A's accepted result remains recoverable without generation.
+  Normal typed page/pin publication saves/restores and retires only its own
+  confirmed render, without fabricating audio delivery. No new Root @State/store.
+- **Hold:** main/original PRs/production/paid models remain unchanged.
+- **Current evidence:** exact runtime32b5b967 signed units1107/0/0;
+  Node20 backend3011/0/5 on identical backend source (four unavailable Postgres
+  integrations and one explicit skip). Final09af155 delayed project-switch
+  and Stop/resubmit UI2/0/0 proves exact active saved versions, all original
+  bytes, full relaunch restore and retained read-only stale response, with
+  exactly two render requests per case and zero foreign character hints.
+  Providers intercepted; no live-model/microphone/phone claim. Final raw voice1/0/0 and isolated writer/save/export/restore1/0/0;
+  final macOS scaffold compile passed. Mixed normal batch1/1/0 exposed shared
+  funded-account contamination; runner now rejects that invalid combination. All14 original helper heads
+  preserved,42 code files match source. D009 passes against parent and main.
+  Visual screenshots expose a separate integrity-banner vertical-button layout
+  bug; next scoped fix, alongside duplicate keyboard Send. Full failed attempts
+  and corrected 1000-character test-snapshot assumption remain in the report.
+- **Evidence:** `docs/studio-publication-ownership-2026-10-27.md`.
+  Permanent `_proof/T-1187-publication-20261028-fdn4tsuo`:32626 hashed artifacts,
+  zero mismatches. Runtime checkpointcbe07fa; original source history preserved.
+
+### T-1185 — Keep accepted Studio render output before consumer fencing
+
+- **Owner:** Codex (Jarvis), Zora bounded review and T1186 source handoff.
+  **Branch:** `codex/T-1185-render-custody`; **Base:** published91ed7eb.
+- **Scope:** canonical JSON/SSE render clients → existing outbox → scoped
+  received-text review/export. No parallel store, automatic render replay,
+  fake speech receipt, original PR change, main merge, deployment or paid call.
+- **Binary:** normal JSON/done output is kept before return; a rendered partial
+  is kept before its callback; cancellation/read/decode/unconfirmed failures do
+  not start another generation; malformed done cannot approve accumulated text;
+  damaged pending index cannot replay render; review never mutates the page.
+- **Status:** review (transport/recovery phase only). Signed full checkpoint VERIFIED1050/0/0. Initial
+  focus63/1/0 exposed nondeterministic fixture JSON key order (fixed by stable
+  served bytes). Boundary focus77/2/0 exposed fixture assumptions about data
+  delivered before failure/cancellation; causal observed-chunk tests now pin
+  exact retention, and API tests honestly allow transport-unavailable bytes.
+  Local authenticated render review/relaunch + normal voice/page/save/restore
+  UI VERIFIED2/0/0. macOS scaffold build exit0; D009/diff/syntax pass.
+  Sixteen frozen source files identify the tested checkpoint; archive/publication
+  and the preserved helper parents are recorded in the report below.
+- **Preserve:** original T1186 commits5663be2/ff3eb5d, no squash/replacement.
+- **Not complete:** Root/Screen document+request fencing, internal deferred
+  metadata leases and normal render settlement remain the next integration step.
+  Current custody records stay available for review; no shipping-ready claim.
+- **Evidence:** `docs/render-response-custody-2026-10-27.md`.
+  Runtime7a48dd8 plus identical-tree preserving mergeaee2941 keeps original
+  helper5663be2/ff3eb5d. Permanent `_proof/T-1185-render-20261027-ykdls6gm`:
+  6084 hashed artifacts/zero mismatches,16 committed source matches. Manifest
+  `aeec7e6a138fe51732ee5fa80f16dcba73111c41cde0cac882f310c15824cab8`.
+
+### T-1186 — Read retained Studio responses without manufacturing audio
+
+- **Owner:** Codex (Zora); isolated `codex/T-1186-render-review`, base91ed7eb.
+- **Files:** OfflineStudioRenderRecovery, parser tests, OfflineTalkReplyReview.
+- **Status:** review. Original5663be2/ff3eb5d preserved in7a48dd8/aee2941;
+  native UNRUN by helper assignment, run by Jarvis on combined source.
+  Combined signed1050/0/0 includes fourteen parser cases; actual local UI2/0/0.
+  Read/select/export only; partial/malformed/rejected output never claims page
+  quality confirmation. Actual UI proof and preserving integration owned by Jarvis.
+
+### T-1184 — Bind live settlement to immutable save evidence
+
+- **Owner:** Codex (Zora), bounded implementation delegated by Jarvis.
+  **Branch:** `codex/T-1184-save-evidence`.
+  **Base:** `f588fb8df59f2b3fa74388b904635c498eab6ebc`.
+- **Scope:** existing save request/outbox provenance, validated ordinary/readback/
+  initial acknowledgement evidence, actual HTTP response origin and pre-dispatch
+  backend fencing. No new save store, live actor implementation or recovery UI.
+- **Binary:** old A saves retain A's original document/backend across retry and
+  coalescing; incomplete/wrong-origin/wrong-owner echo cannot settle live work;
+  exact server evidence reaches the canonical outbox before queue removal.
+- **Status:** combined source verified by Jarvis, including the actor consumer.
+  Signed full native checkpoint1022/0/0 includes the sixteen save-evidence cases.
+  Original helper5457b7e is preserved as a parent of no-ff merge65f56b4;
+  final frozen-source1022/0/0 and publication are recorded in the T1182 report.
+- **Handoff:** `docs/save-evidence-provenance-2026-10-27.md`.
+  Integration: `docs/live-reply-settlement-2026-10-27.md`.
+  No main/original PR-head change, provider call or deployment.
+
+### T-1183 — Keep draft-save completion with its original project
+
+- **Owner:** Codex (Zora), bounded implementation delegated by Jarvis.
+  **Branch:** `codex/T-1183-save-completion-owner`.
+  **Base:** `18d27c37142daf1ef95e4616257e722b1e8fd547`.
+- **Scope:** canonical VM version-save acknowledgement, UI completion lease,
+  pending-save coalescing and deterministic held URLSession regression cases.
+  Existing T1122 save code was inspected; it still uses Bool completion/global
+  latestVersionID and does not supply this repair. No live-reply settlement wiring.
+- **Binary:** releasing A success/conflict/failure after selection B cannot
+  change B's selected project, exact text, base or recovery. A acknowledges its
+  own queue; pending A uses A's acknowledged base; pending B retains B's base.
+- **Status:** integrated with original commits400e1927/312a0d08 preserved in
+  merge f642023. Signed full native checkpoint VERIFIED979/0/0, including six
+  held-save cases; local VM/HTTP/storage proof, not authenticated live-phone
+  proof. Details: `docs/save-completion-owner-2026-10-27.md`.
+- **Next:** finish T1182 delivery/settlement on the combined tree. Main, original
+  PR heads, production, credentials and provider calls remain untouched.
+
+### T-1182 — Keep accepted live replies with their initiating writer
+
+- **Owner:** Codex (Jarvis); Zora bounded review and isolated T1183 implementation.
+  **Branch:** `codex/T-1182-live-reply-custody`. **Base:** published48311abe.
+- **Outcome:** exact accepted response custody in the existing outbox before
+  live owner/publication rejection; one initiating account/origin/document/turn
+  owns delivery and finalization. No silent loss, wrong-page publication or
+  generation retry of an accepted result. Preserve normal writing and recovery.
+- **Implementation sequence:** parked live admission/received-blob receipt;
+  actual client capture before cancellation/decode/metadata lookup; Root owner
+  checks and genuine delivery settlement, then runtime failure/relaunch proof.
+  An unused storage API or blind drop guard does not finish this task.
+- **Constraints:** canonical stores/auth/metadata paths only, no new framework
+  or Root product state; original/main/production held, no paid calls. Body-write
+  failure and response-size limits must be reported honestly, not hidden by a
+  successful receipt. Admission failure prevents generation.
+- **Binary success:** held accepted200 A→B/project switch never publishes in B;
+  original A recovers exact response/available screenplay after relaunch with
+  zero new generation. Index failure recovers the accepted blob; duplicate/
+  conflicting completion cannot overwrite custody or page-delivery evidence.
+  Delivered normal replies settle only on real delivery/save evidence.
+- **Status:** in-progress. Storage boundary VERIFIED39/0/0; document-origin
+  and transport checkpoint VERIFIED114/0/0 after correcting three fixture
+  failures (initial109/3/0). Final signed units VERIFIED944/0/0, including
+  real debounce persistence for composition-only Unicode edits. Interim942
+  and raw writer UI1/0/0 precede final byte/error guards; final exact-tree raw
+  writer UI VERIFIED1/0/0, Mac scaffold build exit0, D009/diff pass.
+  No paid calls. These full-checkpoint counts precede the continuation below.
+  Empty edits retain origin; accepted equal-byte/unbound hydration adopts
+  explicit provenance; old attached editors cannot mirror over the new one.
+  Success/failure continuations share the document/editor lease; both native
+  draft observers and debounce compare exact UTF8 rather than String equality.
+  Root/account/project delivery and physical phone remain unproven.
+- **Evidence:** `docs/live-talk-custody-2026-10-27.md`. Do not mark complete
+  or publish this as finished live recovery until actual accepted-response
+  capture, owner-bound delivery and genuine settlement are connected.
+  Permanent proof `_proof/T-1182-20261027.s0vot0ef`:9654 hashed files/zero
+  mismatches. All native jobs terminal; temporary dependency link removed.
+- **Current continuation:** working-tree client integration captures the owner
+  before waits, admits one immutable multipart request, retains HTTP200 before
+  cancellation/decode, repairs metadata under its original bearer and returns
+  the current receipt. Accepted decoder failures cannot trigger generation.
+  Explicit rejection/cancellation retires only unaccepted admissions; accepted
+  write failures remain held even when cancellation races. Actual-client
+  synthetic HTTP regressions VERIFIED40/0/0, then v4/local-decoder integration
+  VERIFIED46/0/0. Root voice publication now retains its document/backend lease;
+  metadata/result context reaches native standard/reveal-prepare insertion and
+  immediate fallback. Native mutation waits for the existing outbox's exact
+  intention, rechecks ownership after disk completion and refuses changed text.
+  Initial new native check49/9/0 exposed six missing fixture-auth cases, two
+  generated isolated-deinit crashes and a post-restart host error; corrected
+  authenticated fixture/stateless nonisolated teardown VERIFIED58/0/0. D009
+  passes versus T1181 parent: Root14930 unchanged, bridge12784→12781.
+  No unchanged broad reruns. Typed/render routing, recovery finish modes and
+  normal receipt settlement remain pending; this is not ready for deployment.
+- **Combined/final checkpoint:** Zora commits400e1927/312a0d08 preserved in
+  mergef642023; signed full units VERIFIED979/0/0. Subsequent review found and
+  fixed held fallback writing after Stop and missing ownership falling into
+  legacy nil-context insertion. First focus30/1/0 was an unwaited no-write
+  fixture expectation; corrected final focus VERIFIED42/0/0. Authenticated
+  local raw-audio/page/save/exact-relaunch UI1/0/0 and Stop UI1/0/0; Stop cancels
+  actual Page reservation with HTTP200/dropped1. Mac scaffold build exit0.
+  Synthetic provider responses only, no paid calls. D009 Root14930→14919,
+  bridge12784→12774; diff pass. Backend/scripts unchanged, prior2996/0/5 inherited.
+  Full979 precedes the final focused fixes; no final full-unit rerun claimed.
+  Final runtimebe05f16; permanent `_proof/T-1182-client-native-20261027-g6og7pmv`
+  has6480 hashed files/zero mismatches and17 committed Swift matches. Native
+  jobs terminal; exact temporary dependency link removed, its target preserved.
+- **Connected insertion contract:** preserve real-time reveal through explicit v4
+  live mutation intent in the existing admitted blob before native prepare,
+  including exact before/range/insertion/after/document. Bind it atomically to
+  completed response and enriched metadata receipts. Keep old append recovery
+  strict; never auto-resend a ready live intent or treat it as a completed reply.
+  Normal receipt settlement waits for actual playback or exact saved-version
+  evidence, including unbound initial-project promotion. Root gains no @State.
+- **Settlement/replacement checkpoint (2026-10-27):** immutable actual-server
+  save evidence + successful final playback now settle the existing live record.
+  Recovery applies the recorded replacement, preserves exact surrounding bytes,
+  refuses changed review actions and never replays an already-confirmed save.
+  Fixed premature first-segment completion, the active orb's stopped-as-success
+  assumption, old-player cleanup, and interrupted-goodbye microphone restart.
+  Signed checkpoint1022/0/0; final-runtime normal delivery and legacy append UI
+  passed, corrected raw-byte replacement proof1/0/0, Stop1/0/0 with actual
+  HTTP200/cancelled/dropped1/byReservation. Final frozen-source unit/Mac gates
+  and permanent proof/publication: `docs/live-reply-settlement-2026-10-27.md`.
+  Native/provider fixtures are deterministic; zero paid calls. Backend production
+  unchanged (prior Node20 2996/0/5 inherited, no redundant full backend rerun).
+  **Still in-progress:** typed Studio render/SSE accepted-output custody and
+  original request/document ownership; separate Notes rewrite lease/receipt and
+  recovery-preview player follow-ups. Real-phone/shipping proof remains open.
+- **Saved runtime:** preserving merge65f56b4 includes original helper5457b7e.
+  Final signed1022/0/0, Mac build, four local workflow cases, D009/syntax/diff
+  verified. Permanent `_proof/T-1182-settlement-20261027-rfo70mxj`:12817 hashed
+  files/zero mismatches,25 committed source matches. Manifest SHA256
+  `618b2e63f5cb42c095a4bd535d74268b2d6a8f4971445e40d11043384d7eeaf6`.
+  Normal backup-branch publication only; no original PR/main/deployment change.
+
+### T-1181 — Keep old request cleanup from clearing a replacement turn
+
+- **Owner:** Codex (Jarvis); Zora read-only ownership/custody audit.
+  **Branch:** `codex/T-1181-owning-talk-cleanup`. **Base:** published1fbdd433.
+- **Scope:** shared Root request-finalization ownership through the existing
+  StudioActionDispatcher. Preserve unconditional local-resource cleanup and
+  duplicate-turn behavior. No new product state/framework, paid calls,
+  production changes, original PR advance or main merge.
+- **Binary success:** releasing an old suspended/cancelled voice operation cannot
+  clear a newer voice task/submitting flag/lifecycle callback; the current owner and
+  duplicate-before-admission paths still clean up. Root must not grow.
+- **Status:** review. Native red2/2/0 reproduced shared-state loss on suspended
+  and cancelled old completion. Final signed units917/0/0, Stop1/0/0 with actual
+  authenticated cancellation/dropped1, raw Home/full-page/save/relaunch1/0/0,
+  Mac build exit0, D009 Root-1/others0 and diff pass. No paid calls.
+- **Evidence:** `docs/talk-request-cleanup-2026-10-27.md`. All proof jobs terminal,
+  task dependency link removed. Backend unchanged/full2996/0/5 inherited.
+  Runtime0ce5a30; permanent `_proof/T-1181-20261027.djihoy6m`,
+  4386 hashed files/zero mismatches.
+  This prerequisite does not fix account/project publication, typed ownership,
+  stale catch/result mutations or accepted-response custody. Never drop paid work.
+- **Next contract:** existing outbox needs parked, owner-bound live admission,
+  atomic received-response storage before publication checks, original-owner
+  metadata recovery and genuine delivery settlement. Those paths are not fixed
+  by cleanup ownership and remain part of the full active product goal.
+
+### T-1180 — Fence queued Talk delivery after Stop or turn replacement
+
+- **Owner:** Codex (Jarvis); Zora bounded read-only review.
+  **Branch:** `codex/T-1180-stale-talk-delivery`. **Base:** published e7c3901.
+- **Scope:** existing StudioActionDispatcher and Root metadata/audio/text
+  callback execution and existing playback ownership on Stop, with native
+  deferred-delivery regressions. Keep the
+  existing turn identity and response-forwarding/accepted-custody contracts;
+  no new framework, product state, paid calls, production or original/main move.
+- **Binary success:** callbacks queued before Stop or a replacement turn do
+  not publish previews, metadata or audio afterward; current-turn delivery
+  remains intact. Cancelled delivery tasks do not execute. Reuse
+  the existing turn predicate at actual main-actor execution, not enqueue time.
+- **Reserved:** Jarvis owns all edits and native resources; Zora read-only.
+- **Status:** review. Native red1/3/0 reproduced deferred Stop/new-turn/cancelled
+  task delivery. Final signed units913/0/0; authenticated Stop1/0/0, actual
+  reservation cancelled/dropped1; raw Home/full-page/save/exact-relaunch1/0/0.
+  Normal persisted playback completed/statusok after request delivery. Mac
+  build exit0, D009 all five files0 growth, diff pass. No paid calls.
+- **Evidence:** `docs/stale-talk-delivery-2026-10-27.md`. Backend unchanged,
+  full2996/0/5 inherited from T1178. All proof jobs terminal, dependency link
+  removed. Runtimeb986b53; permanent `_proof/T-1180-20261027.nwkl1p9i`,
+  4368 hashed files/zero mismatches. Next audit account/project/final-result
+  ownership and old-request cleanup; persisted Stop DEBUG trace still says running and needs explicit
+  cancellation finalization. Original/main/production held; phone unproven.
+
+### T-1179 — Connect Stop to a waiting live audio transport
+
+- **Owner:** Codex (Jarvis); Zora read-only cancellation-boundary audit.
+  **Branch:** `codex/T-1179-early-talk-cancel`. **Base:** published d5a155e.
+- **Scope:** canonical BackendClient delegate streaming seam, focused native
+  transport regressions and the observed Stop-test OS setup interruption.
+  Preserve genuine offline recovery and accepted
+  response custody; no blanket server abort on network loss, paid calls,
+  production changes, shared simulator use or original/main advance.
+- **Binary success:** cancel before response headers cancels the actual network
+  task and completes once as cancellation, without fallback/retry/offline
+  enqueue; normal chunks/completion and genuine failures keep their behavior.
+  Characterize the existing seam before its minimal race-safe correction.
+- **Reserved:** Jarvis owns BackendClient, its extracted transport if needed,
+  native tests, TASKS and report; Zora does not edit or use native resources.
+- **Status:** review. Red1/3/0 included two cancellation defects and one incorrect
+  chunk-count assertion; focused7/0/0, full signed units909/0/0, Mac build exit0.
+  Initial StopUI0/1/0 missed the active-write window behind the OS setup banner;
+  targeted interruption handling preserves all assertions. Final Stop1/0/0
+  includes authenticated HTTP200/cancelledtrue/dropped1/byReservationtrue;
+  normal raw Home/full-page/save/exact-relaunch1/0/0. D009/diff pass.
+- **Evidence:** `docs/early-talk-cancellation-2026-10-27.md`. No paid calls;
+  backend unchanged (T1178 full2996/0/5 inherited). Original/main/production
+  held. Runtime71c72f5; permanent `_proof/T-1179-20261027.aduxe7d0`,
+  5689 hashed files/zero mismatches. All proof jobs terminal, dependency link
+  removed. Next fix queued UI consumer delivery after Stop; pre-header server ASR
+  cancellation and physical-phone journey remain unproven.
+
+### T-1178 — Restore trusted ownership for wallet and Page cancellation
+
+- **Owner:** Codex (Jarvis). **Branch:** `codex/T-1178-wallet-page-owner`.
+- **Base:** saved 3536be7; original PR heads/main/production held.
+- **Scope:** re-prove and reuse preserved 6f360de/f5e3e84 through the canonical
+  trusted-user resolver; caller IDs cannot disclose another balance, cancel
+  another Page or claim an unowned reservation. No wallet pricing changes.
+- **Binary success:** actual JWT wallet checks pass in both global auth modes,
+  including revoked tokens/restart; Page routes preserve other writers' holds
+  and still abort/refund owned work once. Focused/full Node20, signed own-Page
+  cancellation UI and D009/diff; no paid calls or production changes.
+- **Status:** review at runtime770978c. Preserved ownership red1/5/0, final
+  focused42/0/0; full Node20 2996/0/5 (four PG requirements and one gated
+  live case skipped). Raw Home story requests now create post-ASR metadata,
+  fund their canonical Page budget and expose the owned cancellation handle.
+  Confirmed Home writes use existing synced insertion; Stop retains its native
+  rollback and project loading no longer destroys the editor/baseline.
+- **Proof:** final signed units902/0/0, unchanged Stop1/0/0 with actual
+  authenticated HTTP200/cancelledtrue/dropped1/byReservationtrue; ordinary raw
+  Home complete-page/one-project/save/exact-relaunch1/0/0. Mac scaffold build
+  exit0, D009/diff pass (Root-2/bridge-4/other monitored files0). No paid calls.
+- **Evidence:** `docs/wallet-page-home-stop-2026-10-27.md`; permanent
+  `_proof/T-1178-20261027.ziitf9xp`, 17462 files/zero hash mismatches.
+  All proof jobs terminal; dependency link removed. Scoped backup publication
+  only; original647/main/production remain held. Next audit pre-header
+  cancellation and accepted-delivery expiry, then original-stack exact-head
+  integration through required genuine reviews. Physical-phone journey unproven.
+
+### T-1177 — Keep accepted screenplay metadata with durable reply recovery
+
+- **Owner:** Codex (Jarvis). **Branch:** `codex/T-1177-replay-metadata-custody`.
+- **Base:** saved 182fd3b; original PR heads/main/production held.
+- **Scope:** reproduce metadata expiry while prepared/billed response recovery
+  remains available; preserve the exact accepted screenplay through the existing
+  turn store and durable response owner, without another store/provider call.
+- **Binary success:** authenticated late retry after controlled metadata expiry
+  and restart restores the same full page/audio and one debit; wrong owners,
+  write failure and conflicting turn identities cannot publish incorrect text.
+  Relevant full backend, essential signed writer UI, D009/diff; no paid calls.
+- **Status:** local review at runtimea4868d4. Expiry red3/3/0 reproduced billed
+  replay with missing page; stale cleanup red7/1/0 reproduced fresh-page deletion.
+  Accepted snapshots now restore before settlement/replay; canonical atomic
+  cleanup rejects stale deletion. Focus102/0/0, crash/restart6/0/0, full pinned
+  Node20 2987/0/5, real PostgreSQL1/0/0, signed queued1/0/0/raw1/0/0; D009/diff
+  pass. App bytes unchanged; T1176 units901/Mac inherited. No paid calls.
+- **Evidence:** `docs/talk-metadata-custody-2026-10-26.md`; permanent
+  `_proof/T-1177-20261026.0fu6adxt`, 1286 files/zero hash mismatches. All proof
+  jobs terminal, PG stopped, dependency link removed. Original/main/production
+  held. Next audit recovery beyond completed-response expiry and wallet/Page
+  cancellation ownership before advancing original647; real phone unproven.
+
+### T-1176 — Hand real screenplay exports to iPhone Files
+
+- **Owner:** Codex (Jarvis). **Branch:** `codex/T-1176-native-screenplay-export`.
+- **Base:** saved 4e45371; original PR heads/main/production held.
+- **Scope:** reuse preserved native Files exporter and request-bound callbacks;
+  remove the DEBUG fake artifact path. Preserve backend authorization, format
+  availability, existing aesthetic and document/account lifetime boundaries.
+- **Binary success:** actual authenticated backend artifact reaches native Files;
+  cancellation/retry and stale callbacks are safe; saved file opens outside THEM
+  with verified bytes. Signed units/UI, macOS build, D009/diff as appropriate.
+  No paid calls, new dependency, PDF enablement or production change.
+- **Status:** local review, runtime67e40e2. Removed private-temp success and
+  DEBUG fake artifact path; preserved native Files callbacks and context guards.
+  UI reds0/1/0 exposed the OS tutorial and retained editor keyboard; canonical
+  end-editing fix final native export1/0/0. Files Quick Look outside THEM observed
+  complete 103-byte Markdown, exact canonical backend projection/hash. Final
+  signed units901/0/0; integrated writer/native export/relaunch1/0/0; Mac build,
+  D009/diff pass. No paid calls. Backend2971/0/4 inherited unchanged from T1175.
+- **Evidence:** `docs/native-screenplay-export-2026-10-26.md`; permanent
+  `_proof/T-1176-20261026.56jq34kq`, 6326 files/zero hash mismatches. Borrowed
+  dependency link removed; original/main/production held. Next audit public
+  turn-metadata expiry vs durable billed/prepared replay before original647.
+
+### T-1175 — Durably settle accepted Page responses and replay prepared work
+
+- **Owner:** Codex (Jarvis). **Branch:** `codex/T-1175-durable-page-settlement`.
+- **Base:** saved b31c7da; original647/main/production held.
+- **Scope:** integrate preserved T1122 through canonical wallet, backplane and
+  talk idempotency owners; wire prepared-response reconciliation at startup.
+  No second wallet/store, no paid calls or production database operations.
+- **Binary success:** swallowed-write and mutable-snapshot reds reproduced;
+  prepared reply retries preserve exact response and settle one durable debit,
+  including local restart/failure and guarded PostgreSQL concurrency. Full
+  backend, essential signed writer workflows and D009/diff on updated head.
+- **Status:** local review at runtime909ec60. Original wallet red0/2/0;
+  focused134/0/0. Late-recovery overwrite red0/1/41 then focused42/0/0.
+  Final Node20 full2971/0/4; actual authenticated JSON SIGKILL boundaries3/0/0;
+  actual PG concurrency/rollback/admission2/0/0 and final authenticated PG
+  restart probe pass (exact reply, zero new providers, two durable debits).
+  Signed final raw1/0/0 and queued1/0/0; D009/diff pass. Native units886/Mac
+  inherited unchanged. No paid calls or original/main/production advance.
+- **Evidence:** `docs/durable-page-settlement-2026-10-26.md`; permanent
+  `_proof/T-1175-20261026.v9EiKu`. Owned PG fixture stopped, dependency link
+  removed. Next audit bounded public-metadata custody and connect real native
+  screenplay export; physical-phone/integrated-main journey remains unproven.
+
+### T-1173 — Fund actual server Page budgets across typed and voice turns
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1173-server-page-budget`.
+- **Base:** saved higher647 c128ec2. Original647/main/production held.
+- **Scope:** reuse preserved server-owned budgetd832be8 and required existing
+  raw-ASR routing/failed-turn refund prerequisites through one Page/wallet
+  adapter. Client hints cannot underfund/inflate holds or truncate the story;
+  decline before generation if the real cap cannot be funded. No paid calls.
+- **Binary success:** omitted/zero/one client caps with0.1turn fail402 before
+  generation; funded cap/actual usage settle once, cancellation/listening/failure
+  refund, raw authoritative ASR reaches Page without a second transcription.
+  Full backend, funded signed normal/queued writing, D009/diff; no fake grants
+  in shipping code. Durable settlement/retry remains the next distinct boundary.
+- **Status:** local review, runtime7377082. Original cap red0/3/4; first
+  focus91/0/0/full2945/0/2. Adversarial caller-intent bypass red0/1/7 then
+  canonical target repair. Final Node20 full2948/0/2; signed funded raw1/0/0
+  and queued playback/page/one-save/relaunch1/0/0. D009/diff pass. Native
+  units886/Mac inherited from unchanged T1174 app source. No paid calls.
+- **Evidence:** `docs/server-page-budget-2026-10-26.md`; permanent
+  `_proof/T-1173-20261026.AhoeZZ`. Preserving merge b873807 retains T1174.
+  Durable prepared-response/settlement reconciliation is next; no original
+  head/main/production change or crash-safe billing claim.
+
+### T-1174 — Review Hermes and preserve overlapping live edits
+
+- **Owner:** Codex (Jarvis). **Branch:** `codex/T-1174-hermes-recovery-review`.
+- **Base:** saved higher647 c128ec2. T1173 budget red remains on its original
+  branch a37ef3b; no original PR/main/production changes.
+- **Scope:** evaluate pinned Hermes bea7d24 for useful reliability patterns;
+  reuse THEM's preserved e31f351 overlap repair and canonical recovery store.
+  Do not import a desktop agent runtime, assets, providers or dependencies.
+- **Binary success:** reproduce lost local overlap, then retain exact local
+  words before applying remote text; recover through a newly opened store,
+  keep non-overlapping merges and no-base duplicate protection intact.
+- **Status:** local review. Signed red0/1/0; final signed units886/0/0 on
+  erased owned simulator; macOS scaffold build and D009/diff pass. Runtime
+  554fe98 reuses preserved e31f351; exact-byte store-reopen/Restore covered.
+  Static review only for Hermes; no execution of its app, installer, MCP,
+  cloud hosts or paid providers. No new physical-phone/process-kill claim.
+- **Evidence:** `docs/hermes-reuse-review-2026-10-26.md`; permanent
+  `_proof/T-1174-20261026.uVJkwS`. T1173's a37ef3b red was preserved;
+  merge b873807 carries this verified repair into resumed budget work.
+
+### T-1172 — Keep accepted turn results and replay across backend restart
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1172-durable-talk-replay`.
+- **Base:** saved higher647 c073882. Original647/main and production held.
+- **Scope:** reuse preserved T1118/T1121 durable metadata and completed replay
+  through the existing shared JSON/Postgres adapter. Await result publication,
+  bind trusted owner identity, preserve rotated-token replay and capacity, wire
+  account export/purge. No parallel store or automatic second generation.
+- **Binary success:** actual authenticated accepted turn -> graceful restart
+  and immediate owned-process SIGKILL -> same turn/audio/replay header with
+  zero new provider calls; owner200/other403. Focused negatives, full Node20,
+  actual native normal/queued page-save workflows and D009/diff. No paid calls.
+- **Status:** local review, runtime52b3703/gate-sourcea9f7a56. Original default
+  probe failed header overflow; bounded diagnostic measured17691-20626header
+  bytes, then metadata404/fresh providers after both restart types. New default
+  Node20 probe passes graceful/immediate-SIGKILL replay, exact15456audio bytes,
+  full1026byte scene, zero new providers, headers5298/5244/7325bytes.
+  Focused88/0/0 at56bd977. Export-token leak reproduced then allowlisted out.
+  Realtime missed await/owner red0/2; follow-up3/0/0 committed52b3703. First
+  full2910/1/2 exposed stale inline-timeline assertion; preserve full content/
+  anchor checks through canonical metadata, focused7/0/1 then final2911/0/2.
+  Owned PG13migrations/repeat0, live-prefix1/0/0 and full restart proof pass.
+  Signed queued page/play/save/exact restore1/0/0 and raw voice1/0/0; D009/diff
+  pass, index-19/native files unchanged. No paid calls or original advance.
+- **Evidence:** `docs/durable-talk-replay-2026-10-26.md`; permanent
+  T-1172-20261026.IXtIpZ. Earlier approval-credit rejection recorded; original
+  readiness recheck succeeded through same review, access recovered without
+  bypass. Task PG stopped after identity checks. Native units884/Mac inherited
+  from unchanged T1171; fresh main gates still required. Production/main held.
+- **Remaining:** server-owned budgeting/durable settlement and multi-worker
+  atomicity are separate required boundaries; no billing-completion claim.
+
+### T-1171 — Recover owned replies through confirmed screenplay saves
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1171-received-scene-delivery`.
+- **Base:** saved higher647 615a88a. Original647/main and production held.
+- **Scope:** reuse preserved6b2d83d server turn ownership before enabling
+  f8db1d7 metadata custody; then3784636 reviewed audio/page recovery through
+  the existing editor, immutable delivery plan and acknowledged saved version.
+  No parallel auth, conversation store, automatic duplicate append or paid call.
+- **Binary success:** current real handler owner-token bypass red then403;
+  authentic owner still200, signed-out401. Full accepted result survives
+  relaunch; actual queued HTTP -> reviewed scene -> exact append -> one saved
+  copy -> exact restored text. Retry never replans against newer words. Focused
+  failures first, then full Node20/signed units, essential UI/Mac/D009/diff.
+- **Status:** local review atc5b686b. Owner red0/1/0 at390e47d (foreign prior
+  token200, owner without token403); policy repair3/0/0. Initial signed882/0/0,
+  then project-routing red0/1/0 atca5f78a; canonicalb2d95df fix final884/0/0.
+  Actual queued HTTP/play/append/one saved copy/exact restore1/0/0 on final;
+  raw voice1/0/0 and native review/export1/0/0 on unchanged initial paths.
+  Node20 full2887/0/2 on byte-identical backend; Mac/D009/diff pass. Index-25,
+  bridge-64; other guarded files unchanged. No paid calls or original advance.
+- **Evidence:** `docs/received-scene-delivery-2026-10-26.md`; permanent
+  T-1171-20261026.3E9iEq. Real restart durability/settlement, original/unbound
+  context, retained setup/overlap and actual screenplay export remain open.
+  Original647/main/production and overall completion remain held/unproven.
+
+### T-1170 — Keep accepted offline replies until confirmed writer delivery
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1170-accepted-talk-replies`.
+- **Base:** saved higher647 289e21f. Original647/main and production held.
+- **Scope:** reuse preserved9ac8c30/4943017 receipt custody and canonical
+  decoding in the existing outbox; authenticated read-only Data Controls
+  review/export, no generation retry or session adoption. Page insertion/save
+  confirmation and full metadata custody remain the next coupled boundary.
+- **Binary success:** current signed relaunch loss reproduces, then exact
+  response/request ownership survives interruption/relaunch without resend;
+  review/export never acknowledges delivery. Signed units, authenticated
+  review/Files UI and raw voice/save regression, Mac/D009/diff; no paid calls.
+- **Status:** local review atc839caa. Signed red0/1/0 at5fca02d; final signed
+  units874/0/0. Authenticated read/relaunch/native Files export1/0/0 with
+  providers0/0/0; raw-audio page/save/restore1/0/0 with intercepted1/2/1.
+  Actual742-byte JSON opened outside THEM, original/response exact; received,
+  foreign and unassigned records retained. Node20 contracts5/0/0, Mac/D009/
+  diff pass. Full backend2882/0/2 explicitly inherited, production unchanged.
+- **Evidence:** `docs/accepted-talk-reply-recovery-2026-10-26.md`; permanent
+  T-1170-20261026.aPBkTM. No paid call, original advance or main merge. Next:
+  owner-isolate metadata GET before full metadata/page-save recovery. Not
+  recovered page delivery, speech or physical-phone proof.
+
+### T-1169 — Recover interrupted queued voice work without unsafe replay
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1169-interrupted-talk-recovery`.
+- **Base:** saved higher647 2978d4c. Original647/main remain held.
+- **Scope:** reuse canonicalc1e9255 in the existing talk outbox: atomic body+
+  metadata record, orphan reconciliation, explicit original-intent recovery,
+  durable settlement before cleanup, legacy quarantine and live redirect guard.
+  Keep one queue/auth implementation; no automatic paid recovery request.
+- **Binary success:** real manifest-write interruption and unassigned-body
+  notice reproduce then pass; no acknowledged/deleted request resurrects.
+  Signed units, actual recovery UI, exact native Files export bytes, writer/
+  voice-save regressions, Mac/D009/diff. No paid model calls or private cleanup.
+- **Status:** local review atb8cfd54. Signed filesystem red0/2/0 at46e4b64;
+  transport inventory red0/2/0 at865c851. Reusefc75931/c1e9255 through existing
+  owners. Final signed867/0/0; Review/queue/relaunch1/0/0, authenticated native
+  Files export/delete1/0/0, raw voice/save/restore1/0/0; Mac/D009/diff pass.
+  Native Foundation8 cases:0 foreign requests,4 valid same-origin requests;
+  focused Node20 contracts5/0/0. Actual307-byte export and retained foreign/
+  unassigned binary bodies independently verified; opened JSON in Files.
+- **Evidence:** `docs/interrupted-talk-recovery-2026-10-26.md`; permanent
+  T-1169-20261026.2psnxr. No paid calls or original/main advance. Next accepted
+  offline replies must reach page; retained setup/overlap and real screenplay
+  export remain unproven. Prior writer-export proof clarified as DEBUG-local.
+
+### T-1168 — Recover the iPhone's interrupted first project save
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1168-first-project-client`.
+- **Base:** saved higher647 5b0049d; original647 and main remain held.
+- **Scope:** reuse canonical2b51d72: immutable first-save intent in the existing
+  draft outbox, atomic endpoint, durable receipt, guarded binding, same-document
+  retry and connected Finish setup. Retain newer manual bytes on relaunch; no
+  second store or unsafe fallback. Preserve named/blank project setup.
+- **Binary success:** current interrupted first-save workflow red then green;
+  exact text/IDs/versions survive relaunch and named creation. Signed units,
+  authenticated recovery/voice, Node20, Mac/D009/diff. No paid provider calls.
+- **Status:** local review ata846dc3. Actual signed UI red0/1/0 atd50344b:
+  empty project/zero first versions while receipt held. Same workflow now1/0/0;
+  signed units859/0/0, named creation1/0/0, blank writer1/0/0, raw voice1/0/0,
+  authenticated recovery3/0/0; Node20 full2882/0/2, Mac/D009/diff pass.
+  Initial IDs/bytes/newer edits survive relaunch; no duplicate project. No paid
+  calls, physical-phone or external screenplay opening claim.
+- **Evidence:** `docs/first-project-client-recovery-2026-10-26.md`; permanent
+  T-1168-20261026.Zq2ObA. Original647/main remain held. Interrupted talk
+  enqueue/reconciliationc1e9255 is the separate required next boundary.
+
+### T-1167 — Commit the first project and draft together
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1167-first-project-transaction`.
+- **Base:** saved higher647 f7ebad7; original647 and main remain held.
+- **Scope:** reuse canonical370fd41 through the existing authenticated owner
+  transaction. Metadata and exact first version publish together; immutable
+  intent replays once after restart, changed intent fails closed. Preserve the
+  metadata-only contract and shared stored-version normalizer. No second store.
+- **Binary success:** reproduce current handler failures, then final handler,
+  actual backend restart/lost-receipt/owner-isolation and full Node20 pass;
+  D009/diff pass. No paid calls or deployment. Swift client follow-through is
+  a separate required boundary, not proven by this server checkpoint.
+- **Status:** local review at77da2e6. Current handler red0/5,68 unselected at
+  0d8e85e; focused137/0/0. First full2874/7/2 exposed non-executable fixture
+  tmp mount; corrected harness19/0/0, final full Node20 2881/0/2. No code or
+  assertions changed for the harness repair. D009 index33557->33538(-19),
+  other guarded files unchanged; syntax/diff pass. No Swift change/rerun.
+- **Evidence:** `docs/first-project-transaction-2026-10-26.md`; permanent
+  T-1167-20261026.l42vfZ. Client durable first creation2b51d72 and interrupted
+  talk enqueuec1e9255 remain required; original647/main unchanged.
+
+### T-1166 — Preserve queued work through ownership, replay and cleanup
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1166-owned-talk-recovery`.
+- **Base:** verified higher64731b90b9. Original647/public main remain held.
+- **Scope:** reuse canonicalac81718 request/batch/cache/deferred ownership and
+  aa913df owner+origin recovery, exact payload dedupe, manifest-before-unlink,
+  confirmation-bound Data Controls/replay/export. Keep one queue/auth/client.
+- **Binary success:** seven current real-client/disk failures become green;
+  other owners/legacy bytes stay exact, changed payload is parked not falsely
+  acknowledged, token refresh/retries remain idempotent, stale confirmation or
+  delivery rejected. Final signed units, authenticated recovery UI, voice save,
+  Mac/D009/diff. No paid calls or human-data deletion.
+- **Status:** local review at95399ff. Actual signed red0/7/0,18 assertions at
+  7f0dc45; final full850/0/0, authenticated recovery3/0/0, account-scoped
+  native Files recovery/export/delete1/0/0, raw-audio one-project/save/restore
+  1/0/0, Mac/D009/diff pass. No paid calls. Reuse2369367 native picker helper
+  only; new strict dedicated recovery runner requires1 actual pass. Manually
+  observed exported JSON outside THEM; exact bytes and retained foreign/legacy
+  bodies independently checked. Not screenplay export or phone proof.
+- **Evidence:** `docs/owned-talk-recovery-2026-10-26.md`; permanent
+  T-1166-20261026.WjxRTs. Original647/main remain unchanged.
+- **Limits:** not full app-wide isolation, live phone/provider or atomic
+  first creation; multi-file enqueue/orphan reconciliation remainsT1112.
+
+### T-1165 — Keep Studio requests and sync with their initiating login
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1165-studio-request-owner`.
+- **Base:** saved647 eab6787 plus no-ffc2bd5be of exact required-green646acfe2d8;
+  zero runtime/unit/UI/backend diff after parent merge. Original647 held.
+- **Scope:** reuse08b92cd's canonical caller ownership/shared screenplay sync
+  decoding for15 Studio methods. Carry checked headers through bootstrap/HTTP,
+  reject stale read/write/sync, preserve same-login refresh and outline errors.
+  Wire existing redirect guard on these requests plus auth/bootstrap transport.
+- **Binary success:** current activation/outline account-switch red then green;
+  13 newly protected routes cover changed account/same-user new login, late
+  responses, header/admission races and valid rotation. Full signed units,
+  unchanged authenticated recovery/writer workflows, Mac/D009/diff pass.
+- **Status:** in-progress. Signed ownership red0/2/0,6 assertions,695ae22;
+  canonical15-route fix f5c5660, signed full810/0/0, real recovery3/0/0.
+  Raw-audio Home->Studio journey exposed first-project failure0/1/0:1064chars
+  on page but unbound/Create project to save. Reuse canonical7b6b298 full-commit/
+  settled-editor publication guard, preserving exact bytes/login/one-project.
+  Tool-approval warning resolved on explicit recheck, no bypass. Final runtime
+  f3771d1: signed813/0/0, raw-audio one-project/save/restore1/0/0, held-create/
+  native-edit1/0/0, Mac/D009/diff pass. Earlier recovery3 stays scoped tof5c5660.
+  No paid provider call or production/main change. Normal scoped backup only.
+- **Evidence:** `docs/studio-request-ownership-and-voice-save-2026-10-26.md`;
+  permanent T-1165-20261026.hzdPRW,5930files SHA256-readback verified.
+- **Limits:** not all derived/queued/batch/notification ownership, atomic first
+  creation, real Postgres/collaborator authorization or physical phone proof.
+
+### T-1163 — Pin save transport to its initiating login and prove real refresh
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1163-project-write-owner`.
+- **Base:** saved647 safety47be66d. Preserve original heads and production hold.
+- **Scope:** reuse canonical8fba5bb request ownership and26f6a07 auth lock-order
+  correction; repair the masked DEBUG refresh seam and signed recovery runner.
+- **Binary success:** changed owner/login intent cannot submit or publish old
+  project writes; same-login token rotation remains functional. Real local
+  version401 -> refresh200 -> returned-bearer201 occurs once, exact queued bytes
+  survive another relaunch. No secret read or paid provider call.
+- **Status:** local review at e97982f+d551759. Signed original-boundary red0/4/0
+  (10 assertions) retaineda09778a; final full800/0/0; real auth/offline/conflict
+  recovery3/0/0; positive title/raw promotion/relaunch1/0/0; Node20 focused15/0/0;
+  Mac/D009/diff pass. Original64592b hosted now allgreen (audited751 units,
+  backend2867/0/2, writer pass, V1 29/0/16, voice1, Mac). No main/deploy change.
+- **Evidence:** `docs/project-write-refresh-2026-10-25.md`; permanent archive
+  `/Users/halfmutantfilms/io.them-worktrees/_proof/T-1163-20261025.rWsaNN/`.
+- **Limits:** not app-wide transport isolation, atomic creation, physical phone,
+  shipping-backend or audible/model-quality proof. NextT1109/T1108 remain.
+
+### T-1162 — Keep delayed first-project results with their initiating page
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1162-promotion-authority`.
+- **Base:** saved647 safetyb3024bc plus preserving no-ff bd4d738 of published
+ 64592b55f7. Original645 fresh hosted gate still live;646+ public heads held.
+- **Scope:** reuse canonical b65a52f callback ownership/existing document context,
+  real loopback delay proof, unbound-page hydration fix and committed-write
+  initiation. Preserve raw bytes and current queued/auth/recovery guards.
+- **Binary success:** real delayed create reply cannot submit old page bytes
+  after native edit or bind a stale context; positive exact promotion/relaunch
+  still creates one version. No cancelled/unauthed/changed owner/session/project/
+  bytes may continue. No selection must preserve an unbound writer page.
+- **Proof:** retain genuine failing HTTP/native repro, focused proxy checks,
+  final signed erased units, delayed and positive UI, Mac/D009/diff. No paid run.
+- **Limits:** callback checks do not establish request-header isolation across
+  bootstrap/401 awaits (T1107), or atomic/idempotent first creation/orphans
+  (T1108). Keep those remaining boundaries explicit before648/phone proof.
+- **Status:** local review at2020f8a. Real held-response native repro0/1/0:
+  one stale Root-source version submission after native edit. Reused b65a52f
+  context guards/extracted policy, committed-page initiation, empty-selection
+  retention and proof; preserved newer queued/auth/raw fixes. Final signed
+ 780/0/0, unchanged delayed UI1/0/0, positive exact promotion/relaunch1/0/0,
+  active-turn Stop1/0/0, Mac/D009/diff pass. Root shrank8 lines. Proxy2/0/0;
+  backend production unchanged, retain parent Node20 full2869/0/2 explicitly.
+  Original64592b55f7 hosted Quality still live;646+ public heads unchanged.
+- **Evidence:** `docs/promotion-authority-2026-10-25.md`; explicit archive
+  `/Users/halfmutantfilms/io.them-worktrees/_proof/T-1162-20261025.GgxFFW/`.
+
+### T-1160 — Preserve byte-distinct pending and offline saves
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1160-raw-queued-save-identity`.
+- **Base:** saved647425d354 plus preserving no-ff merge69505f1 of the current
+  original644 focus repair5759e5a; both task-ledger histories retained.
+- **Scope:** existing save completion/coalescing/intent and durable outbox owners
+  must use exact UTF8 identity, not trim/newline or Unicode-equivalent equality.
+- **Binary success:** a whitespace/line-ending/decomposed-Unicode pending edit
+  remains dirty and queued across store restart; same ID with changed bytes409;
+  identical retries dedupe; acknowledged earlier save rebases, never drops, the
+  later byte-distinct entries. Preserve existing account/project boundaries.
+- **Proof:** reproduce on existing actor/policy tests; smallest root fix; signed
+  erased full units, connected recovery UI, D009/diff/Mac. Backend production
+  unchanged, retain explicit parent Node20 proof instead of repeating it.
+- **Limits:** no new queue/framework, paid call, original-head replacement,
+  force/main merge/deploy. Public645+ remains gated on exact644 hosted result.
+- **Status:** local review at0446849. Raw regressions0/3/0, fixed units775/0/0;
+  connected recovery first failed before fixture setup, then after relaunch.
+  Reused48be183 fixture/queued restoration, e0477d5 scope revalidation,
+ 0209a12 independent detail hydration and baaf39e unreadable-queue guard.
+  Final signed778/0/0, strengthened real authenticated offline/relaunch/reconnect
+  UI1/0/0 with full bytes and one server version, provider0/0/0. Mac/D009/diff
+  pass. Backend production/tests unchanged; parent Node20 evidence2869/0/2.
+  Original6445759e5a hosted Quality still live; no public645+ advancement.
+- **Evidence:** `docs/raw-queued-save-identity-2026-10-25.md`; permanent archive
+  `/Users/halfmutantfilms/io.them-worktrees/_proof/T-1160-20261025.DpxJPt/`.
+
+### T-1158 — Preserve naming and exact raw version/promotion retention
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1158-original-647-raw-retention`.
+- **Base:** saved646968428ed; original64442d6f746 hosted Quality running;
+  public645/646/647 advancement stays bottom-up and gated, not assumed green.
+- **Scope:** no-ff preserve original647848e59d0; reuse canonical-title fix
+  d2dc719 and raw version/replay/promotion2c401de plus its existing DEBUG-only
+  fixture corrections. Read original647 body/both follow-ups and855 final
+  word-list work; do not replace its distinct FirstPageFreshProject caller.
+- **Binary success:** chosen title metadata wins, in-scene Title is not a
+  project title; raw UTF8/CRLF/trailing/decomposed bytes survive real authenticated
+  save/receipt/read/restart/exact replay; changed-byte replay409, foreign404,
+  blank400. Native Root promotes raw source once and restores it after relaunch.
+- **Proof:** focused real HTTP, full pinned Node20, signed full erased native,
+  authenticated raw-promotion UI, Mac/D009/diff. No paid model or phone claim.
+- **Limits:** no new persistence/format framework, main push/merge, original
+  replacement, force/squash/bypass/deploy; retain current recovery/auth/observer.
+  Later T1105 delayed-creation/account/document authority remains required;
+  happy promotion is not crash-atomic creation or stale-response proof.
+- **Status:** local review at cf93164. Original647 preserved; canonical naming
+  and raw HTTP retention reused. Real HTTP red0/2/0 then2/0/0. Native UI first
+  lost5 trailing bytes, then restored exact bytes but produced2 versions;
+  hydrate raw and consistently fingerprint raw saved/current drafts fixed both.
+  Unchanged promotion/relaunch UI1/0/0 (provider0/0/0), final signed771/0/0,
+  Node20 full2869/0/2 after canonical memory fixture correction, Mac/D009/diff.
+  Hosted64442d6f746 failed at editor keyboard focus; public645+ remains held.
+- **Evidence:** `docs/original-647-raw-retention-2026-10-25.md`; permanent archive
+  `/Users/halfmutantfilms/io.them-worktrees/_proof/T-1158-20261025.Dx6cbK/`.
+
+### T-1164 — Refresh original646 on the exact hosted-green mentor parent
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1164-original-646-parent-refresh`.
+- **Base:** saved646968428e plus preserving no-ff7694a19 of original64592b55f7.
+- **Scope:** retain original64672f9375e and quiet refresh/observer safety;
+  carry forward the verified writer typing correction, keep both task histories.
+- **Binary success:** strict writer and shared coverage workflows pass signed
+  on an erased owned simulator at the merged tree; D009/diff/source equivalence
+  pass. Normal original646 fast-forward only after exact645 required-green;
+  fresh646 hosted checks gate647. No squash/replacement/main/deploy/paid call.
+- **Status:** local review at preserving7694a19. Current64592b read back allfour green. Production,
+  backend/test, native/unit/project source diff vs968428e is zero. Parent758
+  units, Node20 backend2867/0/2 and Mac are explicitly inherited proof, not
+  newly run. Current strict writer1/0/0 and shared coverage1/0/0 pass signed/
+  erased, no retries/skips; D009/diff/syntax pass. Ready for guarded normal
+  original646 advancement and fresh hosted proof. Higher saved647 safety
+  eab6787 remains separate; this prefix is not declared releasable.
+- **Evidence:** `docs/original-646-parent-refresh-2026-10-25.md`; archive
+  `/Users/halfmutantfilms/io.them-worktrees/_proof/T-1164-20261025.tu9AiK/`.
+
+### T-1157 — Preserve bounded, quiet coverage refresh as pages land
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1157-original-646-refresh`.
+- **Base:** savede803262a mentor integration. Original643 hosted Quality
+  still running;644/645 public advancement remains gated bottom-up.
+- **Scope:** no-ff preserve original64672f9375e; reuse remaining5f71ec5c
+  refresh/normalization and original774 quiet-announcement dependency without
+  cumulative ancestry. Keep existing exact-byte earlier-card/conversation and
+  account/project/request guards plus the active-poll recovery fix.
+- **Binary success:** automatic reads are quiet, suppressed while streaming,
+  empty/unowned/inflight; one attempt per changed page/scene shape and owner,
+  never retry-per-word after failure; manual Read again works. Canonical
+  Fountain body/newline shape; no title-page penalties or new AI-cost loop.
+- **Proof:** current signed erased units, authenticated connected freshness
+  UI, Mac/D009/diff; count only actual results, reuse unchanged backend proof
+  with explicit source equivalence. No paid calls or production/main change.
+- **Status:** local review. Original646 preserved e4ec30a, remaining5f71ec5c
+  reused71a7b32. Initial signed756/0/0; direct observer audit found obsolete
+  callbacks can clear newer dirty authority/recovery. Adapted real-VM red0/1/0
+  (two failed assertions); reused636ddfc4 guard as a701979, final signed758/0/0,
+  canonical authenticated freshnessUI1/0/0, Mac/D009/diff pass. Production
+  backend unchanged from parent2867/0/2; only runner allowlist changes, exercised
+  by this UI, no repeated unchanged full Node suite or paid call. Original643
+  now hosted green; normally advanced644 to42d6f746, fresh Quality running.
+- **Evidence:** `docs/original-646-refresh-2026-10-25.md`; completed archive
+  `/Users/halfmutantfilms/io.them-worktrees/_proof/T-1157-20261025.Yjdll4/`.
+
+### T-1161 — Publish original645 on its green preserving parent
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1161-original-645-parent-refresh`.
+- **Base:** saved645e803262a plus no-ff eb752e8 of exact green6445759e5a.
+  Read refreshed original645 body/follow-ups; retain both task-ledger records.
+- **Scope:** preserve original8a7f367a and all mentor repair commits; carry
+  parent's connected typing correction forward without importing646/647 work.
+- **Binary success:** strict authenticated writer UI passes at the exact
+  updated645 tree; D009/diff pass; native/backend/unit source-equivalence to
+  saved645 established. Normal original-branch fast-forward only after fresh
+  parent644 hosted green; fresh645 checks then gate public646 advancement.
+- **Verification boundary:** parent751/0/0 units, Node20 backend2867/0/2,
+  native mentor delivery and Mac are parent proof, not newly executed. Avoid
+  unchanged full-suite repetition for a test/docs-only parent merge.
+- **Limits:** no paid call, squash/force/replacement PR/main merge/deployment.
+  Intermediate645 is not releasable without the preserved observer/retention/
+  queued-hydration fixes in later saved646/647; do not substitute their counts.
+- **Status:** local review at eb752e8. Refreshed original body/current follow-ups,
+  parent6445759e5a terminal required-green. Strict authenticated signed erased
+  writer UI1/0/0 on exact merged tree; D009/diff pass. Production/native/unit/
+  backend source identical to e803262a (retained zero-byte diff), so parent
+  full-suite evidence remains explicitly parent evidence, not a new run.
+  Ready for normal original645 fast-forward and fresh required hosted checks;
+  original646+ stays held. Saved647 safety descendantb3024bc stays separate.
+- **Evidence:** `docs/original-645-parent-refresh-2026-10-25.md`; archive
+  `/Users/halfmutantfilms/io.them-worktrees/_proof/T-1161-20261025.ah6cXZ/`.
+
+### T-1156 — Preserve target-aware mentor guidance and actual prompt delivery
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1156-original-645-mentor`.
+- **Base:** saved coverage/recovery42d6f746. Original644 publication waits for
+  exact643cdd463f5 hosted Quality; no assumed parent clearance or main merge.
+- **Scope:** no-ff preserve original6458a7f367a; reuse scoped02e9bee repair,
+  stronger current prompt allocator and canonical dialogue/memory ownership.
+  Original649 identity/budget dependencies may be brought forward narrowly,
+  not its ancestry across intervening originals. Read645/649 bodies/comments.
+- **Binary success:** shared native/backend mentor identity honors active
+  chosen target/map, offers120 only flexibly; scorer still rejects original
+  weak fixtures; actual Swift fresh/Studio prompts deliver full core/pitch
+  through local talk normalization/trimming with and without a feature map.
+  Signed erased native, connected writer UI, full pinned Node20, D009/Mac/diff.
+- **Limits:** no paid model call, simulated quality claim, production change,
+  whole-backup merge, original-head replacement, main push or review bypass.
+  Preserve orb/Clementine, exact writer/recovery and reply/action authority.
+- **Status:** local review. Original645 preserved by e208cc55; scoped02e9bee
+  replayed as206f7a79, authenticated delivery regression f44a6f68. Fresh full
+  Node20 backend2867/0/2, signed erased751/0/0, Home/raw-audio+writer3/0/0,
+  Mac/D009/diff/offline exemplar gate pass. Actual Swift fresh/Studio prompts
+  each pass authenticated real local talk delivery with/without feature map;
+  full shared core/pitch survive. No paid/generated-quality/phone claim.
+- **Evidence:** `docs/original-645-mentor-2026-10-25.md`; completed archive
+  `/Users/halfmutantfilms/io.them-worktrees/_proof/T-1156-20261025.ALFBnf/`.
+
+### T-1159 — Fix hosted writer-loop keyboard focus at original644
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1159-hosted-writer-focus`.
+- **Base:** exact original64442d6f746, failed hosted run40248016339.
+- **Scope:** preserve original head/history; inspect retained hosted recording,
+  hierarchy and native editor before adjusting the test's typing interaction.
+  Editor extends below viewport; focus opens then is lost before typeText.
+- **Binary success:** one visible-page tap establishes editor keyboard, real
+  keystrokes enter exactly once; unchanged authenticated writer-loop contract
+  saves one version, exports and restores. No retry/timeout increase/seeded text.
+- **Proof:** signed erased owned simulator, strict writer contract plus the
+  shared coverage workflow; D009/diff. Production source unchanged means parent
+  unit/backend/Mac evidence is explicitly parent evidence, not newly executed.
+- **Limits:** no main merge, review bypass, paid call or production change;
+  public645+ stays held pending fresh exact644 hosted green.
+- **Status:** local review; strict authenticated writer contract1/0/0 and shared
+  coverage1/0/0 pass signed/erased without retries, same writer/version/export/
+  restore assertions. Reused existing646 allowlist entry after runner rejected
+  the first coverage invocation before execution. D009/diff pass. Runtime,
+  backend tests and unit source unchanged; retain parent proof, not rerun it.
+  Raw647 saved425d354 and proof remain separate. Fresh hosted result required.
+- **Evidence:** `docs/hosted-writer-focus-2026-10-25.md`; permanent archive
+  `/Users/halfmutantfilms/io.them-worktrees/_proof/T-1159-20261025.oBhRux/`.
+
+### T-1155 — Preserve coverage and scope every read to its document
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1155-original-644-coverage`.
+- **Base:** actionscdd463f5, now normally published to original643 after
+  exact64284659a6a hosted clearance. Fresh643 Quality still running.
+- **Scope:** no-ff preserve original644047672ac,880b619d7d,881b7a0ea5;
+  reuse a28c7e1/619f988/e5b7efa/0919fc8 and reconcile the existing connected
+  workflow4dc346a. Retain current Craft selector, auth/recovery and action owners.
+- **Binary success:** current authenticated project/exact-draft/request alone
+  may publish card/summary/speech/error; title-only has no read, same body and
+  supported line endings give the same analysis, HTTP auth/redirect policy is
+  canonical, real controls reach current read without modifying writer bytes.
+  Rule-based scores explicitly estimates, never professional-quality claims.
+- **Boundaries:** no second coverage/speech/HTTP/store framework, no paid model
+  call, no main merge/review bypass or original-head replacement. Preserve646/
+  774 refresh/quiet policy at their actual boundaries; completed-read freshness
+  must be assessed, not assumed solved by in-flight guards. Production held.
+- **Status:** local review. Original644/880/881 preserved with no-ff merges;
+  existing body/byte/accessibility fixes reused. Freshness-only5f71ec5 reused
+  without importing646/774 policy. Missing redirect dependency reused from
+  canonicalfc759311, retaining one origin validator. First compile0 executed;
+  corrected747/0/0. Actual UI2/1/0 exposed same-version polling surfacing a
+  recovery modal over active edits. Root fixc9949f2c keeps durable recovery,
+  relaunch and changed-version decisions; signed749/0/0, unchanged UI3/0/0,
+  Node20 backend2863/0/2, Mac/D009/offline mentor/diff pass. No paid calls.
+  Original644 stays047672ac/draft/base643 pending exact643 hosted clearance.
+- **Evidence:** `docs/original-644-coverage-2026-10-25.md` and completed proof
+  `/Users/halfmutantfilms/io.them-worktrees/_proof/T-1155-20261025.94VE7f/`.
+
+### T-1153 — Preserve original Studio voice actions on the current Pages writer
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1153-original-643-actions`.
+- **Base:** preserved published Pages84659a6a; fresh original642 hosted gate
+  must clear its compiler repair. Original641 required checks are green.
+- **Scope:** preserve original64386cc5b24 and additive879eaed4e61 via no-ff
+  merges; reuse existing2299191b/dd2f3db8/ebcaaa0/04bc973 safety fixes with
+  attribution. Keep current Home/refusal/Stop, Pages/source and save owners.
+- **Binary success:** only offered supported actions dispatch; duplicates,
+  changed account/session/project/exact draft, Page-fiction and recognized
+  refusals/offers/quotes cannot trigger writes; undo synchronous and same-
+  project/exact-byte guarded; revision status only after acknowledgement;
+  no raw scene/beat arguments in diagnostics. No god-file growth vs642.
+- **Proof:** focused real parser/dispatcher regressions, current signed erased
+  native and full Node20 integration, authenticated writer + inspector UI,
+  macOS/D009/diff. No paid calls or unchanged test loops. Do not claim complete
+  live voice control before original648 prompt/reply/authority reconciliation.
+- **Current:** original643/879 preserved; existing safety repairs replayed.
+  New retry seam red0/1/0 (two saves per logical request) → full signed722/0/0
+  after8c50e09. First backend2852/1/2 fetch failure; canonical ephemeral server
+  reused only in cancellation fixtures,7/0/0 then full2853/0/2. Those native
+  results predate the Pages parent repair. Actual merged122a4f76 now has signed
+  units722/0/0,inspector+writer2/0/0,syntheticHome2/0/0,Macbuild,D009/diff pass.
+  Backend tree byte-identical to da05's2853/0/2. No paid call, original643 head
+  change, main change or production claim. Public643 waits for exact642 hosted
+  clearance; normal task-branch backup is not a replacement PR or green CI.
+- **Evidence:** `docs/original-643-actions-2026-10-25.md`.
+
+### T-1154 — Repair hosted Pages preview type-check failure
+
+- **Owner:** codex. **Branch:** `codex/T-1154-pages-preview-typecheck`.
+- **Base:** original64278dc3be, published only after641a45d904 required checks
+  completed green.642 run40234585048 backend/D009 green, Quality red during
+  compile at ScreenplayStudioDraftPageTools.swift:167, before tests executed.
+- **Root/fix:** the nested rich preview expression exceeds the hosted Swift
+  compiler's type-check budget. Precompute its String once and extract the
+  unchanged modifiers into a concrete Text(verbatim:) subview; no AnyView,
+  style/control/label change, timeout increase or disabled check.
+- **Done when:** signed units and unchanged real Pages UI pass, same230pt
+  rendering inspected, macOS/D009/diff pass; normal original642 fast-forward
+  with preserved history/base/draft, then fresh hosted gate (not assumed green).
+- **Proof:** e2a5f9c signed erased units705/0/0; unchanged authenticated Pages
+  workflow1/0/0,8 actual pagination200s and one request per Recalculate;
+  complete230pt render inspected and PNG SHA1 identical94f2b548 to the old
+  sample. Mac/D009/diff pass. Backend is byte-identical to T1152's2839/0/2
+  source, not rerun. Local Xcode26.3 does not prove hosted26.6 success.
+- **Status:** locally proven candidate; normally advance original642 and wait
+  for its fresh hosted gate. Current643da05e289 remains separate: units722/0/0
+  after retry fix; first backend2852/1/2, unchanged cancellation assertions7/0/0
+  after canonical fixture repair, final backend2853/0/2. Parent reconciliation,
+  combined final native/UI/macOS proof and original643 publication still due.
+- **Evidence:** `docs/pages-preview-typecheck-2026-10-25.md`.
+
+### T-1152 — Preserve original Pages and reconcile the existing safety repairs
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1152-original-642-pages`.
+- **Base:** published original641a45d904; parent64015c5868 is hosted green.
+  Original641 still needs its own active Quality Gate and human review.
+  Preserve original6427c40428b and89358c3ff33
+  as no-ff merges88b9d83/134b5c6, not a replacement PR or broad backup merge.
+- **Scope:** existing Letter pagination/overview, source mapping and current
+  draft/density ownership; reuse isolated964bb7a7/eddb2ed5/0f67802a repairs
+  with attribution. Inspect/reconcile original613 and existing narrow Pages
+  navigator1ee9269 before declaring the entire Pages workflow complete.
+- **Binary criteria:** every speech page bounded, Unicode parity, exact source
+  line ranges without rewriting draft bytes, current counts/density and stale
+  recompute ownership, navigation/recalculate controls connected and readable.
+  Retain existing Home/refusal/Stop/auth/recovery policies and original tests.
+- **Proof plan:** reproduce documented engine defects on the actual imported
+  code, then focused engine/mounted HTTP/shared Swift fixtures, necessary native
+  workflow and integration gates. No paid models, padding to target length,
+  new framework, main merge, protected-review bypass or production change.
+- **Current:** original642/893/613/597 preserved by no-ff merges; isolated
+  engine/source/consumer/narrow navigator and duplicate-Send repairs reused.
+  Engine probes red3/3 → green3/0. Actual Pages screenshot exposed false HARD
+  title/action lint; unchanged probes red2/2 → green2/0 after original597 plus
+  existing e5b7efa title-mask seam. No second writer/pagination owner.
+- **Proof:** final Node20.20.2 backend2839/0/2; focused lint/source36/0/0;
+  signed units705/0/0 and package23/0/0 on byte-identical final native source;
+  final Pages1/0/0, typing+overview+writer3/0/0, synthetic Home2/0/0; Mac build,
+  offline40/8, current-parent D009/diff pass. Inspected current230pt/actual UI
+  and native PDF artifacts. Existing warnings and both skips remain explicit.
+- **Publication:** original642 normally advanced7c40428b→78dc3be after exact
+  original641a45d904 completed required checks green.642's fresh hosted compile
+  then failed before tests; T1154 owns the scoped repair, not a blind rerun.
+- **Next:** original643 +879 and bounded safety repairs on the actual next
+  boundary; publication held on fresh642 clearance. No main/production/paid/
+  physical-phone claim.
+- **Evidence:** `docs/original-642-pages-2026-10-25.md`.
+
+### T-1151 — Reconcile original641 with the now-published corrected Craft parent
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1151-original-641-parent`.
+- **Base:** proven local641466d449; preserve original641232098ba and all
+  attributed routing/Home/refusal/Stop fixes. Bring in actual64015c5868 with
+  a preserving no-ff merge, never squash or replace the original PR.
+- **Scope:** only parent integration and any reproduced interaction at the
+  existing owners. TASKS conflict keeps both full histories; automatic native
+  merge must retain the Home/refusal methods and authenticated Craft workflow.
+- **Binary success:** canonical bearer/context/report-slot guards coexist with
+  confirmed-current Home words, refusal and full Stop; source/contract checks,
+  full Node20 and signed erased native boundary, connected local UI and Mac/
+  D009 checks pass. No repeated unchanged run merely for reassurance.
+- **Publication:** exact parent64015c5868 passed all required hosted checks;
+  original641 advanced normally232098ba→a45d904 with draft/base/history retained.
+  Its own Quality Gate40232439824 completed green: backend2809/0/2,
+  units682/0/0, strictwriter pass,V1 28/0/14,voicefault1/0/0,Macbuild. Human
+  review and no-paid/main/production/bypass constraints remain.
+- **Completed local proof:** preserving merge76db805; full Node20 backend
+  2809/0/2, signed erased units682/0/0, runner contracts21/0/0, offline40/8,
+  Home pair2/0/0, authenticated Craft+writer2/0/0, Mac0. Current-parent D009
+  index-24/Root-120/bridge-26/Studio+memory0; diff passes. No paid model call.
+- **Status:** locally proven and published; exact-head required checks green.
+  Public health URL currently fails TLS in curl and Node20; DNS returns Porkbun
+  target. No production change or shipping/physical readiness claim.
+- **Evidence:** `docs/original-641-parent-refresh-2026-10-25.md`.
+
+### T-1143 — Preserve original641 and connect its filmmaker routing safely
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1143-original-641-routing`.
+- **Status:** in-progress, local only; base22bf182, proven640 preparation.
+  Original641232098ba still targets `claude/three-act-port`; public head/base
+  remain held. Body and all four correction/follow-up comments read.
+- **Target:** preserving merge of existing corrected641descendantb85e391f,
+  not a replacement implementation/rehearsal rollup. Retain original232098ba,
+  current parent22bf182, craft trimming/default/report-slot ownership and the
+  parent touch-target repair. Declare all edits within original641 routing,
+  dialogue/intent/freshness modules, associated Swift intent/root/voice seams,
+  focused tests, this entry and the task handoff. No wallet/result-store lane.
+- **Binary criteria:** rewriting stays Page; everyday Home speech stays
+  Companion; server owns dialogue-note detection/contract and project memory;
+  fresh greetings reach the real pitch lane; trimmed craft/notes survive.
+  Existing comments document payload-versus-command and confirmed Home voice
+  follow-ups: reconcile their isolated fixes before declaring this boundary
+  ready. Do not claim typed Studio proof covers a first Home utterance.
+- **Holds:** parent638/974 hosted gates remain live; no child push, main merge,
+  paid provider call, production/credential change or review bypass. Keep
+  native proof isolated/signed and erase only task-owned simulator91693AF0.
+- **Current checkpoint:** preserving merge060bf00; original232098ba and
+  correctedb85e391f remain ancestors. Quoted-dialogue command confusion and
+  swallowed trailing tighten instruction reproduced (focused5/2/0), repaired
+  using the isolated existingb04e16c policy (7/0/0); full Node20 backend
+  2795/0/2; syntax/diff and numeric D009 pass. No new641native/UI/Mac proof.
+  Home confirmed-input/open-before-prepare gap remains the next actual fix;
+  do not declare this boundary ready. `docs/original-641-routing-2026-10-25.md`.
+- **Home continuation:** reconcile isolated6e7138b1 with attribution in this
+  same owned lane: current confirmed words before Studio preparation, no stale
+  Home partial, existing native publication/committed-save ownership, synthetic
+  loopback-only Home fixture and exact saved/relaunch equality. Include its
+  documented refusal and simulator barge-in follow-ups before final proof.
+  Own only the existing Root/intent/bridge seams, extracted canonical helpers,
+  associated native/fixture tests/runner and handoff. No broader backup merge,
+  parallel STT service, production or paid-provider work.
+- **Home checkpoint:** attributed250161c/9dd2332/6213992/ba8e808 preserve
+  existing Home/refusal/echo/Stop work. Adapted old test initializer; native
+  compound-open regression0/1/0 and Node refusal13/2/0 corrected at canonical
+  owners, not by weaker assertions. Final Node20 backend2803/0/2, signed full
+  units681/0/0, Home pair2/0/0, long raw1/0/0, Stop1/0/0, refusal1/0/0,
+  unchanged writer1/0/0, Mac exit0, offline40pairs/8checks and D009/diff pass.
+  No physical/live/production/main completion claim. Parent638/974 now hosted
+  green;638 exact0b56861 awaits independent review. Public children stay held.
+
+### Historical T-1096 — Original Pages work on the dated writer foundation
+
+- **Owner:** codex. **Branch:** `codex/T-1096-pages-writer-sync`.
+- **Status:** in-progress. **Pillar:** mobile-first / trustworthy page navigation.
+- **Scope:** preserving merges of original #642 `7c40428b` and #893 `58c3ff33`
+  above `e3faeca6`; replay isolated existing bounded-speech/Unicode repair
+  `964bb7a7` and ASCII performance correction `eddb2ed5`, not old T-951's
+  cumulative foundation. Keep original histories and all current typing tests.
+- **Done when:** current header/overview/inspector/Craft counts use the same
+  cached draft/density engine, no stale server page count wins, source jumps
+  preserve blank-prefix/CR ranges, and focused parity plus integration gates
+  have fresh recorded outcomes. Retain actual numbered-page and writer UI.
+- **Boundary:** no original-head rewrite, replacement PR, main merge, paid
+  provider or production deployment. #80 export/editor classification, legacy
+  page_flip/visual_pagination reconciliation, narrow inspector redesign and
+  physical-phone proof are not claimed by importing a printed-page engine.
+
+### Historical T-1093 — Confirmed Home writer checkpoint (not current proof)
+
+- **Owner:** codex. **Branch:** `codex/T-1093-confirmed-home-writer-sync`.
+- **Status:** review (current-parent local proof; protected landing pending).
+  **Pillar:** voice-to-scene / durable writer text.
+- **Scope:** reuse isolated T-949 `6e7138b1` above `fc873384`, not its older
+  cumulative rehearsal. Reconcile its editor gate into the existing package
+  owner, preserving current typing/echo/document-switch safeguards.
+- **Root:** confirmed words open authenticated Studio before preparation;
+  no stale/partial Home instruction, duplicate document writer or partial
+  first-save snapshot. Refused commands no longer count as Home open consent.
+- **Current proof:** signed focused67/0/0; Node20 fixture3/0/0; authenticated
+  running-app Home pair2/0/0 with exact complete saved/relaunched editor text;
+  macOS scaffold pass. Synthetic providers, no microphone/model/phone claim.
+- **Evidence:** `docs/confirmed-home-writer-sync-2026-10-20.md`.
+- **Reopened:** short Home2/0/0 did not settle narration: long raw0/1/0, then
+  instrumented0/1/0. Exact call stack identifies bargeIn from microphone frames.
+  Reused original #623's native simulator policy/tests verbatim; its backend
+  changes remain preserved/deferred, not silently absorbed or dismissed.
+- **Final:** signed focused71/0/0; unchanged failing long-audio workflow1/0/0
+  after the native root fix; final macOS scaffold passes. Both long failures
+  retained, no assertion/timeout relaxation. D009 passes; no paid provider calls.
+- **Next:** saved at `f9235d54`; address T-1095 preview-cleanup ownership
+  and T-1094 active-Studio refusals, then continue original #642.
+  #807 remains the canonical later transcribe-first boundary. Main/production
+  holds and independent review requirements remain.
+
+### T-1150 — Make the Craft override page keyboard explicitly dismissible
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1150-craft-keyboard-recovery`.
+- **Base:** preserved local6403c88c50; original public640 remains unchanged.
+- **Observed:** dedicated authenticated Craft UI0/1/0, Save Override not
+  reachable after typing12. Video confirms keyboard covers the save row;
+  default drawer swipe may begin on keyboard. This does not prove manual
+  scrolling is impossible. Existing Page has no explicit submit dismissal.
+- **Fix:** standard SwiftUI page focus and Done submit releases keyboard;
+  clearing the composer clears that focus. Keep the current request/auth/
+  acknowledgement path; no system-wide responder action or new UI framework.
+- **Success:** real Page Done dismisses keyboard without losing12; existing
+  Save action receives acknowledgement and independent API read proves the
+  saved override's project/version/framework. Explicit framework choice still
+  survives Refresh. Preserve existing strict assertions and source history.
+- **Proof:** before bundle `/private/tmp/them-1150-craft-ui.DFwXcS/`; no paid
+  model key, external fetch blocked, authenticated disposable backend. After
+  proof1/0/0 on changed source, exact unchanged source/diff asserted. Inspected
+  selection/acknowledgement/explicit-choice screenshots; external fetch audit
+  empty. Mac compile exit0; current committed-source writer checkpoint1/0/0,
+  empty key and no external fetch. No unchanged
+  retry, main/production or public-head change.
+- **Evidence:** `docs/craft-keyboard-recovery-2026-10-25.md`.
+- **Status:** locally proven; prepare preserving original640 normal advance,
+  not a replacement PR or a main merge. Exact-head hosted checks still required.
+
+### T-1147 — Preserve Craft integration on the corrected original639 parent
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1147-original-640-parent`.
+- **Status:** in-progress. **Base:** repaired local64022bf182; preserving
+  parent965a507, original639 and original640c8eb36b. Public640 unchanged.
+- **Scope:** retain all seven upheld craft/routing/default/prompt corrections,
+  report-operation ownership and strict D009 baseline tests. Include parent's
+  exact simulator/evidence/title-focus/selected-tab fixes without replacing
+  original history. Keep both ledger sides; no squash/force/main merge.
+- **Additional verified source gaps:** makeCraftRequest still lacks canonical
+  bearer attachment; rail hides nonempty infoText once a report exists. Prior
+  follow-up6190d61a already fixes both plus public-discovery/protected-context
+  sequencing. Reuse its scoped runtime/tests, not its later cumulative branch.
+- **Done when:** root reproductions/owned contracts pass, protected context and
+  canonical auth remain enforced, backend/offline/D009 checks pass, and native
+  Craft/writer checkpoint is completed when GUI observation is available.
+- **Proof:** current full Node20 backend2785/0/2, offline40 pairs/8 checks,
+  strict numeric D009 and its7/0/0 contracts, focused signed native15/0/0,
+  full signed erased native647/0/0. Initial sandbox invocation executed no
+  tests; permitted execution passed, with a907s file-store-test outlier whose
+  cause is unclassified. No responsiveness claim.
+- **Hold at T1147 checkpoint:** Mac locked then; now unlocked by human and
+  dedicated Craft case proven with T1150 keyboard fix. Original63940203301919
+  is terminal green at965a507. No public640
+  advance until its current Craft/writer/Mac checkpoint is complete. Separately
+  original97540208473954 failed the second Files presentation; later T1148
+  corrected it and a754cac passed all required gates. No paid call, production
+  change or review bypass.
+- **Evidence:** `docs/original-640-parent-refresh-2026-10-25.md`.
+
+### T-1139 — Preserve original640 with proven craft/routing corrections
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1139-original-640-craft`.
+- **Status:** locally proven; publication waits for parent checks. Public
+  heads unchanged. Original640 `c8eb36b`
+  and proven original639 candidate `f2cf7b5` preserved by merge8821a16.
+- **Parent refresh:** locally include refreshed639candidate4c61d5a and its
+  preserved638repair0b56861. Clean merge; backend, craft/native report-slot and
+  gate source unchanged. This does not advance either public child or turn
+  previous646-unit/full-backend results into fresh combined-tree executions.
+- **Reproduced:** exact four non-knowledge writer messages all route to
+  knowledge_answer; genuine inciting-incident question remains knowledge.
+  Lexical dialogue retrieval returns no craft card. Correctly permitted
+  production-function probe reports5 failed expectations; earlier EPERM
+  initialization is not product-defect proof.
+- **Fix:** backport existing attributed62828f3 andbd6c536 as72bf237/45b75b1:
+  intent restoration, trimmed contracts/craft retention, one framework default,
+  feature-map precedence, context-scoped lexical craft retrieval, corpus layout
+  and deployment count. Backport12396da as4199bb5 to reconcile stored reports,
+  explicit writer choice and stale project/version/auth responses on the rail.
+- **Integration:** initializer retains this boundary's existing save/recovery
+  ownership; add only craft-client injection, not later unrelated dependencies.
+  Historical ledger context is preserved, not treated as fresh proof.
+- **Success:** focused defects, real HTTP prompt path, canonical persona,
+  full Node20 backend, signed erased iOS units including framework/report
+  regression, writer UI, macOS, D009 and diff pass. No paid call or production
+  change. Publish originals bottom-up only after actual parent checks clear.
+- **Evidence:** `docs/original-640-craft-2026-10-25.md`.
+- **Additional root fix:** a held Analyze request remained busy after project
+  reset (signed red0/1/0). Extend existing operation-ID ownership to Analyze
+  and Override; project reset/framework change releases UI authority, old
+  completions cannot retire or publish into a newer request. No server-cancel
+  or exactly-once claim.
+- **Verified:** Node20 focused79/0/0 and full2779/0/2; all40 offline exemplar
+  pairs/eight prompt checks; initial signed645/0/0 before the new slot fix,
+  focused correction8/0/0, final signed646/0/0 including eight held success/error
+  context variants; final writer1/0/0; macOS exit0. Corpus all110 contents and
+  metadata unchanged; D009 index-45/Studio-4/others0; diff passes.
+
+### T-1140 — Make a missing D009 comparison baseline fail explicitly
+
+- **Owner:** codex. **Branch:** `codex/T-1140-god-baseline-authority`.
+- **Status:** locally proven on640 descendanta0bab6a; script-only lane.
+- **Observed:** an explicit GITHUB_BASE_REF with no local tracking ref returns
+  base/delta null but status ok/exit0. It is not comparison proof. T-1139
+  fetched the exact existing parent and reran with real counts; final proof
+  is valid. Current hosted checkout uses fetch-depth0, mitigating that case.
+- **Target:** canonical `scripts/check_god_files.mjs`; reject an explicitly
+  unavailable comparison ref, without weakening growth detection or changing
+  valid-baseline behavior. Verify using isolated fixture repos, not more
+  backend/native reruns. No new framework or production change.
+- **Root/fix:** validate actual baseline commit, mark unavailable comparisons
+  unverified/failed, reject unreadable comparison content, count a file absent
+  from a valid parent as zero. `--allow-growth` cannot authorize no comparison.
+- **Proof:** isolated fixture repos before2 pass/5 fail/0 skip; fixed7/0/0;
+  syntax/diff pass; real original-parent comparison passes with actual numeric
+  baselines. Native/backend trees are byte-unchanged froma0bab6a. The existing
+  required D009 job runs the regressions; workflow binding checked statically,
+  fresh hosted execution pending. No paid/live workflow is introduced.
+- **Evidence:** `docs/god-baseline-authority-2026-10-25.md`. Preserve original
+  #640 history; fresh hosted checks/review still required before landing.
+### T-1146 — Connect project creation focus and trustworthy writer proof
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1146-original-639-writer-input`.
+- **Status:** review (coherent local checkpoint proven; fresh hosted required).
+  **Base:** original6396ec372d; hosted run40190222594
+  fails the writer's project-title keyboard dismissal before V1/voice/Mac.
+- **Evidence:** log erases B34C2F57 but Xcode selects E839A11B by duplicate
+  name. Runner then deletes its own writer result, so the failure upload has
+  only the unit bundle. Do not invent a screenshot or exact focus cause.
+- **Scope:** reuse980c001's exact immutable simulator and safety fixtures,
+  9f64c97's compatible retained-writer owner/CI glob, and0fe58ca's title-field
+  focus correction. Preserve source attribution and both ledger histories;
+  later cumulative branches are not merged wholesale.
+- **Done when:** runner failure/zero/malformed-result and ambiguity guards
+  pass; actual authenticated Create dismisses its own keyboard without a test
+  helper; full writer save/export/relaunch and signed/Node20/Mac/D009 gates
+  pass at the coherent checkpoint. No skip, retry or weakened text/save count.
+- **Ownership:** canonical runner/resolver/tests/artifact glob; existing
+  Projects sidebar and writer UI contract; this entry and report. No new
+  persistence/auth/provider owner, god-file growth, paid call or production
+  change. Original PR/base/history preserved; no publication until proven.
+- **Proof:** real Create-owned dismissal red0/1/0 -> full authenticated writer
+  1/0/0; full signed units635/0/0; Node20 full2764/0/2; runner contracts27/0/0;
+  Mac build0, proper-parent D009 deltas0 and diff/syntax pass. Initial contracts
+  22/5/0 lacked dependencies, retained separately; no product regression claim.
+  Existing Swift warnings and live/phone/production gaps remain. Evidence:
+  `docs/original-639-project-focus-2026-10-25.md`.
+
+### T-1145 — Repair original639's unnecessary selected-tab hit-point query
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1145-original-639-hosted-rail`.
+- **Status:** review (local correction proven; fresh hosted gate required).
+  **Base:** original6399bb54ec, unchanged original638
+  base. Native run40185550749 is terminal red: V1 27/1/9; signed units and
+  required writer passed, later voice/Mac skipped. Backend/D009 passed.
+- **Observed:** restored story-obligation snapshot succeeds after relaunch;
+  opening the drawer then querying the already-selected Clementine tab's hit
+  point fails at the reveal helper before its text assertions. Retain the
+  actual hosted artifact; do not claim saved memory is lost from this failure.
+- **Target:** reuse the relevant existing04a993f shared reveal correction,
+  not its unrelated runtime/navigation changes: recheck content after opening,
+  use stable tab identity and check selection before requesting a hit point.
+  Keep exact result/evidence/correction/relaunch assertions and all timeouts.
+- **Ownership:** this entry, the UI helper and bounded regression/evidence.
+  No app/backend/provider change, retries, skips, main merge or paid calls.
+- **Done when:** the affected real UI journeys pass with positive counts,
+  D009/diff pass, source identity is recorded for inherited gates, and original
+  PR advances normally once for fresh hosted proof; no red is called green.
+- **Proof:** signed memory/relaunch + answer/skip + explicit option selection
+  **3/0/0** on the erased owned simulator; D009 numeric deltas0/diff pass.
+  App/backend/unit sources unchanged; inherited exact-head hosted backend
+  2758/0/2, units635/0/0 and strict writer pass. Later hosted voice/Mac skipped.
+  Evidence: `docs/original-639-hosted-reveal-2026-10-25.md`.
+
+### Historical T-1095 — Preview cancellation checkpoint (not current proof)
+
+- **Owner:** codex. **Branch:** `codex/T-1095-preview-cancel-ownership`.
+- **Status:** review (scoped current-parent proof; protected landing pending).
+  **Pillar:** durable voice-to-scene / explicit writer control.
+- **Source finding:** cancelStreamingVoiceTurnPreview cancels a stream before
+  checking preview activity. This was NOT T-1093's traced bargeIn caller.
+- **Done when:** inactive preview cleanup leaves a normal stream alone, active
+  preview cancellation still restores its baseline, and explicit Stop/barge-in
+  still interrupts the actual page owner. Prove the real bridge behavior.
+- **Root:** bridge red0/1/0 -> guard fix14/0/0 focused signed/native checks;
+  longer-audio Home/save/relaunch1/0/0. Actual iPhone-simulator Stop button then
+  exposed duplicate handler resuming capture: UI red0/1/0 -> unchanged1/0/0
+  after routing to existing full-stop owner and deleting the duplicate.
+- **Verified:** final macOS scaffold/D009/diff pass; Root shrank24 lines versus
+  parent. Both red runs retained. No paid providers or physical-phone claim.
+- **Evidence:** `docs/preview-cancellation-2026-10-20.md`.
+- **Next:** T-1094 active-Studio refusals, then original #642; original-head
+  review, integrated-main/phone proof and production hold remain.
+
+### T-1138 — Preserve original golden-set PR639 with explicit spend approval
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1138-original-639-parent`.
+- **Status:** original6399bb54ec published; parent6380b56861 has all required
+  hosted checks green, but child run40185550749 is terminal red in the memory
+  reveal UI helper. Correction/proof at T-1145 above; no further stack advance
+  until its fresh exact-head checks pass. Independent reviews remain required.
+  Original639 `5722514` and prior original638 `612bf17` are preserved by
+  merge `946a3c9`; actual base remains
+  `claude/mentor-core-port`. No replacement PR or main change.
+- **Root:** original weekly workflow spent automatically. Attributed existing
+  fix6c55d9b backported as49486db: scheduled offline-only; explicit live approval;
+  selectors passed as data; fail fast on provider errors; unknown selector fails.
+- **Reconciliation:** preserve both historical ledger sides, clearly marked
+  as old context. Reuse dc8af7b's client pitch-priority correction so the app
+  matches the safe runner; a direct request outranks an unsolicited pitch.
+  Shared canonical mentor file must match the flexible120-page native literal.
+- **Verified red:** offline gate after preserving merge/backport exits1 at
+  flexible120-page prompt assertion; original shared file still prescribed110.
+  Fix the shared text, not the assertion; all original golden/weak pairs remain.
+- **Done when:** offline gate, guard/scorer contracts, exact Node20 backend,
+  signed erased native units, writer workflow, macOS, D009/diff pass and proof
+  is recorded. Do not publish child until the updated parent checks are green.
+- **Holds:** no paid call, production change, review bypass, native resource
+  collision, force push or unverified real-phone claim.
+- **Verified:** full Node20 backend2758/0/2; signed iOS635/0/0 including
+  canonical persona parity and request-priority regression; local writer1/0/0;
+  macOS exit0; scorer/approval guards8/0/0, all40 offline exemplar pairs and8
+  prompt checks; D009/diff and static workflow safety pass. Evidence:
+  `docs/original-639-parent-2026-10-25.md`.
+- **Parent refresh:** preserving merge2ef41fd includes638repair0b56861; only
+  ledger conflict, both histories kept. Fresh offline40pairs/8checks, guards
+  8/0/0, D009/diff pass. No unchanged full/native rerun or child push; earlier
+  complete checkpoints remain dated/inherited until updated-child proof.
+- **Refreshed proof:** signed635/0/0, inspector UI3/0/0, authenticated writer
+  1/0/0, Mac build exit0, numeric D009/diff pass. Same backend tree83217712
+  as original full2758/0/2 checkpoint; no unchanged backend rerun. Offline
+  40pairs/8checks and scorer/approval guards8/0/0 remain source-identical.
+
+### T-1142 — Fix the original638 hosted Snapshots-pane failure
+
+- **Owner:** codex. **Branch:** `codex/T-1142-draft-pane-navigation`.
+  **Status:** original6380b56861/run40176990546 completed all three required
+  jobs successfully; independent non-author review remains required.
+  Retained recording/hierarchy shows Revisions stays
+  selected after the Snapshots tap. The inactive button's icon/text-only
+  accessibility frame is33.6pt high; the event lands in its clear inter-item gap.
+  Original638 head612bf17/run40171307411 remains terminal red.
+- **Observed:** broad V1 test `test_draft_tools_tabs_route_to_each_presentation_pane`
+  reaches Pages and Revisions, taps Snapshots, then fails the snapshot-tools
+  element assertion at line613. Later voice/macOS step is skipped. Do not
+  treat earlier local633/0/0 or writer1/0/0 as clearing this hosted failure.
+- **Target:** one full rectangular touch target per draft-tools tile, retaining
+  current visuals/selection/routing. Own only DraftToolsViews, its existing UI
+  workflow regression, this entry and the failure handoff; basee63c6e0.
+  Prove minimum44pt target height and one padding tap per route, selected state,
+  real pane/note/create controls, and return to Pages. No longer timeout or retry.
+- **Proof:** signed red0/1/0 (inactive target34.24pt); corrected UI3/0/0,
+  full units633/0/0, authenticated local writer1/0/0, Mac build exit0, D009
+  numeric deltas0/diff pass. Backend unchanged, same tree as hosted2750/0/2;
+  not rerun. Fresh hosted checks and independent review remain required.
+- **Evidence:** `docs/hosted-draft-pane-failure-2026-10-25.md`. Main unchanged;
+  no further review action needed until a corrected exact head is provided.
+
+### T-1137 — Preserve original mentor-core PR 638 on current main
+
+- **Owner:** codex (Jarvis). **Branch:** `codex/T-1137-original-638-mainline`.
+- **Status:** prior612bf17 hosted failure retained at T-1142 above; corrected
+  head0b56861 is published with fresh checks green. Independent review still
+  required; no main or production change.
+- **Target:** update original #638 with a preserving merge of current main,
+  not a replacement PR or rehearsal rollup. Preserve original638 `6ad4117`
+  and main `78b8c94`; clean merge checkpoint `8bc3f5a`.
+- **Reconciliation:** the original mentor identity hard-coded a110-page
+  feature. Reuse the accepted flexible120-page wording from the existing
+  writer candidate, without importing its unrelated features. This follows
+  the human's newer explicit direction; chosen lengths remain authoritative.
+- **Done when:** Node20 focused/full backend, signed units on a separately
+  task-owned erased simulator, required writer workflow, macOS scaffold,
+  D009 and whitespace checks pass on the exact candidate; record all failures
+  and skips. Only then normally advance original #638 for fresh hosted checks
+  and independent human review. Preserve its main base and every original commit.
+- **Resources:** task-owned simulator `91693AF0-AE2C-4FAD-9F4C-EC4C92AA382A`.
+  Reserved export-evidence simulator7F1A14C1 remains untouched. No paid calls,
+  production change, secret access, force-push, squash or protection bypass.
+- **Evidence:** `docs/original-638-mainline-2026-10-24.md`.
+- **Verified:** Node20.20.2 backend2750 pass/0 fail/2 skip; signed iOS633/0/0;
+  authenticated local writer workflow1/0/0; macOS scaffold build exit0; D009
+  deltas0 and diff check pass. No paid/live-model/physical-phone proof.
+## Historical ledger context preserved with the attributed T-1088 backport
+
+The following records describe earlier branches and dated evidence. They are
+retained rather than deleted during conflict resolution; they are not current
+ownership assignments, new proof for this head, or permission to revive work.
+The active T-1138 assignment and its new proof govern this integration.
+
+### T-1088 — Golden mentor work on the current writer candidate
+
+- **Owner:** codex. **Branch:** `codex/T-1088-mentor-golden-writer-sync`.
+- **Status:** review (scoped proof complete; original protected landing
+  pending). **Pillar:** living companion / writer authorship.
+- **Boundary:** preserve original #639 `57225143` onto `dc8af7b5`; no-ff
+  merge `476579c6`. Resolve the Swift mentor conflict by retaining the flexible
+  120-page correction and original dialogue/one-question/idea-building rules.
+- **Root fixes:** canonical text/parity retains human guidance; explicit
+  110-page fixtures remain writer-selected examples, default recommendation
+  becomes flexible120. Weekly eval is offline only; live requires fresh manual
+  approval. Reject empty selector matches and stop after provider failure.
+  Pass workflow input as quoted data, not shell source.
+- **Verified:** offline Node20 10/0/0; all40 exemplar pairs separated,8 prompt
+  assertions passed. Workflow YAML/guard/secret separation/bash syntax checks
+  pass statically; no hosted workflow or paid-provider claim. D009/diff pass.
+- **Swift proof:** signed focused core/parity5/0/0 on erased owned Pro,
+  iOS26.2/23C54; completed summary read. SE export/file retained. No repeated
+  broad gates or paid calls at this preparation boundary.
+- **Evidence:** `docs/mentor-golden-writer-sync-2026-10-20.md`.
+- **Next:** inspect actual #640 head/base and root fixes before integration.
+  Preserve every original PR head/base and required main review/check gates.
+
+### T-1087 — Preserve mentor core on the current writer candidate
+
+- **Owner:** codex. **Branch:** `codex/T-1087-mentor-core-writer-sync`.
+- **Status:** review (scoped integration/prompt proof complete; protected
+  original landing remains pending). **Pillar:** living companion / voice→scene.
+- **Boundary:** preserve original #638 `6ad41171` with a no-ff merge onto
+  `01fa4948`, not the older broad mentor rehearsal. Preserve every original
+  PR head/base and existing writer, export, billing and security capability.
+- **Root corrections:** specific writer requests outrank unsolicited first-
+  turn pitches; recommend 120 pages flexibly without fixed 110-page beats
+  or padding/truncation. Page output retains priority over mentor prose.
+- **Verification scope:** focused offline Node20 mentor/persona/trimming/page
+  generation and signed mentor/pitch Swift tests; D009/diff. No broad repeats,
+  paid model calls or production changes. Full integrated gates at landing.
+- **Verified:** preserving merge `bfcf1952`; offline Node20 32/0/0; signed
+  Swift10/0/0 on erased owned Pro/iOS26.2. D009 vs main index33626 delta0,
+  Studio-10/bridge-23/others0; production-JS syntax/diff pass. Source, prompt
+  and injected-provider proof, not live-model or physical-phone proof.
+- **External export follow-through:** after manual Mac unlock, the same
+  T-1086 Markdown file opened in Files outside THEM; filename, 35-byte size
+  and exact displayed fixture observed. SE state/file retained.
+- **Evidence:** `docs/mentor-writer-sync-2026-10-20.md`.
+- **Next:** original #639 preserving integration; reconcile its canonical
+  mentor text/parity fixture with these corrections. #964 still needs current
+  independent approval. No scheduled paid evaluation without fresh permission.
+
+### T-1086 — Native Files export on the corrected billing/security writer
+
+- **Owner:** codex. **Branch:** `codex/T-1086-native-export-writer-sync`.
+- **Status:** review (save/byte proof and external-open observation passed
+  on simulator). **Pillar:** writer-owned saved/exported pages.
+- **Boundary:** preserve original #590 through prepared `45a1ed96`, merge
+  current integration `f0b5fb5e`; keep all original heads/history unchanged.
+- **Target:** existing FileDocument/coordinator and Document child, exact
+  backend bytes, truthful Cancel/retry/Save, auth-generation/project fences.
+  Preserve current save slot, queue, redirect guard and billing owners.
+- **Success:** focused export support and authenticated native writer/Files
+  workflow; independently inspect actual saved bytes and open outside THEM;
+  actual-base D009/diff. No repeated full backend/unit/V1 or paid calls.
+- **Publication:** normal existing integration-backup advance only after
+  proof; no replacement PR, original-head update, force, main or deployment.
+- **Verified:** preserving merge `38183eab`; export support18 + failure UI1
+  =19/0/0; authenticated writer/native Files Cancel/retry/Save/relaunch1/0/0.
+  Signed/erased owned SE/iOS26.2; actual summaries read. Saved provider file35
+  bytes equals independent expected Markdown; SHA256304997ef. No Save-retap
+  activity found. Actual-main D009 Studio-10/bridge-23/other deltas0; diff clean.
+- **Human observation:** after the human manually unlocked the Mac, CUA
+  opened the same file in Files; current screenshot displays its exact
+  fixture. No rerun or old T1073 evidence substitution. Preserve SE state.
+- **Evidence:** `docs/native-files-writer-sync-2026-10-20.md`.
+- **Next:** continue scoped integration; fresh landing gates, genuine review
+  and physical-phone proof remain required.
+
+### T-1073 — Preserve original native Files export in the writer candidate
+
+- **Owner:** codex. **Branch:** `codex/T-1073-native-files-export`.
+- **Status:** review (local proof complete; foundation propagation pending).
+  **Pillar:** real, writer-owned exported pages.
+- **Boundary:** original #590fd239bd3 and corrected #919a6262b83 are both
+  preserved by local no-ff merge915f0ee0. Original PR heads/bases untouched.
+  Only the duplicate provenance-name correction conflicts; keep the current
+  spelling and explicit Self dispatch. No replacement exporter or PR.
+- **Target:** original Files Cancel/retry/Save path uses actual backend bytes;
+  existing Document controls child owns its coordinator, not a new god-view
+  StateObject. Late callbacks must respect canonical auth generation as well
+  as project identity. Keep native macOS Save and exact clipboard handoff.
+- **Done when:** focused auth/lifecycle/byte tests and native Files workflow
+  pass, exported file is independently inspected, D009/diff and integrated
+  boundary gates pass. Record deterministic versus physical/live scope.
+  Fresh parent CI is still running; no remote/base/main/production changes.
+- **Current proof:** focused18/0/0; signed full units692 + exact typing,
+  inline chooser and real-failure preservation UI4 =696/0/0. Actual local
+  authenticated writer/Files Cancel/retry/Save1/0/0; file opened in Files,
+  bytes independently checked35/SHA2568f75a14d. The old bare V1 smoke no
+  longer claims its DEBUG-made artifact proves a file; it now verifies a
+  real connection failure preserves words and leaves retry available. Actual
+  success remains required in the writer producer. Final frozenb00d78d4
+  writer1/0/0 and macOS build0; final actual exported35 bytes retained and
+  opened externally in Files, SHA256fd8dd0eb. D009 Studio-6/others0; diff
+  pass. Evidence: `docs/native-files-export-integration-2026-10-20.md`.
+  No full V1, new backend run or physical-phone claim. Original #590 unchanged.
+- **Main receipt (separate):** independently approved #909d3b6027e merged
+  normally as78b8c94f, exact tree6e6e1b1c. Fresh hosted backend2744/0/2,
+  units624, V1 UI28/0/9, writer/voice/macOS green. Registry audit0;
+  GitHub open alerts0. Render auto-deploy Off, production hold unchanged;
+  main push gate39502261480 pending. This local export candidate still has
+  its older parent lockfile; propagate security through actual foundation
+  #964 → #904 → #919 before promotion. Do not call the candidate hardened.
+### T-1085 — Combine original failed-generation billing with the corrected writer
+
+- **Owner:** codex. **Branch:** `codex/T-1085-billing-writer-integration`.
+- **Status:** review (focused handler proof passed; original PR heads unchanged).
+  **Pillar:** writer text and truthful usage charging.
+- **Boundary:** preserve original #625 and its prepared `9191af6c`, then
+  merge backed-up security/save/editor candidate `c6630d00`. Keep both
+  histories, original PR heads and protected main unchanged.
+- **Target:** original generation validation and response-lifecycle wallet
+  settlement, including asked_repeat/continue_listening; no second billing
+  owner. Keep the canonical tutorial helper once and preserve the original
+  pre-submit tutorial guard and stricter automatically reachable loaded-ask
+  assertions/diagnostics. No weaker UI assertion or product UI change.
+- **Success:** original billing owners and candidate iPhone source match;
+  focused offline Node20 authenticated billing/preservation tests and actual
+  base D009/diff pass. Reuse unchanged native app proof explicitly, no full
+  local backend/iOS repeat or paid call. Fresh landing-head CI still required.
+- **Publication:** a scoped backup only, no replacement PR, original-head
+  update, force push, squash, main merge or production deployment.
+- **Verified:** preserving merge `fe99f0a9`; shipping Swift/package/project
+  source matches candidate `c6630d00`, billing owners match original #625.
+  Pinned offline Node20 real handler/persistence/lifecycle10/0/0; three JS
+  syntax checks and UI-test syntax parse pass. No native suite repeated;
+  stronger merged UI expectations still require fresh landing-head execution.
+  D009 passes (Studio-4/bridge-23/others0 versus real #964); diff clean.
+- **Backup:** normally advance the existing task-owned integration backup,
+  preserving `c6630d00`, rather than creating another remote branch or PR.
+- **Next:** reconcile preserved native Files export with this combined source.
+- **Evidence:** `docs/billing-writer-integration-2026-10-20.md`.
+
+### T-1081 — Preserve billing fixes on the current security/save foundation
+
+- **Owner:** codex. **Branch:** `codex/T-1081-billing-foundation-sync`.
+- **Status:** review (local integration prepared; original remote unchanged).
+  **Pillar:** reliable writes and truthful wallet charges.
+- **Boundary:** original #625 `d493c515` plus original #964 `5faa43d6`;
+  preserving merge, no squash, replacement PR, force push or main change.
+- **Target:** retain the original generation/recovery billing corrections and
+  narrow inspector/keyboard fixes while inheriting current locked security
+  dependencies, save-slot handoff, atomic held saves and CI ready-event fix.
+- **Success:** both histories are ancestors; source owners match their original
+  parent exactly; relevant offline Node20 billing/security/runner contracts and
+  D009/diff pass. No duplicate full local iOS/backend/provider runs.
+- **Publication hold:** leave the original remote head unchanged until #964's
+  remaining required checks pass. Updated #625 still needs fresh exact-head
+  hosted checks and independent review. Production remains held; no paid call.
+- **Verified:** preserving merge `dc12f546`, both parent histories retained;
+  affected Node20.20.2 billing/security45/0/0 and CI contracts6/0/0, network
+  disabled. Canonical source byte comparisons and five D009 deltas0 pass.
+  No new full local backend, signed units, UI, macOS or provider run claimed.
+- **Evidence:** `docs/billing-foundation-sync-2026-10-20.md`.
+
+### T-1047 — Reach Voice Pin page actions without overshooting
+
+- **Owner:** codex. **Branch:** `codex/T-1047-partner-page-action`.
+- **Status:** review. **Pillar:** connected, reachable voice-to-page.
+- **History:** original #625 `5824f226` preserved; normal merge `37c50378`
+  also preserves original #964 `81b05e44` exact-device/signing/summary repairs.
+- **Root evidence:** hosted39398273450 UI28/1/9 at To Page; video repeatedly
+  swipes farther down after passing the action. Same callback fails0/1/0
+  on erased signed 375-point SE. No keyboard focus or tap retry implicated.
+- **Fix:** one bounded viewport-aware reveal for all three existing helpers,
+  stable scroll-content accessibility ID, minimum pan travel. First bounded
+  intermediate0/1/0 stalled at co-writer on repeated9.5-point drags; retained.
+- **Proof:** merged runner contracts26/0/0 and Node20 backend2769/0/2,
+  external network off. Minimum-pan run0/1/0 passed Page routing but exposed
+  the known offscreen inline confirmation wait. Reused T-996 `d82b3757`
+  assertions instead of duplicating its fix. Intermediate cohort3/1/0 exposed
+  keyboard tutorial and actual keyboard-safe-area suppression. Removed
+  unsuccessful keyboard-event/anchor experiments; the root product fix is
+  container-only safe-area handling in Studio and its parent. Final signed
+  erased SE cohort11/0/0; separate direct page typing1/0/0; macOS compile0;
+  D009 all five deltas0. Preserve both original heads, advance original #625
+  normally atop #964, require fresh hosted checks and independent review.
+  No main, production, paid-model or physical-phone completion claim.
+- **Done when:** same single-tap callback and affected panel/intent workflows,
+  signed narrow proof, macOS/D009/diff pass; advance original #625 normally
+  with all original history. Fresh hosted checks/review required; no main push.
+- **Evidence:** `docs/partner-page-action-2026-10-20.md`.
+
+### T-1041 — Keep Studio inspector navigation visible while content scrolls
+
+- **Owner:** codex. **Branch:** `codex/T-1041-pinned-inspector-navigation`.
+- **Status:** review; isolated descendant of original #625 `78430dec`.
+- **Evidence:** hosted39318515602 passed backend/units but failed the
+  six-panel inspector route at Outline tap with a system-AX timeout. Its
+  preceding activity repeatedly scrolls to recover the tab grid. Do not
+  claim a reproduced simulator-infrastructure root from those logs alone.
+- **Target:** existing tabs stay pinned while content scrolls; preserve
+  styling, selection, all six panels, scroll targets and original billing
+  history. No new product state or protected-file growth.
+- **Done when:** behavior-only pinned-navigation case reproduces before;
+  same case and original six-panel routing pass after on an erased owned
+  narrow signed simulator, focused presentation/design checks and macOS
+  compile pass, D009/diff clean. Require fresh hosted gate and review.
+- **Holds:** no paid call, production or main change. Character learning
+  from saved pages belongs to original #722/#897; preserve their work.
+- **Verified:** navigation-only before0/1/0. Inset-only1/1/0; inset/identity
+  1/1/0; structural layout with old fling helper8/1/0 (seven units passed).
+  A diagnostic-only route passed1/0/0, not accepted as a stable correction.
+  Reused the preserved T-992 bounded-gesture owner `6a57ff9`, removed the
+  sole-use tab-reopen fallback, retained all action/selection assertions.
+  Final signed erased SE9/0/0 (seven units + two UI), actual summary read;
+  macOS scaffold native exit0. Native Draft/Craft/Outline headings and all
+  six tab labels visually readable. D009 all five deltas0; diff clean.
+- **Evidence:** `docs/pinned-inspector-navigation-2026-10-20.md`. No fresh
+  full backend/unit-bundle or hosted-system-AX root-cause claim. Require
+  updated exact-head hosted checks and independent review before any merge.
+
+### T-993 — Re-prove original failed-generation billing fix on current main
+
+- **Owner:** codex. **Branch:** `codex/T-993-billing-main-proof`.
+- **Status:** in-progress. **Pillar:** trustworthy voice-to-page and wallet.
+- **Root verified:** current rehearsal's actual generation stage returned
+  zero reply bytes after two injected provider calls while proposing123
+  output tokens for billing. No live provider or real wallet used.
+- **Scope:** preserve original #625 head795f14fc and current main deac1a6d
+  with a normal merge. Read all seven original files and follow-up commits;
+  asked_repeat/continue_listening release is already in the original head.
+  Do not reimplement it, create a replacement PR or move main.
+- **Done when:** original generation/supplier/real-HTTP/lifecycle regressions,
+  full Node20 suite, signed erased units, D009/diff pass; adversarial limits
+  recorded; fresh original PR/head checks and independent review still needed.
+- **Human hold:** production blocked until App Store credentials exist.
+- **Verified:** focused33/0/0 after auth enforcement; full pinned Node20
+  backend2761/0/2; signed erased units624/0/0; D009 all five deltas0 and diff
+  clean. Unit source7f6159d and backend129d22c differ only by a Node test.
+  No new writer UI/macOS/live-provider claim. Manifest:
+  `docs/billing-main-proof-2026-10-19.md`.
+### T-1084 — Preserve redirect security on the corrected save/editor foundation
+
+- **Owner:** codex. **Branch:** `codex/T-1084-security-foundation-sync`.
+- **Status:** review (local scoped proof passed; original remote unchanged).
+  **Pillar:** trusted sign-in and durable writer words.
+- **Boundary:** preserve original #973 `fc759311` and its stopped local
+  rehearsal `9f54c297`, then merge corrected editor preparation `4806f4e9`.
+  Keep both task histories and all original implementation; no original PR head change.
+- **Target:** unchanged strict pre-forward redirect guard and all canonical
+  call sites with current security dependencies, save slot, atomic held saves,
+  loaded-page/stale-observer/conflict recovery and the original editor.
+- **Success:** source-owner/ancestry/D009 comparisons; native redirect5,
+  actual host loopback wire8 and recursive coverage2; selected authenticated
+  conflict/relaunch path. No full local backend/unit/V1 repeat or paid call.
+- **Hold:** original #973's older hosted recovery red is retained. Fresh
+  landing-head CI/review required after protected lower parents land; no
+  replacement PR, force push, squash, main or production action.
+- **Verified:** preserving merge `405cbc0b`; guard/call sites/fixtures match
+  original973 exactly; model/editor/queue/security dependencies match corrected
+  parent exactly. Host wire8/zero foreign requests, Node20 coverage2/0/0,
+  signed native redirect5/0/0 and selected authenticated recovery1/0/0.
+  Five actual-parent D009 deltas0/diff pass. No full local suite or paid call.
+- **Next:** reconcile the already-preserved original #625 billing fix with
+  this prepared foundation while the protected merge awaits human review.
+- **Evidence:** `docs/redirect-foundation-sync-2026-10-20.md`.
+- **Backup scope:** publish this prepared task branch only, without a replacement
+  PR or original-head update. Existing workflow push filters do not schedule
+  the full required/live release suites for this non-main, non-tag branch.
+
+### T-1071 — Preserve corrected recovery under the redirect boundary
+
+- **Owner:** codex. **Branch:** `codex/T-1071-security-parent-sync`.
+- **Status:** in-progress. **Pillar:** exact words and credential safety.
+- **Boundary:** preserve original #973fc759311 and parent #919bd470578
+  with a no-ff merge; only the task ledger conflicts, keep both histories.
+- **Target:** same canonical queued/unreadable recovery and inline chooser,
+  with the original strict redirect guard, injected sessions and cancellation.
+- **Done when:** full signed units/typing/chooser, authenticated writer and
+  expired-auth/offline recovery, synthetic voice/macOS, actual host wire,
+  Node20 backend, actual-parent D009/diff pass before same-original PR update.
+- **Limits:** retained original hosted recovery1/1/0 is not cleared by the
+  parent's local proof. #904d36d4e64 now hosted green; #919bd470578's gate
+  remains live. #909 genuinely approved; its ready event queued fresh checks,
+  normal merge blocked correctly. Production remains held, Auto-Deploy Off.
+- **Evidence:** `docs/security-recovery-parent-integration-2026-10-20.md`.
+
+### T-1065 — Reject credential-bearing cross-origin HTTP redirects
+
+- **Owner:** codex. **Branch:** `codex/T-1065-backend-redirect-boundary`.
+- **Status:** review (local correction and scoped proof passed).
+- **Pillar:** trusted sign-in and writer privacy. **Base:** original #919fd2fe9c.
+- **Verified:** native macOS URLSession.shared follows loopback302/307,
+  forwarding dummy app/client-token headers;307 forwards dummy POST body.
+  Authorization stripped. This is not evidence of a real production leak.
+- **Fix:** single pre-forward guard reuses the unchanged origin policy;
+  all71 async data/bytes and dedicated talk redirect use it. Same-origin
+  stripped auth restored only after strict origin checks; no new session owner.
+- **Verified:** host wire8 cases/zero foreign requests; signed units667/0/0,
+  authenticated writer1/0/0, recovery2/0/0, synthetic voice1/0/0, macOS0.
+  Node20 full2755/0/2 on53edcee; final strengthened lint2/0/0. D009/diff pass.
+- **Next:** distinct draft stacked on #919, fresh hosted/review; no main or
+  production mutation. Host wire is not physical-iPhone/provider proof.
+- **Evidence:** `docs/backend-redirect-boundary-2026-10-20.md`.
+### T-1083 — Integrate green editor recovery with the current save/security parent
+
+- **Owner:** codex. **Branch:** `codex/T-1083-editor-foundation-sync`.
+- **Status:** review (local affected proof passed; original remote unchanged).
+  **Pillar:** exact typing and acknowledged recovery.
+- **Boundary:** original #919 `39ca7c3b`, now hosted-green, plus preserved
+  #904 preparation `97ce2453`. Retain both histories; no remote/main change.
+- **Target:** combine the single save-slot/atomic held-save/security fixes
+  with the original stale-observer, viewport and durable-conflict capability.
+  Keep explicit Keep Mine's existing bypass of older active queue entries;
+  adapt it to the already-claimed slot, not to a removed Bool.
+- **Success:** source-owner/ancestry/D009 checks, affected save/model cases,
+  exact typing UI and selected authenticated conflict/relaunch pass. No full
+  local backend/unit/V1 repeat or paid call; fresh landing-head CI still needed.
+- **Publication:** wait for protected lower parents and genuine review;
+  advance original PRs normally, no replacement, force push or squash.
+- **Verified:** preserving merge `a69ad159`; signed selected save/model16
+  plus exact typing UI2 =18/0/0, authenticated conflict/relaunch UI1/0/0.
+  Erased owned SE/iOS26.2; native summaries inspected. Five D009 deltas0
+  versus real remote #904; protected editor/typing and parent security/save
+  owners compared byte-identical. No full local suite or paid call.
+- **Next:** preserve-prepare original security #973 on this source; publish
+  original children only after lower protected parents land and fresh checks.
+- **Evidence:** `docs/editor-foundation-sync-2026-10-20.md`.
+
 ### T-1080 — Wait for the seeded page before injecting offline edits
 
 - **Owner:** codex. **Branch:** `codex/T-1080-recovery-fixture-readiness`.
@@ -229,6 +1974,40 @@ change or treat it as merged; original pre-proof text remains in Git history.
   D009 passes against actual #904 (bridge -22, all others0). Advance this
   same original #919 by normal fast-forward; fresh hosted checks/review
   remain required. Full-suite counts above are retained historical proof.
+### T-1082 — Keep recovery protection on the current save/security foundation
+
+- **Owner:** codex. **Branch:** `codex/T-1082-recovery-foundation-sync`.
+- **Status:** review (local proof passed; original remote unchanged).
+  **Pillar:** exact writer recovery and acknowledged saves.
+- **Boundary:** original #904 `d36d4e64` and original #964 `5faa43d6`,
+  preserving both histories. Keep corrupt-queue fail-closed behavior, guarded
+  hydration, explicit writer conflict choice and the inline export chooser.
+- **Target:** inherit the locked security fixes, single save-slot handoff,
+  atomic held-save admission and ready-event dedup without replacing any
+  original capability. Resolve overlapping test insertions by keeping all.
+- **Integration repair:** the child's DEBUG helper still names the removed
+  save Bool. Reuse #919 `39ca7c3b` / original #962 `856d7624`'s loaded-page
+  readiness and stronger initial proof, adapted to the single save-slot owner.
+  No changed production behavior beyond the preserved parent fixes.
+- **Success:** affected signed recovery/outbox/slot checks pass; actual-parent
+  D009/diff and source-owner comparisons pass. No duplicate full local suite.
+- **Hold:** local preparation only until #964 clears required CI. No main,
+  original remote, production or paid-provider change; fresh review/CI required.
+- **Verified:** merge `0a321edf`; affected signed units98/0/0 and selected
+  authenticated expired-auth/conflict/relaunch UI1/0/0, erased owned SE/iOS26.2.
+  Both task/test histories retained; security lockfile and source owners
+  compared; actual-parent D009 passes (Studio-4, bridge-23, other deltas0).
+  No full backend/unit/V1/macOS or live provider run in this task.
+- **Next:** after protected #964 lands, merge that actual main into this
+  preparation, then publish the same original #904 normally with fresh CI
+  and independent review. Avoid a redundant pre-landing full hosted run.
+- **Evidence:** `docs/recovery-foundation-sync-2026-10-20.md`.
+- **Later hosted state (separate heads):** #964 `5faa43d6` and #919
+  `39ca7c3b` now have all three required checks SUCCESS. #964 is ready for
+  the human's genuine review; old approval remains dismissed. No remote source
+  change or main merge here. The new combined local tree still needs its own
+  fresh landing-head checks after the protected parent lands.
+
 ### T-1069 — Keep iPhone export format choices on the document
 
 - **Owner:** codex. **Branch:** `codex/T-1069-inline-iphone-export`.
@@ -569,6 +2348,836 @@ change or treat it as merged; original pre-proof text remains in Git history.
 - **Evidence:** `docs/dependency-boundary-refresh-2026-10-20.md`. Original
   #909 requires fresh exact-head hosted checks and independent review.
 
+## Historical ledger preserved with exact-simulator backport980c001
+
+The following dated records belong to the source checkpoint. They are preserved
+as history, not new proof or active assignments for this original639 repair.
+
+### T-983 — Pin required iPhone proof to the exact erased simulator
+
+- **Owner:** codex. **Branch:** `codex/T-983-exact-simulator-proof`.
+- **Status:** in-progress. **Pillar:** trustworthy integration/recovery proof.
+- **Scope:** failed #961 run39285905264 erased one UDID and tested another
+  same-named device. Resolve the inventory once, honor explicit runtime/ID,
+  reject ambiguity before erasure and pass the same exact ID to Xcode.
+- **Done when:** failing-before regression passes, runner contracts/full
+  Node20 suite and owned signed lost-reply journey pass; fresh hosted proof
+  validates newest-runtime behavior before merge. No unchanged CI retry.
+- **Current:** before10/3/0; final Node20 backend2886/0/2 and canonical
+  runner/voice contracts20/0/0. Intermediate full2881/5/2 exposed stale
+  evidence-test inventories; all assertions retained, focused6/0/0 after.
+  Final sealed source adds a failing-before caller-override guard: Node20
+  backend2886/0/2, runner contracts21/0/0, signed units857/0/0. Earlier
+  lost-reply/relaunch1/0/0 and sealed unit xcresults confirm the erased UDID;
+  no Swift change. macOS compile exit0. Hosted26.5 focus failure
+  remains unproven, not papered over. App/god files unchanged. Manifest:
+  `docs/exact-simulator-proof-2026-10-19.md`.
+
+### T-979 — Preserve ending mentorship and reject evaluator false positives
+
+- **Owner:** codex. **Branch:** `codex/T-979-mentor-ending-integration`.
+- **Status:** review (bounded local gate repairs proven; fresh hosted proof required). **Pillar:** living companion; trustworthy craft.
+- **Scope:** preserving original #652 `ece8cf76` above T-978. Keep client/core
+  parity, target-aware page ranges and semantic prompt allocation. Bound alias
+  matches and require a causal marker in the ending evaluation case. Replace
+  the failing transient iPhone export menu with a cancellable selection sheet
+  whose completed dismissal owns export dispatch; retain native file sharing.
+- **Done when:** frozen Node20 full/offline gates, fresh signed full units,
+  authenticated Home/writer/export/relaunch workflows, macOS and D009/diff pass.
+- **VERIFIED:** scorer initially10/2/0; unrelated substrings counted as craft
+  terms and an answer with no reason could PASS. Final focused32/0/0;
+  pinned Node20 backend2886/0/2 and network-disabled contracts74/0/0 plus
+  offline exemplar gate pass. Initial writer0/1/0 retained; old instrumented
+  menu1/0/0 did not count as a fix. Replacement cancellation/export/restore1/0/0,
+  final signed units852/0/0, authenticated Home2/0/0 and macOS compile exit0.
+  D009/diff pass. Real PostgreSQL adapter1/0/0 after12 canonical migrations
+  and idempotent replay; not full writer restart proof. No live
+  quality or physical-phone claim. Manifest:
+  `docs/mentor-ending-integration-2026-10-16.md`.
+- **Next actual boundary:** original #653 `8f5f4f2f`, body and full diff read.
+- **Authoritative refresh2026-10-19:** main deac1a6d run39075059944 completed
+  green on its configured gates: backend2739/0/2, units624/0/0, writer,
+  V1 UI28/0/9, voice-fault1/0/0, macOS. Not physical/production durability
+  proof. #961 head2fcdc772 run39077888031 passed856 units and V1 UI29/0/15
+  but failed the separate required offline-save stale-conflict story before
+  queuing. #962 head783fbc99 run39078694476 failed parked-copy hydration:
+  units856 passed/1 failed. Fix this parent boundary first; no unchanged CI
+  retry or #653 advancement. Triage:
+  `docs/offline-save-hosted-triage-2026-10-19.md`.
+- **Gate repair2026-10-19:** unchanged local exact story1/0/0 and full ordered
+  five-story suite5/0/0 did not reproduce hosted red. A deterministic selected-
+  detail mismatch regression did reproduce premature fixture completion:
+  0 passed/1 failed. DEBUG hook now waits for the matching hydrated target
+  within its existing10s budget. Isolate the parked-copy unit from live workspace
+  listeners and await its real queue within the same1.1s maximum; assertions
+  unchanged. Final signed units857/0/0, required offline suite5/0/0, authenticated
+  fixed-provider writer/save/native export/relaunch1/0/0, macOS compile exit0,
+  pinned Node20 backend2886/0/2; D009 all five deltas0 and whitespace pass.
+  Source f937636a; only docs finalized afterward. Hosted causality is partial,
+  not a claim every historic red is explained. Append to #961; preserve all
+  original/child heads. Next propagate parent into #962 with a preserving merge
+  and re-prove its updated head; no original #653 advancement before green.
+- **Resume2026-10-17:** human resumed. #906 normal merged at deac1a6d after
+  exact-head independent approval and all required fresh checks. Main's new
+  run39075059944 is pending, not yet release proof. #961's run39010350710:
+  signed units852/0/0; V1 UI28 pass/15 skip/1 fail, sequential relaunch.
+  Repair the first red before #653. Evidence/manifest:
+  `docs/hosted-relaunch-proof-repair-2026-10-17.md`.
+- **Root reproduced:** keyboard tutorial blocked first local submit. After
+  fixing that, second batch was genuinely absent after relaunch: journal had
+  both, draft preference only first. Stale paragraph metadata overwrote durable
+  text. New signed regression0/1/0 proves it. Moved persistence to draftText
+  changes (bridge delta0). Intermediate full signed units853/0/0, but sequential
+  relaunch still0/1/0; later stages did not run. Observer experiment also failed
+  and was removed. Byte-only trace proved cache/journal restored402 bytes, but
+  pending creation recovery displayed its older173-byte seed. New two-model
+  regression0/1/0 confirms stale intent. Retain generated changes synchronously
+  from the shared store. First retention hook exposed initialization blanking:
+  20/4/0, fixed by the existing hydration boundary. Corrected creation24/0/0
+  and exact-once relaunch1/0/0 passed. Final combined pipeline94156 completed
+  exit0 on frozen960258a8: signed units856/0/0, Home2/0/0, writer/export/relaunch
+  1/0/0, macOS compile. Final checkpoint2ffabaf9 adds native-paper exact-once
+  assertions, also1/0/0; app/unit trees unchanged. Pinned Node20 full backend
+  on that tracked snapshot2886/0/2. All five D009 deltas0; whitespace clean.
+  Intermediate container setup errors retained in the proof document, not
+  counted as passing runs. api.them.io/healthz redirects302 to a parked domain.
+  Publish append-only repair to #961, then inspect its fresh hosted result;
+  do not advance #653 or claim physical-phone/live-provider proof.
+
+### T-978 — Speak pitches without rewriting quoted screenplay headings
+
+- **Owner:** codex. **Branch:** `codex/T-978-mentor-pitch-integration`.
+- **Status:** review. **Pillar:** living companion; trustworthy voice.
+- **Scope:** preserving original #651 `0b2496f3` above T-977. Shared heading/
+  quote detection, exact-span prose conversion and metadata-only logs; retain
+  page-write bypass and matching-final-audio guard.
+- **Done when:** final Node20 full/offline gates, actual HTTP/TTS contracts,
+  signed authenticated Home handoffs and D009/diff pass. Client unchanged.
+- **Before:** focused24/4/0; separate abbreviated-location regression fails.
+  Final focused35/0/0; pinned Node20 backend2884/0/2, network-disabled
+  contracts72/0/0 plus offline golden gate, signed authenticated Home2/0/0;
+  D009/diff pass. Client source-identical prior evidence explicitly scoped.
+  Manifest:
+  `docs/mentor-pitch-integration-2026-10-16.md`.
+- **Next actual boundary:** original #652 `ece8cf76`, last-image craft/parity.
+
+### T-977 — Codex-only execution without retired assistant dispatch
+
+- **Owner:** codex. **Branch:** `codex/T-977-codex-only-workflow`.
+- **Status:** review. **Pillar:** trustworthy implementation continuity.
+- **Human direction:** retire the Claude/support workflow completely; Codex
+  owns execution, while original code/history and independent review remain.
+- **Scope:** one canonical workflow CLI, compatibility entrypoints, historical
+  inbox/coordination banners, no stale checklist completion percentages.
+- **Done when:** migrated entrypoints/tests, existing report-reader contract,
+  script suite, schema/safety checks, D009 and diff pass. No app/backend changes.
+- **Before:** new ownership regressions0/5; old-lane contracts4/11 expose the
+  deliberate migration boundary. Keep report-reader coverage, retire only
+  obsolete queue/role expectations. Final host script suite221/0/0;
+  network-disabled Node20 contracts28/0/0, D009/diff pass. Manifest:
+  `docs/codex-workflow-takeover-2026-10-16.md`.
+- **Resume product:** original #651 `0b2496f3`; #906 awaits its live required
+  CI run39006472727, independent approval already posted on b2994b00.
+
+### T-976 — One useful mentor question and matching spoken audio
+
+- **Owner:** codex. **Branch:** `codex/T-976-mentor-question-integration`.
+- **Status:** review. **Pillars:** living companion; trustworthy voice.
+- **Scope:** preserving original #650 `bf322156` above T-975. Reconcile
+  quote-aware mentor shaping/scoring, count-only logs and cached audio identity.
+- **Done when:** final Node20 full/offline gates, actual HTTP shaping/TTS/cache
+  contracts, authenticated Home handoffs and D009/diff pass. Client unchanged.
+- **VERIFIED before:** shaper10/2/0; real cache-hit regression4/1/0 demonstrated
+  old audio reused after text changed. Final focused contracts26/0/0;
+  pinned Node20 backend2875/0/2, offline64/0/0 plus golden gate, signed
+  authenticated Home2/0/0; D009/diff pass. Client source-identical to T-975.
+  Manifest:
+  `docs/mentor-question-integration-2026-10-16.md`.
+- **Next actual boundary:** #651 `claude/mentor-pitch-prose` at `0b2496f3`.
+
+### T-975 — Preserve mentor instructions through ingress and provider trimming
+
+- **Owner:** codex. **Branch:** `codex/T-975-mentor-prompt-integration`.
+- **Status:** review. **Pillars:** living companion; trustworthy craft.
+- **Scope:** preserving merge of original #649 `2dfddbaf` above T-974.
+  Preserve server-owned dialogue notes, writer-command authority, semantic
+  page contracts and target-scaled mentor landmarks. One shared mentor budget.
+- **Done when:** frozen Node20 full/offline gates, signed client units,
+  connected Home handoffs, macOS compile and D009/diff pass.
+- **VERIFIED:** oversized protected prompts exceeded2700 by422 characters;
+  late client scene-pitch rules were lost at ingress before mentor detection.
+  Fixed at the canonical allocator/normalizer; focused47/0/0. Final Node20
+  backend2864/0/2, offline85/0/0 plus golden gate, signed units852/0/0,
+  authenticated Home2/0/0 and writer1/0/0, macOS exit0, D009/diff pass.
+  Manifest: `docs/mentor-prompt-integration-2026-10-16.md`.
+- **Next actual boundary:** #650 `claude/mentor-question-cap` at `bf322156`.
+
+### T-974 — Preserve mentor shaping and trustworthy Studio actions
+
+- **Owner:** codex. **Branch:** `codex/T-974-mentor-actions-integration`.
+- **Status:** review. **Pillars:** living companion; writer authority.
+- **Scope:** preserve both original #648 commits at `210c5ef0`; retain page/
+  non-control action gate, prior scorer/craft protections and exact client state.
+  Fix verified command-authority and mentor-evaluation defects before promotion.
+- **Done when:** final Node20 full/offline suites, actual talk HTTP contracts,
+  signed client units, authenticated Home handoffs and D009/diff pass.
+- **Evidence:** initial action regressions16/7/0; mentor adversarial10/2/0.
+  Final Node20 backend2860/0/2; offline contracts65/0/0 and golden gate pass;
+  signed client849/0/0; Home2/0/0 before log-only privacy refinement. D009/diff
+  pass, unchanged-client macOS compile reused from T-973. Manifest:
+  `docs/mentor-actions-integration-2026-10-16.md`.
+
+### T-973 — Preserve project auto-titles with one Fountain owner
+
+- **Owner:** codex. **Branch:** `codex/T-973-project-title-integration`.
+- **Status:** review. **Pillars:** mobile-first; trustworthy first project.
+- **Scope:** preserve #647 `848e59d0`, keep its tested heading/pack fallback
+  and Root extraction; use canonical title-page parsing instead of a second
+  twelve-line scan. Preserve durable creation/recovery and exact page bytes.
+- **Done when:** signed title/creation regressions, authenticated Home handoff
+  saved-title/relaunch proof, macOS compile, D009 and diff pass.
+- **Before:** original helper compiled directly, three mismatches in three
+  boundary cases; not a signed XCTest result. Evidence retained.
+- **Current proof:** signed title/creation units29/0/0, all14 runner contracts;
+  D009 Root -29, other deltas0; both Home handoffs2/0/0 with saved-title and
+  exact draft restoration before the isolation-only annotation. Final signed
+  units29/0/0 and macOS exit0; title-helper actor warning eliminated.
+  Exact scope/limits: `docs/project-title-integration-2026-10-16.md`.
+
+### T-972 — Coverage follows the owned screenplay, not title metadata
+
+- **Owner:** codex. **Branch:** `codex/T-972-coverage-follow-integration`.
+- **Status:** review. **Pillars:** living companion; mobile-first.
+- **Scope:** preserve original #646 `72f9375e`; reconcile title/body boundaries
+  and guard queued background reads with the captured account/project/draft.
+- **Done when:** signed policy/real-VM coverage tests and connected automatic
+  Craft read pass; macOS compile, runner/D009/diff pass. No paid model proof.
+- **Current proof:** signed before19/1/0, after23/0/0; all14 runner contracts
+  pass. Automatic-read/writer/export/relaunch UI1/0/0; macOS compile exit0;
+  D009 all deltas0 and diff pass. Limits in
+  `docs/coverage-follow-integration-2026-10-16.md`.
+- **Preserve:** #774 `a001ec04` already owns quiet status announcements and
+  content-appropriate moves/loglines; read in full, remains queued in its base
+  chain, not recreated here. Next actual boundary #647 `848e59d0`.
+
+### T-971 — Preserve mentor structure guidance and strengthen its proof
+
+- **Owner:** codex. **Branch:** `codex/T-971-mentor-structure-integration`.
+- **Status:** review. **Pillars:** living companion; long-screenplay craft.
+- **Scope:** preserving original #645 `8a7f367a` above T-970. Shared mentor
+  page landmarks yield to the chosen target and active feature map. Tighten
+  scorer aliases and required-page evidence rather than inflate pass scores.
+- **Done when:** Node20 full backend and offline mentor exemplars, full signed
+  units, connected writer journey, macOS compile, D009 and diff checks pass.
+- **VERIFIED before:** original scorer with new regressions: 5 pass / 2 fail;
+  unrelated coin flips score as reversal and an alias bypasses wrong-page checks.
+  Original PR history is retained; no paid live score claimed or main merge.
+- **Current proof:** Node20 backend2837/0/2; offline mentor/persona10/0/0,
+  all40 strong accepted and all40 weak rejected; signed full units836/0/0.
+  Authenticated writer/Craft/native export/relaunch UI1/0/0; macOS compile
+  exit0; D009 all deltas0 and diff pass. Exact manifest:
+  `docs/mentor-structure-integration-2026-10-16.md`.
+- **Next original boundary:** #646 `claude/coverage-follows-draft`, by actual base.
+
+### T-970 — Preserve the required-proof repair in rehearsal
+
+- **Owner:** codex. **Branch:** `codex/T-970-required-proof-integration`.
+- **Status:** review. **Pillar:** trustworthy writer-loop evidence.
+- **Scope:** preserving merge of original #906's repaired `b2994b00` into
+  T-968. Keep the stronger existing required offline-recovery check; retain
+  original app/backend trees and original PR heads. No main merge.
+- **Done when:** Node20 runner contracts, signed owned-simulator voice-fault
+  entrypoint, macOS compile, D009 and diff checks pass; publish scoped draft.
+- **VERIFIED:** Node20 runner14/0/0; signed voice-fault UI1/0/0; macOS
+  scaffold build exit0; D009 all deltas0 and diff checks pass. Exact scope,
+  retained evidence and limits: `docs/required-proof-integration-2026-10-16.md`.
+- **Next original product boundary:** #645 `8a7f367a`, then actual-base #646.
+  Historical live golden scores are not current integrated model proof.
+
+### T-968 — Exact document identity for coverage
+
+- **Owner:** codex. **Branch:** `codex/T-968-coverage-document-identity`.
+- **Status:** review. **Pillar:** trustworthy current-script feedback.
+- **Scope:** reuse original title codec and exact-byte identity; reject stale
+  Unicode-byte reads and avoid reading title metadata as screenplay pages.
+- **Done when:** real-VM regressions reproduce red, full signed units pass,
+  D009/diff pass, raw writer bytes remain unchanged and limits are recorded.
+- **Evidence:** before15/3/0, after full836/0/0 on erased owned simulator;
+  D009 deltas0. `docs/coverage-document-identity-2026-10-16.md`.
+- **Priority hold:** #906 returned to draft after raw CI logs exposed hidden
+  Reuse and voice-fault failures. Reconcile original #904 CI prefix next.
+
+### T-967 — Preserve coverage and context-isolation repairs
+
+- **Owner:** codex. **Branch:** `codex/T-967-coverage-integration`.
+- **Status:** review. **Pillars:** living companion; project isolation.
+- **Scope:** preserving merges of original #644/#880/#881. Retain recovery,
+  creation and action-authority guards; connect real Craft action to writer UI.
+- **Done when:** full Node20/signed units, connected writer/Craft/export/restore,
+  macOS compilation, offline mentor, D009 and diff pass; limitations recorded.
+- **Evidence:** Node20 backend2835/0/2, final signed units833/0/0, connected
+  writer/Craft/export/relaunch1/0/0, macOS/offline mentor/D009/diff pass.
+  First UI0/1/0 retained; fixed parent identifier propagation with the existing
+  accessibility containment pattern, not a label workaround or unchanged retry.
+  `docs/coverage-integration-proof-2026-10-16.md`.
+
+### T-966 — Preserve and connect original title-page support
+
+- **Owner:** codex. **Branch:** `codex/T-966-title-page-integration`.
+- **Status:** review. **Pillar:** trustworthy formatted screenplay pages.
+- **Scope:** preserving merge of original #613; reconcile canonical local page
+  counts/source ranges and the newer iPhone FDX encoder with its title codec.
+- **Done when:** signed title/PDF/FDX/progress tests, connected writer proof,
+  macOS build, D009 and diff pass; document uncovered platform boundaries.
+- **Evidence:** package21/0; signed focused29/0/0, authenticated writer/export/
+  relaunch1/0/0; macOS compilation/D009/diff pass. Manifest:
+  `docs/title-page-integration-2026-10-16.md`. No main merge for this work.
+
+### T-965 — Printed-page counts drive feature progress
+
+- **Owner:** codex. **Branch:** `codex/T-965-printed-page-progress`.
+- **Status:** review. **Pillar:** accurate long-screenplay continuity.
+- **Scope:** use the existing Letter screenplay layout for current-draft
+  feature progress, not stale inspector pages or raw physical line counts.
+  Reuse one canonical engine; no new pagination policy or provider call.
+- **Done when:** signed before/after regression proves wrapped action,
+  stale-pagination rejection, a measured 120-page fixture and deletion;
+  layout/planner fixtures, connected writer workflow, D009 and diff pass.
+  Full-length generation and dramatic quality remain separate requirements.
+- **Evidence:** signed final layout/progress/planner36/0/0; authenticated writer/
+  printed-page badge/export/relaunch1/0/0; macOS scaffold/D009/diff passed.
+  Before regression0/1/0 and first after35/1/0 cache-teardown crash retained;
+  replaced actor-isolated reference cache with a model-owned memo value.
+  Manifest: `docs/printed-feature-progress-2026-10-16.md`. Main writer-loop
+  run38995445494 is red at the export status assertion; promotion remains held.
+
+### T-964 — iPhone export hands the actual file to its writer
+
+- **Owner:** codex. **Branch:** `codex/T-964-iphone-export-handoff`.
+- **Status:** review. **Pillar:** usable screenplay export.
+- **Scope:** native save/share sheet for the actual backend artifact; honest
+  prepared-versus-saved feedback, repeat-tap guard, dedicated control state,
+  shared activity presenter extracted from Root. macOS save behavior unchanged.
+- **Done when:** signed focused success/error tests, authenticated writer/share/
+  relaunch UI, macOS scaffold, D009 and diff pass. External physical-device
+  opening and full-length screenplay quality are separate unproven requirements.
+- **Evidence:** `docs/iphone-export-handoff-2026-10-16.md`.
+  Signed focused export tests28/0/0; final authenticated native-share/relaunch
+  UI1/0/0 with both Save to Files destinations and screenshots. Retained initial
+  missing-import compile failure and Button-versus-cell test failure. macOS
+  scaffold build, D009 and diff checks passed.
+
+### T-963 — Extract Final Draft request encoding from the API god file
+
+- **Owner:** codex. **Branch:** `codex/T-963-fdx-encoder-extraction`.
+- **Status:** review. **Pillar:** trustworthy formatted screenplay export.
+- **Scope:** move the existing FDX document/scene encoder into a dedicated pure
+  owner; leave session/auth/request/response handling in BackendMemoryAPI.
+  Delete the inline implementation. Correct the discovered UI proof bypass:
+  explicit live test modes must export through the real backend, not a stub.
+  No new framework or screenplay classification-policy change.
+- **Done when:** signed before/after export HTTP characterization, large-input
+  scene/text retention, connected writer/export workflow, D009 and diff pass.
+  A 120-scene transport fixture is not 120-page generation or print-layout proof.
+- **Current evidence:** signed before13/0/0 and extraction-only after17/0/0;
+  Node20 export contracts60/0/0. Final live-routing units27/0/0 after fixing
+  a test destination assumption (retained first run26/1/0); authenticated
+  real Markdown/FDX writer/export/relaunch UI1/0/0. macOS scaffold build passed.
+  Manifest: `docs/fdx-god-file-extraction-2026-10-16.md`.
+  Main landing started with #766; #770's fresh hosted UI proof is pending.
+
+### T-962 — Automatic first-project creation uses durable recovery
+
+- **Owner:** codex. **Branch:** `codex/T-962-automatic-creation-recovery`.
+- **Status:** review. **Pillars:** mobile-first; exact writer-word recovery.
+- **Scope:** replace Root's independent legacy creation/version writes with the
+  canonical Studio creation intent and outbox. Preserve raw draft bytes and the
+  original phase across retry; validate the captured session before adoption.
+  A temporary creation worker must not attach to or announce into live editing.
+- **Done when:** lost-reply/relaunch/retry, stale-session rejection, legacy
+  intent decoding, signed app workflow, D009 and whitespace checks pass.
+- **Current proof:** D009 passes versus T-961 (Root -19; other watched files
+  unchanged). Signed creation/seed units24/0/0; auth-required deterministic
+  Home-to-page/save/relaunch UI1/0/0. macOS scaffold compile passed. Manifest:
+  `docs/automatic-project-recovery-2026-10-16.md`. Full-length 120-page live
+  screenplay generation and shipping-device behavior remain unproven.
+  No main merge, original-head rewrite, paid provider call or shipping proof.
+
+### T-961 — Durable project creation after an ambiguous response
+
+- **Owner:** codex. **Branch:** `codex/T-961-durable-project-creation`.
+- **Status:** review. **Pillar:** mobile-first; goal items 1, 4 and 6.
+- **Scope:** owner-scoped durable creation identity/scene before request; atomic
+  create-only replay endpoint; canonical client/outbox recovery across retry and
+  relaunch. Preserve every original source head; no main merge or paid calls.
+- **Done when:** replay creates one project, cannot overwrite later metadata or
+  reactivate on retry; exact initial/newer words survive relaunch; account/project
+  guards and visible retry remain connected, with scoped proof and full checkpoint.
+- **VERIFIED:** Node20 full2827/0/2, offline mentor gate, targeted backend85/0/0;
+  final signed creation/seed units21/0/0 and real lost-reply/relaunch/Retry UI1/0/0.
+  Fixed keyboard dismissal, duplicate recovery overlay and Root's second creation
+  path uncovered by the app journey. D009/diff pass; main/original heads unchanged.
+  Exact manifest, retained failures and limits: `docs/durable-project-creation-2026-10-16.md`.
+  Next: migrate remaining automatic promotion to canonical exact durable creation;
+  reconcile the historical hosted conflict-copy failure on the updated tree.
+
+### T-960 — First-project durability integration
+
+- **Owner:** codex. **Branch:** `codex/T-960-first-project-integration`.
+- **Status:** review. **Pillars:** mobile-first; goal items 1, 4, 6 and 7.
+- **Scope:** preserve original #939 creation and #940 retained writer evidence
+  above T-959; keep exact seed bytes, selection/auth authority, canonical outbox
+  and asynchronous evaluator pipe draining. No original head rewrite or main merge.
+- **Done when:** signed focused creation/recovery checks, authenticated writer
+  workflow, evidence harness, D009 and diff pass on the combined tree. Batch
+  related work; no full-matrix repetition for each original PR boundary.
+- **VERIFIED:** corrected focused units92/0/0, authenticated writer1/0/0,
+  recovery UI5/0/0, Node20 evidence harness6/0/0, runner/helpers22/0/0;
+  syntax/D009/diff pass. Retained new single-case red (six assertions) proves
+  never-loaded creation clearing words/title; root guard fixed in `b2d08b40`.
+  Manifest/remaining ambiguity gap: `docs/first-project-integration-2026-10-16.md`.
+
+### T-959 — Integrate project context and client lifetime safety
+
+- **Owner:** codex. **Branch:** `codex/T-959-context-lifetime-integration`.
+- **Status:** review. **Pillars:** mobile-first; goal items 1, 3, 5 and 6.
+- **Scope:** preserve original #936–#938 above T-958: newest-project-load
+  authority, client teardown compatibility, account/project collaboration guards.
+  Retain the existing owned-outbox lookup and test suspended generation changes.
+- **Done when:** focused signed ordering/teardown/collaboration/recovery cases
+  and authenticated recovery UI pass, D009/diff pass, original heads preserved.
+  Batch proof; no repeated full matrix per PR, main mutation or provider call.
+- **VERIFIED:** focused signed units164/0/0, authenticated recovery UI5/0/0,
+  runner5/0/0, D009/diff pass. No failed compile/runtime run in this batch.
+  Manifest/proof/limits: `docs/context-lifetime-integration-2026-10-16.md`.
+
+### T-958 — Integrate explicit writer-choice authority
+
+- **Owner:** codex. **Branch:** `codex/T-958-conflict-authority-integration`.
+- **Status:** review. **Pillars:** mobile-first; goal items 1 and 4.
+- **Scope:** preserving merges of original #932–#935 above T-957; keep native
+  editor evidence, stale-head protection, fresh Load Server and late-save fences.
+- **Done when:** combined signed conflict/outbox/recovery units and authenticated
+  five-case recovery UI pass; runner contracts/D009/diff pass, original heads
+  remain ancestors. Full matrix is deferred to the integration checkpoint, not
+  rerun at each boundary. No main mutation, replacement PR or live provider call.
+- **VERIFIED:** signed focused units138/0/0 plus visible UI2/0/0; authenticated
+  recovery UI5/0/0; runner5/0/0; syntax/D009/diff pass. Original heads retained.
+  Initial missing canonical test import fixed in `0703e6c3`; failed proof retained.
+  Exact scope and manifest: `docs/conflict-authority-integration-2026-10-16.md`.
+
+### T-957 — Batch blank-save and recovery integration
+
+- **Owner:** codex. **Branch:** `codex/T-957-blank-recovery-integration`.
+- **Status:** review. **Pillar:** mobile-first writer data safety.
+- **Scope:** preserve original #928–#931 heads with no-ff merges above T-956;
+  reconcile hydration, deliberate deletion, blank snapshots and loaded history.
+- **Done when:** focused server contracts, signed recovery/outbox units and four
+  authenticated recovery UI journeys pass on the combined tree; D009/diff clean.
+- **DECIDED:** batch related fixes and verify one combined checkpoint, per the
+  human's request to spend less time repeating full suites. No main mutation,
+  replacement PR, paid provider call or physical-phone completion claim.
+- **VERIFIED:** combined signed recovery/outbox units 124/0/0; authenticated
+  recovery UI 4/0/0; pinned Node20 handler/restart contracts 73/0/0; runner
+  contracts 5/0/0; syntax, D009 versus T-956 and diff pass. Full suites deliberately
+  not repeated at this checkpoint. See `docs/blank-recovery-integration-2026-10-16.md`.
+### T-940 — Initial project saves preserve the writer's current words
+
+- **Owner:** codex. **Branch:** `codex/T-940-project-creation-trust`, above #938
+  `b8821848`. **Pillars:** mobile-first; goal items 1, 4 and 6. **Status:** review.
+- **VERIFIED root:** corrected unchanged-behavior baseline: four failed tests,
+  zero pass/skip. Creation trims first-page bytes, overwrites newer typing,
+  reselects after a project change and clears a newer title.
+- **Target:** canonical durable first-page save, auth/selection fences,
+  old-project recovery, byte-exact live-only adoption and retryable interruption.
+  Preserve Claude #702's no-copy policy and tests; do not close or replace its PR.
+- **Final proof:** signed units 730 pass, zero fail/skip (15 creation regressions).
+  Node 20 backend 2,744 pass, zero fail, two skip. Authenticated recovery UI five
+  pass and integrated writer one pass, zero fail/skip. macOS build, four runner
+  tests and god/diff gates pass. Captured auth/displayed-project recovery and
+  honest pre-project status are included in these final-code runs.
+  Exact evidence and limits: `docs/audits/project-creation-trust-2026-10-08.md`.
+- **Next scope:** durable create-request identity and server activation ordering;
+  the current endpoint can activate a dispatched creation after local selection
+  changes. No server-active-choice or ambiguous-create/relaunch guarantee yet.
+
+### T-941 — Usable iPhone exports and retained writer-gate evidence
+
+- **Owner:** codex. **Branch:** `codex/T-941-export-handoff` above #939
+  `08a0b108`. **Pillars:** mobile-first; goal items 4 and 7. **Status:** in-progress.
+- **VERIFIED:** #938 hosted run 37874741945 unit step passes; writer fails at
+  Markdown filename assertion. The evaluator unconditionally deletes its bundle,
+  including on failure. iPhone export writes a temporary file without a share sheet.
+- **Target:** retain exact failed writer bundles; reproduce/resolve the export
+  assertion, provide native file handoff and verify real artifact content. Do not
+  infer a cause from the missing artifact or rerun unchanged to obtain green.
+- **Stage 1:** retain unique private result directories and emit diagnostics
+  before result validation; CI uploads failed writer bundles. Six harness cases
+  pass, including failed/empty/malformed results and repeated-run preservation.
+  Offline Node 20 suite: 2,750 pass, zero fail, two skip. Signed authenticated
+  writer: one pass, zero fail/skip; real result bundle retained and generated
+  configuration removed. Signed units: 730 pass, zero fail/skip; macOS build
+  succeeds. Authenticated recovery UI: five pass, zero fail/skip. Evidence-stage
+  draft is ready; native handoff and hosted failure diagnosis remain in progress.
+- **Preserved existing work:** read #868 body and exact `a6428e3d` helper/tests.
+  Its native share implementation is not replaced, closed or duplicated.
+  UI tests suppress that sheet, so actual handoff/content proof remains open.
+  Stage 1 is evidence repair, not completion of the whole export task.
+- **Boundaries:** iPhone PDF decision remains human-owned; do not enable it.
+  Server create activation/idempotency remains a separate queued trust scope.
+
+### T-939 — Collaboration responses stay with their account and project
+
+- **Owner:** codex. **Branch:** `codex/T-939-collaboration-scope`, above #937
+  `2d5cc7b4`. **Pillar:** mobile-first; goal items 1, 3 and 6. **Status:** review.
+- **VERIFIED root:** unchanged production: three failed tests, one passed,
+  11 failed assertions. Old payloads reselect the previous project and a late
+  comment acknowledgement clears new-project words. Background timeout already
+  preserves feedback and is retained as a regression guard.
+  Corrected fixture evidence: `/tmp/them-939-collaboration-red-v2` bundle/log.
+- **Target:** captured auth/selection and per-collection response generations,
+  guarded retries, collection-only payload ownership and exact composer retention.
+- **Proof:** full signed units 711 pass, zero fail/skip, including 18 collaboration
+  cases; Node 20 backend 2,744 pass, zero fail, two skip. Final macOS build, four
+  runner tests and god/diff gates pass. Authenticated recovery UI five pass and
+  integrated writer one pass, zero fail/skip.
+  Evidence and boundaries: `docs/audits/collaboration-scope-2026-10-08.md`.
+  Main unchanged; no paid calls.
+
+### T-933 — Synchronous BackendClient teardown compatibility
+
+- **Owner:** codex. **Branch:** `codex/T-933-client-teardown`, above #936
+  `3a1449e5`. **Pillar:** mobile-first; goal items 1 and 5. **Status:** review.
+- **VERIFIED root:** unchanged production crashes in the synchronous task-local
+  release regression on signed iOS 26.2: zero pass, one failure. Diagnostic frames
+  show TaskLocal teardown → actor deinit → BackendClient release.
+- **Fix:** explicit empty deinit preserves actor isolation and ordinary property
+  release without invalidating shared or caller-owned URLSession resources.
+- **Proof:** focused two tests pass; full signed units 693 pass, zero fail/skip;
+  authenticated recovery UI five pass, integrated writer one pass, zero fail/skip.
+  Node 20 backend 2,744 pass, zero fail, two skipped. macOS build, four runner
+  tests and god/diff gates pass. Retained baseline and exact evidence:
+  `docs/audits/client-teardown-2026-10-08.md`.
+- **Limits:** not all actor classes/runtimes, physical voice, shipping provider,
+  production DB, export parity or 120-page performance. Main unchanged.
+
+### T-938 — Newest project hydration owns the page
+
+- **Owner:** codex. **Branch:** `codex/T-938-project-hydration-order`, above
+  #935 `daecfa34`. **Pillar:** mobile-first; goal items 1 and 4. **Status:** review.
+- **VERIFIED roots:** unchanged production, two overlapping-load tests fail
+  four assertions: late detail rewinds clean text/head/title; old timeout
+  overwrites newer success feedback. A separate explicit Load Server test
+  fails three assertions after an old detail rewinds its accepted page.
+  `/tmp/them-938-hydration-red-v2` and `/tmp/them-938-choice-red` artifacts.
+- **Target:** per-load generation checked after network and durable recovery
+  awaits; accepted Load Server and exact save confirmation invalidate old reads.
+  Preserve current owner/project/dirty/conflict boundaries and queue semantics.
+- **Final local proof:** signed units 691 pass, zero fail/skip; authenticated
+  recovery UI five pass, zero fail/skip; integrated authenticated writer one pass,
+  zero fail/skip. Node 20 backend 2,744 pass, zero fail, two skipped. macOS build,
+  four runner tests and god/diff gates pass. Retained baseline and exact artifacts:
+  `docs/audits/project-hydration-order-2026-10-08.md`.
+- **Limits:** not the exact hosted false-clean interleaving, all collaboration
+  or bootstrap request ordering, physical voice/provider, production DB or release.
+
+### T-937 — Save acknowledgements cannot overrule newer writer choices
+
+- **Owner:** codex. **Branch:** `codex/T-937-save-conflict-authority`, above
+  #934 `60e7ad1d`. **Pillar:** mobile-first; goal items 1 and 4. **Status:** review.
+- **VERIFIED roots:** real-model controlled transport baseline: two failed
+  tests, 12 failed assertions. Ordinary Save Now posts through a visible conflict;
+  a late acknowledgement clears a newer choice, dispatches/rebases a pending
+  edit, and retires parked copies. `/tmp/them-937-authority-red.xcresult` and `.log`.
+- **Target:** capture account/project/conflict-generation authority once per
+  immutable request; recheck before dispatch and after awaited work. Held saves
+  retain exact local bytes and explicit choice without posting. Valid Keep Mine
+  and Load Server must still work; late responses cannot rewind their results.
+- **Final local proof:** full signed units 686 pass, zero fail/skip;
+  authenticated recovery UI five pass, zero fail/skip; integrated authenticated
+  writer one pass, zero fail/skip. Node 20 backend 2,744 pass, zero fail, two skip;
+  macOS build, four runner tests and god/diff gates pass. Direct actor tests
+  verify durable parked-copy retention and generation fence scope independent
+  of wall clock. Exact files, retained reds, adversarial review and proof limits:
+  `docs/audits/save-conflict-authority-2026-10-08.md`.
+- **Limits:** not the exact hosted false-clean root, shipping provider/physical
+  voice, production database, export parity or performance. Main unchanged.
+
+### T-936 — Fresh, byte-safe explicit Load Server choice
+
+- **Owner:** codex. **Branch:** `codex/T-936-fresh-server-choice`, above #933
+  head `25231907`. **Pillar:** mobile-first; goal items 1 and 4. **Status:** review.
+- **Target:** Load Server must fetch the authenticated current canonical head,
+  never trust cached conflict text, and never overwrite edits made during fetch.
+- **VERIFIED roots:** signed erased-simulator cached-head baseline: 1 failed
+  test, 3 failed assertions; canonical-equivalent Unicode typing baseline:
+  1 failed test, 3 failed assertions. Artifacts under `/tmp/them-936-*-red`.
+- **Binary proof:** real action fetches v3 after displayed v2; wrong/missing/
+  stale heads and fetch failures retain exact local words, conflict and queue;
+  legitimate blank server text remains loadable; duplicate taps serialize.
+- **Scope:** canonical existing fetch seam, UTF-8 identity, strict head lookup,
+  auth/project/conflict guards and original queue cutoff. No provider calls.
+- **Final local proof:** signed units 679 pass, 0 fail/skip; authenticated
+  recovery UI 5 pass, 0 fail/skip; original Ferry UI 1 pass, 0 fail/skip;
+  integrated authenticated writer 1 pass, 0 fail/skip. Node 20 backend
+  2,744 pass, 0 fail, 2 skip; macOS build, four runner tests and god/diff gates pass.
+  Exact artifacts and changed files: `docs/audits/fresh-server-choice-2026-10-08.md`.
+- **Not covered:** shipping provider/physical voice, production storage,
+  same-project hydration generations and save-entry guards. Main unchanged;
+  required hosted checks and independent approval remain mandatory.
+
+### T-935 — Preserve conflict decisions through delayed base hydration
+
+- **Owner:** codex. **Branch:** `codex/T-935-stale-conflict-hydration`, above
+  #932 head `bace7ae3`. **Pillar:** mobile-first; goal items 1 and 4.
+  **Status:** review.
+- **Target:** a detail response for the old base must not erase an already
+  observed newer-server conflict. Keep exact writer bytes, parked outbox entry,
+  and explicit Keep Mine / Load Server choice through that ordering.
+- **Evidence:** #929 hosted run 37858536990 fails unresolved-conflict relaunch;
+  writer marker remains but parked count/conflict identifiers disappear. Exact
+  downloaded bundle reports 1 pass, 1 fail, 0 skip on iOS 26.5. This does not
+  yet prove which interleaving caused the hosted failure.
+- **Binary proof:** real Studio model observes v2 conflict, receives delayed
+  v1 detail, then still exposes the same conflict and raw writer/parked bytes.
+  Retained baseline: 1 test, 1 failed assertion. Review expanded v3 → delayed
+  v2/unknown/missing head: 1 test, 15 failed assertions; sparse known-head
+  response: 1 test, 3 failed assertions. Final signed units: 676 pass, 0 fail,
+  0 skip. Final Node 20 backend: 2,744 pass, 0 fail, 2 skip. macOS build passes.
+  Final signed authenticated recovery UI: 4 pass, 0 fail, 0 skip. Final integrated
+  authenticated writer: 1 pass, 0 fail, 0 skip. God/diff gates pass. Exact files,
+  retained red artifacts and boundaries: `docs/audits/stale-conflict-hydration-2026-10-08.md`.
+- **Fix:** preserve active choice; reject old/unorderable heads before draft or
+  queue cleanup; retain known timestamps on sparse same-version responses. Known
+  exact server-text confirmation can acknowledge the copy without another write.
+- **Landing follow-up:** T-936 above fixes/proves the cached Load Server path;
+  include it before landing this lane. Same-project request ordering
+  and save-entry conflict guards remain tracked; hosted root is not established.
+- **Not covered:** precise hosted reproduction, physical voice/provider,
+  release or production Postgres. Do not clear a red gate with unchanged retries.
+
+### T-934 — Honest, direct screenplay editor UI gate
+
+- **Owner:** codex. **Branch:** `codex/T-934-writer-loop-gate`, above #931
+  head `9dde9be5`. **Pillars:** voice→scene; mobile-first; goal item 7.
+  **Status:** review.
+- **VERIFIED root:** #928 hosted run `37857480304` failed its misleadingly named
+  voice test's first draft assertion. Downloaded failure hierarchy contains the
+  full expected kitchen scene in the native editor, surface and hidden snapshot,
+  plus a Typed page-write receipt. The assertion conflated inaccessible/slow
+  generic queries with missing content; no text-loss claim is supported.
+- **Scope:** name the actual typed-stub test, omit an unrelated command-bar
+  drawer, directly assert both required strings in the native editor within the
+  original ten-second bound, assert that editor is reachable and retain failure
+  hierarchy. No production behavior or timeout change, no retry/skip workaround.
+- **Proof:** unchanged isolated signed baseline passed 1/1 on an erased owned
+  simulator; corrected focused run passed 1/1. Full signed units: 672 pass,
+  0 fail, 0 skip. Shipping-Node full backend: 2,744 pass, 0 fail, 2 skip.
+  Full signed V1 UI: 28 pass, 0 fail, 11 fixture-dependent skips. Dedicated
+  authenticated writer gate: 1 pass, 0 fail, 0 skip. Dedicated signed recovery
+  gate: 4 pass, 0 fail, 0 skip. All use an erased owned simulator, signing on.
+  See audit for artifacts and retained invalid read-only persistence run.
+- **Not covered:** physical microphone, paid providers, startup hydration race,
+  older/newer runtime differences or release. T-933 actor-deinit risk remains.
+  #929 hosted recovery run 37858536990 is red: writer marker remained but
+  expected parked-conflict state disappeared on relaunch. Do not retry unchanged
+  code to clear it. Trace that transition before the next compatibility slice.
+
+
+### T-932 — Exact blank history restore and durable snapshot journey
+
+- **Owner:** codex. **Branch:** `codex/T-932-blank-history-restore`, above #930
+  head `fc8157df`. **Pillars:** mobile-first; goal items 1 and 4. **Status:** review.
+- **Root:** empty historical versions were rejected/disabled; Snapshot rejected
+  explicit blank edits; restoring history replaced dirty current words; snapshot
+  labels cleared even after failure. Signed history red: one test, eight failed
+  assertions. Route red: snapshot returned 400 rather than 201.
+- **Scope:** guarded snapshot source, shared client/outbox policy, actual-present
+  history text vs nil, project/version/base guards, preserved exact current bytes,
+  current-head restore base, honest label retention, enabled blank Restore, and
+  retaining same-project loaded history when metadata-only responses omit it.
+- **VERIFIED:** final backend Node 20.20.2, external network disabled: 2,744 pass,
+  0 fail, 2 skip. macOS build, four wrapper tests, syntax/god/diff gates pass.
+  Final signed units: 672 pass, 0 fail, 0 skip. Final four-case signed UI: 4 pass,
+  0 fail, 0 skip, including real Saved-tab Restore tap and handler feedback.
+  Both use the erased owned simulator with signing on. Initial UI failures
+  exposed missing history after summary adoption; its regression/fix are retained.
+- **Existing work retained:** Claude #729, #732, #838 bodies inspected. No branch
+  closed, squashed or reimplemented. Integrating #732's `studio_restore` needs the
+  explicit blank-source contract/proof then; that source remains disallowed here.
+- **Done when:** final signed full units and all four auth-required recovery UI
+  journeys pass, publish a scoped draft above #930. Exact files/evidence/limits:
+  `docs/audits/blank-history-restore-2026-10-08.md`.
+- **Next risk (T-933):** synchronous actor-deinit crash on iOS 26.2. Local two
+  crash traces match upstream Swift #88036/#87316. Async fixtures are not a
+  production compatibility fix; prove synchronous BackendClient/task-local
+  teardown and an explicit-deinit fix separately, retaining no-crash assertions.
+- **Not covered:** immediate power-loss fsync, unsynced uninstall, physical voice,
+  provider credits, production Postgres, export parity, 120-page performance or
+  release. #766 then #770 still first; independent review/gates are mandatory.
+
+### T-931 — Persist and restore intentional writer deletions
+
+- **Owner:** codex. **Branch:** `codex/T-931-blank-writer-recovery`, above #929
+  head `5302f23b`. **Pillar:** mobile-first (writer data safety). **Status:** review.
+- **Root:** blank manual edits were rejected by recovery/save guards and could
+  be overwritten by server hydration. Retained signed regression: one failed
+  test, five failed assertions before the fix.
+- **Scope:** current-owner/project deletion intent through canonical recovery,
+  outbox, retry, real API and save controls; default-off legacy decoding;
+  preserve Clear Draft's prior words and unresolved conflict choice. Remote live
+  adoption clears local intent. No god file grows versus the immediate base.
+- **VERIFIED:** final signed erased-simulator units 666 pass, 0 fail, 0 skip;
+  Node 20.20.2 external-network-disabled backend 2,743 pass, 0 fail, 2 skip;
+  wrapper tests 4/4; macOS scaffold build exit 0; syntax/god/diff checks pass.
+  Final signed auth-required recovery UI: 3 pass, 0 fail, 0 skip after review fixes.
+- **Done when:** three signed auth-required recovery UI journeys pass, including
+  offline delete-all/relaunch/reconnect/exactly-one-version/online relaunch;
+  publish only a scoped draft above #929. Audit and precise artifacts:
+  `docs/audits/blank-writer-recovery-2026-10-08.md`.
+- **Follow-up:** T-932 above connects blank revision snapshot create/load with
+  its explicit source contract and signed recovery/Restore proof.
+- **Not covered:** physical voice/paid providers, unsynced uninstall, production
+  Postgres soak, release proof, 120-page performance or export parity. #766 then
+  #770 remain first; required independent review and hosted gates are not bypassed.
+
+### T-930 — Guarded server contract for intentional blank writer saves
+
+- **Owner:** codex
+- **Branch:** `codex/T-930-intentional-empty-save`, above #928 head `34272775`.
+- **Pillar:** mobile-first (writer data safety).
+- **Status:** review.
+- **VERIFIED root:** client debounce clears recovery and skips saving blank text;
+  version API also rejects it. A writer's deletion therefore cannot become a saved
+  version. This server slice is a prerequisite, not an end-to-end client fix.
+- **Scope:** additive `allow_empty_draft: true` version contract requiring an
+  actual string, explicit writer source, nonempty base and retry ID, an existing
+  version, and `reject_if_stale`. Ordinary missing/empty generation remains 400.
+  Keep older nonblank clients and the existing auth/error envelope unchanged.
+- **Red/green:** two real handler regressions failed before the route change;
+  all 70 route tests then passed. Auth-required actual backend restart tests:
+  2 pass, 0 fail; exact empty/whitespace bytes, historical text, one-time replay,
+  altered retry, stale deletion, unsigned 401 and other-owner 404 are asserted.
+- **VERIFIED final proof:** Node 20.20.2 with external network disabled: 2,743
+  pass, 0 fail, 2 skip (`/tmp/them-930-final-node20.log`). Signed units: 659/659,
+  no skips (`/tmp/them-930-units.xcresult`). Existing signed auth-required recovery
+  UI: 2/2, no skips (`/tmp/them-930-ui/screenplay-save-network-fault-9775.xcresult`).
+  Owned iPhone 17 Pro simulator `11CF5EFB-D8C3-4F19-8062-28AF37F27D93`, iOS 26.2,
+  signing on, erased first. macOS scaffold build exit 0 with an isolated build
+  directory after the initial database-lock failure; god and diff gates pass.
+  Existing Swift concurrency warnings remain. Full audit:
+  `docs/audits/intentional-blank-save-contract-2026-10-08.md`.
+- **Done when:** full backend on shipping Node 20 with external networking off,
+  signed erased-simulator units/recovery UI, macOS scaffold, god-file gate and
+  diff check pass; publish only a scoped draft above #928.
+- **Next client scope:** preserve empty dirty recovery, protect it during
+  hydration, enqueue/replay explicit writer deletions, send the new flag and
+  prove delete-all → offline → relaunch → reconnect → exact saved blank version.
+- **Not covered:** that client journey, Postgres production soak, physical voice,
+  provider credits, release proof, 120-page performance and export parity.
+  Existing replay identity binds ID+exact text, not every source/base field.
+- **Landing:** #766 then #770 remain first, with independent review and required
+  hosted gates. No merge/self-approval, main mutation, secrets or paid calls.
+
+### T-929 — Restore parked writer saves before project hydration
+
+- **Owner:** codex
+- **Branch:** `codex/T-929-conflict-relaunch-hydration`, above #927 head `1f7c6061`.
+- **Pillar:** mobile-first (writer data safety).
+- **Status:** review.
+- **VERIFIED:** #927 hosted run `37753118979` passed 658 units, integrated writer loop,
+  and V1 smoke (28 pass, 0 fail, 9 skip). Offline-save conflict relaunch failed:
+  one parked copy remained, but the editor displayed collaborator text, dirty=false,
+  conflict=nil. This does not prove permanent loss. Main is unchanged at `647e01fc`.
+- **Root reproduced:** project-detail hydration bypassed bootstrap's queue restoration.
+  The signed regression failed 1/1 with collaborator text replacing the editor's
+  expected parked draft (`/tmp/them-929-hydration-red.xcresult`). Both production
+  detail/outline hydration paths now restore the existing owner-scoped queue first,
+  then recheck auth and selected project; stale continuations also stop before
+  collaboration/outline updates. No new queue or framework was introduced.
+- **VERIFIED signed units:** 659 pass, 0 fail, 0 skip, including the retained red
+  regression (`/tmp/them-929-hydration-units.xcresult`). Owned simulator
+  `11CF5EFB-D8C3-4F19-8062-28AF37F27D93`, iOS 26.2, signing on, erased first.
+- **Hosted evidence:** `/tmp/them-927-hosted-failure.log`; downloaded authoritative
+  result bundle under `/tmp/them-927-hosted-proof.rKDnz3` confirms 1 pass, 1 fail,
+  0 skip on iOS 26.5. A locally green result does not prove the hosted fix yet.
+- **Baseline:** full backend 2,740 pass, 0 fail, 2 skip (`/tmp/them-929-backend.log`);
+  god-file gate and diff check pass. No live paid model calls or human credentials.
+- **Final local proof:** shipping Node 20.20.2 full backend, network disabled:
+  2,740 pass, 0 fail, 2 skip (`/tmp/them-929-node20-backend.log`). Signed erased
+  simulator offline/relaunch/auth/conflict/Keep Mine UI: 2 pass, 0 fail, 0 skip
+  (`/tmp/them-929-ui/screenplay-save-network-fault-6110.xcresult`). The existing
+  exact-text, conflict-choice and exactly-once assertions were not weakened or
+  retried. macOS scaffold build exit 0 (`/tmp/them-929-mac.log`), unsigned build-only.
+  Existing Swift concurrency warnings remain. Protected files do not grow;
+  index.js remains 33,626 under the approved pre-stack exception.
+- **Exact files:** this ledger, `them/ScreenplayStudioViewModel.swift`, and
+  `themTests/ScreenplayDraftSaveOutboxTests.swift`. Original #925/#927 work preserved.
+- **Landing:** draft only above #927; required hosted checks and independent review
+  still required. No main mutation, self-approval, merge bypass or paid provider use.
+- **Done when:** root cause is reproduced; parked local bytes, conflict choice,
+  auth/project isolation and exactly-once Keep Mine are proven on signed erased
+  simulator units/UI; full backend, macOS and god gates pass; scoped draft PR only.
+- **Do not silently fix:** the earlier #925 remembered-login failure. It passed
+  on #927; retain that observation and investigate separately if it reproduces.
+- **Not covered:** paused-actor account/project-switch race injection, corrupt
+  outbox storage, same-version-but-byte-distinct conflict recovery, physical
+  microphone/provider calls, release configuration, 120-page performance or export.
+
+### T-928 — Preserve exact screenplay save and recovery identity
+
+- **Owner:** codex
+- **Branch:** `codex/T-928-exact-save-identity`
+- **Pillar:** mobile-first, voice→scene (writer data safety)
+- **Status:** review
+- **Scope:** retain raw nonblank screenplay text across version saving, retry identity,
+  outbox coalescing, saved-state comparison, snapshot restoration and conflict recovery.
+- **Done when:** authenticated backend restart/replay proof, signed erased-simulator
+  unit and relaunch/reconnect UI proof, macOS scaffold, god-file gate and diff checks pass;
+  publish only a draft PR above #925, preserving the #918 prerequisite provenance.
+- **Evidence:** `docs/audits/exact-save-identity-2026-10-08.md`.
+- **Remaining outside this task:** empty/whitespace-only save contract; historical text
+  already normalized before storage; async lint/coverage/logline staleness comparisons;
+  physical microphone/provider proof; required hosted checks and independent merge review.
+### T-1055 — Preserve the actual writer-loop failure evidence
+
+- **Owner:** codex. **Branch:** `codex/T-1055-writer-failure-artifacts`.
+- **Status:** review. **Pillar:** trustworthy end-to-end writing.
+- **Verified:** original #972 `53b4d6d`, run39421358172, fails at the real
+  Markdown-export button hit point. Downloaded artifact includes units only;
+  the canonical writer harness deletes its own result bundle in `finally`,
+  even after UI failure. Do not infer an app export fix from stdout alone.
+- **Fix:** retain uniquely named native bundles under the existing V1
+  artifact directory/upload glob, still remove the temporary port config
+  and stop the owned backend. Do not retry or weaken the writer assertions.
+- **Done when:** path/uniqueness/summary tests, syntax and D009/diff pass;
+  actual local writer run retains its readable bundle; original #972 history
+  preserved and fresh hosted proof requested. No main/production change.
+- **Evidence:** `docs/writer-failure-artifacts-2026-10-20.md`.
+- **Verified:** Node20 focused10/0/0, backend2743/0/2; actual signed erased
+  SE writer1/0/0 with readable native bundle retained after successful
+  cleanup, port config removed and owned backend stopped. D009 all deltas0,
+  syntax/diff pass. Hosted export error remains unproven; no paid calls.
+
+### T-1050 — BackendClient synchronous deallocation compatibility
+
+- **Owner:** codex. **Branch:** `codex/T-1050-client-deinit-compatibility`.
+- **Status:** review. **Pillar:** dependable iPhone lifecycle.
+- **Evidence:** T1049 actual-model tests crashed in BackendClient teardown,
+  swift_task_deinitOnExecutorImpl / TaskLocal::StopLookupScope / malloc.
+  Main deac1a6d has the identical client source. Async test context alone
+  does not repair the app; no runtime/model calls needed to characterize it.
+- **Success:** actual client synchronous release inside task-local scope
+  deallocates (weak reference nil), scope survives; async path still works;
+  signed erased units, writer UI/macOS/D009/diff pass. Draft PR only.
+- **Constraint:** no deployment-floor bump, leaked client, suppressed crash,
+  broad actor opt-out, credential/provider change or main push.
+- **Verified:** actual main-based direct-release before0/1/0, matching
+  invalid-free stack; explicit nonisolated deinit after full signed units
+  626/0/0 on the erased owned SE/iOS26.2. Typed writer1/0/0, macOS0,
+  D009 all five deltas0, diff clean. No paid model/real-phone claim.
+- **Evidence:** `docs/client-deinit-compatibility-2026-10-20.md`.
+
 ### T-969 — Truthful required checks on original #906
 
 - **Owner:** codex. **Task branch:** `codex/T-969-truthful-906-gate`.
@@ -589,6 +3198,148 @@ change or treat it as merged; original pre-proof text remains in Git history.
 ---
 
 ## Active work — quick view
+
+Historical Pages/security records below are dated context, not current proof.
+### T-952 — Preserve Studio actions and guard current-document execution
+
+- **Owner:** codex. **Status:** in-progress. **Pillar:** voice-to-scene.
+- **Branch:** `codex/T-952-studio-actions-integration`, based on T-951.
+- **Scope:** preserve original #643 and #879; reject duplicate/stale actions,
+  failed Studio mount and explicitly unsupported capability lists.
+- **Done when:** response-to-action behavioral regressions, signed units and
+  UI, full Node20 backend, macOS, offline golden, D009 and diff are recorded.
+- **Hold:** #648 already owns later prompt/action inference wiring. Preserve
+  that implementation; do not claim live voice actions proven at this boundary.
+
+### T-951 — Integrate and re-prove original pagination
+
+- **Owner:** codex. **Status:** review (historical; current integration T-1096). **Pillar:** mobile-first.
+- **Branch:** `codex/T-951-pages-integration-proof`, from T-950 `ccb50270`.
+- **Scope:** preserving merge of original #642 `7c40428b`; fix reproduced
+  unbounded multi-page speech and Unicode phone/backend wrapping disagreement.
+- **Done when:** bounded pages without missing dialogue, Unicode-safe shared
+  fixtures, signed full units, numbered overview UI, Node20 backend, macOS,
+  offline golden, D009 and diff checks have recorded outcomes.
+- **Boundary:** no main merge or replacement PR; #80 export/editor element
+  agreement and physical/shipping proof remain separate unmet requirements.
+
+### T-950 — Re-prove original security patch with the writing rehearsal
+
+- **Owner:** codex. **Status:** review. **Pillar:** voice-to-scene.
+- **Branch:** `codex/T-950-security-integration-proof`.
+- **Scope:** preserving local merge of existing #909 `788e0107` onto #942
+  `6e7138b1`; no replacement dependency patch or original-head rewrite.
+- **Done when:** fresh lockfile install, Node20 full backend, signed Home
+  transcript/raw-audio save-and-restore UI, D009 and diff checks are recorded.
+- **Boundary:** not a main merge, shipping deployment, live provider or phone
+  proof. Original #883/#884/#926 runtime hardening remains separately required.
+- **Evidence:** `docs/security-integration-proof-2026-10-16.md`.
+- **Proof:** Node20 backend 2,789/0/2; signed Home UI 2/0/0 after owned-simulator
+  erase; fresh lockfile install, D009 and diff pass. No paid provider calls.
+
+Historical backport record below: these are the dated T-945 branch results,
+not fresh proof for the current original640 candidate.
+
+### T-945 — Resolve #640 three-act review findings before integration
+
+- **Owner:** codex. **Branch:** `codex/T-945-three-act-review-fixes`.
+- **Status:** review. **Pillar:** living companion / longitudinal learning.
+- **Done when:** planner intent regressions, trimmed craft survival, canonical
+  defaults, feature-map precedence and lexical retrieval are proven; all 110
+  cards retain their contents; Node 20 backend, offline golden, signed Swift
+  selection tests and D009 pass against `claude/mentor-golden-port`.
+- **Boundary:** retain original #640 `c8eb36ba`; no replacement PR, original-head
+  rewrite, squash or main merge. Post evidence on the original PR.
+- **Proof:** Node 20.20.2 full backend 2,765 pass / 0 fail / 2 skip; offline
+  golden gate passes; signed Swift selection/resilience 9/9 after owned erase;
+  macOS scaffold build, D009 and diff checks pass. See
+  `docs/three-act-review-corrections-2026-10-08.md` for all outcomes and boundaries.
+
+### T-948 — Persisted craft report rail reconciliation
+
+- **Owner:** codex. **Status:** ready. **Pillar:** mobile-first / living companion.
+- **Scope:** prefer a loaded report's framework if the writer has not explicitly
+  chosen one; preserve explicit choices. Separate from the T-945 allocator fix.
+- **Done when:** stored Save the Cat report, chip and successful Save Override
+  agree; explicit Three-Act selection stays selected. Signed behavioral tests
+  and narrow Studio runtime proof required. Known minor issue, not fixed yet.
+
+Historical T-947/T-949 context follows; the active T-1143 task owns current
+reconciliation. These dated states are not current verification or new lanes.
+
+### T-949 — Prove confirmed Home-to-Studio first-turn writing
+
+- **Owner:** codex. **Status:** review. **Pillar:** voice-to-scene.
+- **Branch:** `codex/T-949-confirmed-home-page-routing`, based on preserved
+  rehearsal `5cfa52bb`. App Store work deferred by the human on 2026-10-16.
+- **Historical state:** previously ready, then proven/review on that dated
+  branch only. T-1143 owns the present reconciliation; no inherited pass is new.
+- **Scope:** current confirmed script request opens authenticated Studio before
+  page prompt preparation; never use a previous microphone transcript.
+- **Done when:** Home first utterance writes/saves; everyday/partial/stale words
+  never promote mode; authentication refusal blocks writing. The prior writer
+  UI begins in Studio; dedicated Home runtime proof is recorded below.
+- **Proof:** local Node20 backend 2,788/0/2; complete signed units 657/0/0;
+  Home pair 2/0/0; long-audio raw 1/0/0; existing writer UI 1/0/0. Scaffold,
+  offline golden, D009 and diff pass. Full evidence and failed attempts:
+  docs/confirmed-home-voice-routing-2026-10-16.md.
+- **Boundary:** deterministic local proof, not shipping/phone/model proof.
+  Preserve #807's canonical transcribe-first implementation and reconcile the
+  raw two-generation path there before production promotion. No main merge.
+
+### T-947 — Filmmaker/dialogue review corrections
+- Owner: Codex; status: review.
+- Branch: `codex/T-947-filmmaker-review-fixes`; original #641 `232098ba` preserved.
+- Scope: repair Home/Studio boundaries, rewrite and dialogue-notes routing, project-memory contracts, fresh Page-lane behavior and distress/freshness precedence.
+- Done: behavioral backend tests, signed Swift proof coordinated by integration owner, D009 and diff checks; no main merge or replacement PR.
+- Current proof: Node 20 full backend 2,768/0/2; focused 61/61; offline mentor golden and D009 pass. Signed units/UI and integrated proof pending with integration owner. Evidence: `docs/filmmaker-review-corrections-2026-10-08.md`.
+
+Historical additive Studio-action gate record follows; T-1153 owns current work.
+### T-studio-actions-gate — Preserve Studio voice actions without root-view growth
+- Owner: codex
+- Branch: codex/T-studio-actions-gate
+- Status: review
+- Pillar: voice→scene
+- Done when: #643's capability metadata and response actions retain their
+  behavior, existing action types own the integration, the god-file gate passes
+  against #642, and focused/full signed iOS and backend proof pass.
+- Scope: additive extraction on Claude's original #643 commits, no replacement
+  implementation or merge ahead of #766 and #770.
+- Proof: 10/10 focused Studio-action tests, 654/654 signed iOS unit tests,
+  2/2 signed iPhone UI tests (typing and all inspector destinations), and
+  backend 2,779 passed / 0 failed / 2 skipped. God-file gate passes against
+  both #642 and #643; see docs/audits/studio-actions-gate-2026-09-30.md.
+
+Historical coverage-gate records follow; T-1155 owns current integration.
+### T-coverage-gate — Preserve coverage UI and speech without god-file growth
+- Owner: codex
+- Branch: codex/T-coverage-gate
+- Status: review
+- Pillar: living companion
+- Goal criteria: 3 (grounded coverage), 4 (working controls), 7 (provable stack).
+- Done when: #644's Craft bindings and coverage speech behavior are preserved,
+  its canonical-parent god-file gate passes, and focused/full signed iOS,
+  backend and narrow-iPhone destination proof pass.
+- Scope: additive extraction on the original #644 head, not a replacement;
+  #766 then #770 remain first to land. No paid model calls or review bypass.
+- Proof: 71/71 focused and 657/657 full signed iOS tests; 2/2 signed iPhone
+  UI tests; backend 2,787 passed / 0 failed / 2 skipped after bringing forward
+  Claude's canonical HTTP fixture for a reproduced fetch failure. Parent gate
+  passes. See docs/audits/coverage-gate-2026-09-30.md for initial failures/limits.
+
+### T-coverage-context — Bind coverage to the current writer and script
+- Owner: codex
+- Branch: codex/T-coverage-context
+- Status: review
+- Pillar: longitudinal learning
+- Goal criteria: 3 and 6.
+- Done when: account/project changes and superseded reads cannot publish,
+  speak or send another script's coverage; delayed/out-of-order tests prove it.
+- Preserve: #644 feature, #646 refresh policy and #774 quiet announcements.
+- Evidence: real view-model reproduction failed four assertions before guards;
+  final signed units 666/666, signed UI 2/2, backend 2,787 pass/0 fail/2 skip.
+  macOS scaffold build passes after an inherited Pages availability fix.
+  See docs/audits/coverage-context-2026-09-30.md for scope and remaining limits.
 
 | ID   | Title                                              | Owner  | Status            |
 |------|----------------------------------------------------|--------|-------------------|

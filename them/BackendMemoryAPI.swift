@@ -3,36 +3,6 @@ import CryptoKit
 import os.log
 import Security
 
-nonisolated extension Notification.Name {
-    static let themTurnCommitted = Notification.Name("io.them.them.turnCommitted")
-    static let themBackendSyncUpdated = Notification.Name("io.them.them.backendSyncUpdated")
-    static let themBackendIdentityPartitionChanged = Notification.Name(
-        "io.them.them.backendIdentityPartitionChanged"
-    )
-    static let themRememberedLoginKeychainAvailable = Notification.Name(
-        "io.them.them.rememberedLoginKeychainAvailable"
-    )
-    static let themScreenplayQuestionResolved = Notification.Name("io.them.them.screenplayQuestionResolved")
-}
-
-nonisolated private struct BackendNotificationPayload: @unchecked Sendable {
-    let name: Notification.Name
-    let userInfo: [AnyHashable: Any]
-}
-
-nonisolated private func postBackendNotificationOnMain(
-    name: Notification.Name,
-    userInfo: [AnyHashable: Any]
-) {
-    let payload = BackendNotificationPayload(name: name, userInfo: userInfo)
-    // Always enqueue. Several identity mutations intentionally hold a serial
-    // state lock while publishing durable Keychain/defaults state; a
-    // synchronous observer must never be able to re-enter that lock.
-    DispatchQueue.main.async {
-        NotificationCenter.default.post(name: payload.name, object: nil, userInfo: payload.userInfo)
-    }
-}
-
 nonisolated enum BackendUserDefaultsStore {
     private static let liveUIKeys: Set<String> = [
         "auth_signed_in",
@@ -253,12 +223,6 @@ nonisolated struct BackendTurnCommittedEvent {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         self.screenplayResolvedAnchorExcerpt = resolvedAnchorExcerpt.isEmpty ? nil : resolvedAnchorExcerpt
     }
-}
-
-nonisolated struct BackendReadResult<Payload> {
-    let payload: Payload
-    let sync: BackendSyncState
-    let notModified: Bool
 }
 
 nonisolated struct BackendRememberedName: Decodable, Hashable {
@@ -1117,38 +1081,6 @@ nonisolated struct BackendAccountExportArtifact: Equatable {
     let data: Data
 }
 
-nonisolated struct BackendMemoryStatsCounts: Decodable, Hashable {
-    let characters: Int
-    let charactersWithVoice: Int
-    let charactersWithTraits: Int
-    let toneSignals: Int
-    let habitSignals: Int
-}
-
-nonisolated struct BackendMemoryStatsResponse: Decodable, Hashable {
-    let schemaVersion: Int
-    let hasMemory: Bool
-    let counts: BackendMemoryStatsCounts
-    let lastUpdatedMs: TimeInterval?
-    let error: String?
-
-    var lastUpdatedDate: Date? {
-        guard let lastUpdatedMs, lastUpdatedMs > 0 else { return nil }
-        return Date(timeIntervalSince1970: lastUpdatedMs / 1000.0)
-    }
-
-    var diagnosticsSummary: String {
-        guard hasMemory else { return "No companion memory yet." }
-        return [
-            "\(counts.characters) characters",
-            "\(counts.charactersWithVoice) voices",
-            "\(counts.charactersWithTraits) trait sets",
-            "\(counts.toneSignals) tone signals",
-            "\(counts.habitSignals) habit signals",
-        ].joined(separator: " · ")
-    }
-}
-
 nonisolated struct BackendCharacterMentionReceipt: Decodable, Equatable {
     let ok: Bool?
     let action: String?
@@ -1232,6 +1164,13 @@ nonisolated struct BackendScreenplayCharacterArcMemory: Codable, Hashable {
             nextEmotionalTurn,
         ]
             .contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+
+    // Derived beat/scene plans are not character facts, even with a cue name.
+    // Explicit character memories still use isMeaningful; synthesized prompt
+    // memory needs arc facts before it can carry inferred tactical hints.
+    var hasCharacterGrounding: Bool {
+        [want, need, wound, falseBelief, relationshipPressure].contains { !$0.isEmpty }
     }
 
     var payload: [String: String] {
@@ -1416,6 +1355,9 @@ nonisolated struct BackendStudioThreadCommitMetadata: Hashable {
     var screenplayEmotionalContinuity: String = ""
     var screenplayPageCount: Int? = nil
     var screenplayTargetPages: Int? = nil
+    /// What the Studio offers this turn (tabs, sections, colors, scenes), so
+    /// Clementine can operate only what exists. See StudioCapabilitiesSnapshot.
+    var studioCapabilitiesJSON: String = ""
 
     var isMeaningful: Bool {
         !screenplayProjectId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
@@ -1852,98 +1794,6 @@ nonisolated struct BackendAuthUser: Codable, Hashable, Sendable {
     let updatedAt: TimeInterval?
 }
 
-nonisolated enum BackendAuthDebugSessionPolicy {
-    struct AutomationSessionOverride: Equatable, Sendable {
-        let userID: String
-        let clientToken: String
-        let accessToken: String
-
-        var user: BackendAuthUser {
-            BackendAuthUser(
-                userId: userID,
-                email: "",
-                authProvider: "debug",
-                emailVerified: true,
-                emailVerifiedAt: nil,
-                createdAt: nil,
-                updatedAt: nil
-            )
-        }
-
-        var sessionState: BackendAuthSessionState {
-            BackendAuthSessionState(
-                user: user,
-                accessTokenPresent: true,
-                refreshTokenPresent: false,
-                accessExpiresAt: 0,
-                refreshExpiresAt: 0,
-                currentSessionId: "",
-                currentFamilyId: "",
-                tokenType: "Bearer",
-                pendingEmailVerification: false,
-                verificationRequired: false
-            )
-        }
-    }
-
-    static func automationSessionOverride(
-        arguments: [String],
-        environment: [String: String]
-    ) -> AutomationSessionOverride? {
-        guard IOThemRuntime.isStudioAutomationArguments(arguments),
-              environmentFlagIsEnabled(environment["THEM_UITEST_AUTH_SIGNED_IN"]),
-              environmentFlagIsEnabled(environment["THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN_ENABLED"]) else {
-            return nil
-        }
-        let accessToken = normalizedEnvironmentValue(
-            environment["THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN"]
-        )
-        let userID = normalizedEnvironmentValue(environment["THEM_UITEST_USER_ID"])
-        let clientToken = normalizedEnvironmentValue(environment["THEM_UITEST_CLIENT_TOKEN"])
-        guard !accessToken.isEmpty, !userID.isEmpty, !clientToken.isEmpty else { return nil }
-        return AutomationSessionOverride(
-            userID: userID,
-            clientToken: clientToken,
-            accessToken: accessToken
-        )
-    }
-
-    static func shouldPersistSessionBootstrapIdentity(
-        arguments: [String],
-        environment: [String: String]
-    ) -> Bool {
-        automationSessionOverride(arguments: arguments, environment: environment) == nil
-    }
-
-    static func syntheticUser(
-        signedIn: Bool,
-        accessToken: String,
-        userID: String,
-        email: String
-    ) -> BackendAuthUser? {
-        let cleanToken = accessToken.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanUserID = userID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard signedIn, !cleanToken.isEmpty, !cleanUserID.isEmpty else { return nil }
-        let cleanEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
-        return BackendAuthUser(
-            userId: cleanUserID,
-            email: cleanEmail,
-            authProvider: "debug",
-            emailVerified: true,
-            emailVerifiedAt: nil,
-            createdAt: nil,
-            updatedAt: nil
-        )
-    }
-
-    private static func normalizedEnvironmentValue(_ raw: String?) -> String {
-        (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private static func environmentFlagIsEnabled(_ raw: String?) -> Bool {
-        ["1", "true", "yes", "on"].contains(normalizedEnvironmentValue(raw).lowercased())
-    }
-}
 
 nonisolated struct BackendRememberedLoginCredentials: Codable, Equatable, Sendable {
     let email: String
@@ -2326,25 +2176,6 @@ nonisolated struct BackendPasswordResetResult: Equatable {
     let sessionState: BackendAuthSessionState
     let canonicalEmail: String
     let rememberedLoginResult: BackendRememberedLoginMutationResult
-}
-
-nonisolated struct BackendAuthOperationIntent: Equatable, Sendable {
-    let sessionGeneration: Int
-    let rememberedLoginGeneration: Int
-}
-
-nonisolated struct BackendAuthSessionLease: Equatable, Sendable {
-    let sessionGeneration: Int
-    let userID: String
-    let accessToken: String
-    let refreshToken: String
-}
-
-nonisolated struct BackendAuthRequestIdentity: Equatable, Sendable {
-    let sessionEpoch: Int
-    let userID: String
-    let clientToken: String
-    let accessToken: String
 }
 
 nonisolated struct BackendPasswordResetIntent: Equatable, Sendable {
@@ -2744,6 +2575,9 @@ nonisolated struct BackendScreenplayProjectResponse: Decodable {
 }
 
 nonisolated struct BackendScreenplayProjectMutationResponse: Decodable {
+    var blankCreation: BackendBlankProjectReceipt? = nil
+    var versionId: String? = nil
+    var version: BackendScreenplayVersion? = nil
     let stage: String?
     let status: String?
     let created: Bool?
@@ -2916,28 +2750,6 @@ nonisolated struct BackendScreenplayVersionMutationResponse: Decodable {
     let schemaVersion: Int?
     let backendBuild: String?
     let backendBootId: String?
-}
-
-nonisolated struct BackendScreenplayPaginationPage: Decodable, Hashable {
-    let page: Int
-    let startLine: Int
-    let endLine: Int
-    let lineCount: Int
-    let preview: String?
-    let estMinutes: Double?
-}
-
-nonisolated struct BackendScreenplayPaginateResponse: Decodable {
-    let stage: String?
-    let mode: String?
-    let title: String?
-    let phase: String?
-    let targetPages: Int?
-    let pageCount: Int
-    let lineCount: Int
-    let linesPerPage: Int
-    let pages: [BackendScreenplayPaginationPage]
-    let lengthProfile: String?
 }
 
 nonisolated struct BackendScreenplayRevisionSummary: Decodable, Hashable {
@@ -3975,7 +3787,8 @@ nonisolated enum BackendAuthClient {
                 sessionEpoch: authSessionEpoch(defaults: defaults),
                 userID: automationOverride.userID,
                 clientToken: automationOverride.clientToken,
-                accessToken: automationOverride.accessToken
+                accessToken: automationOverride.accessToken,
+                sessionIntentGeneration: authSessionIntentGeneration(defaults: defaults)
             )
         }
 #endif
@@ -3984,7 +3797,8 @@ nonisolated enum BackendAuthClient {
                 sessionEpoch: authSessionEpoch(defaults: defaults),
                 userID: "",
                 clientToken: "",
-                accessToken: ""
+                accessToken: "",
+                sessionIntentGeneration: authSessionIntentGeneration(defaults: defaults)
             )
         }
 
@@ -3999,7 +3813,8 @@ nonisolated enum BackendAuthClient {
             sessionEpoch: authSessionEpoch(defaults: defaults),
             userID: userID,
             clientToken: sharedClientTokenLocked(defaults: defaults) ?? "",
-            accessToken: accessTokenLocked(defaults: defaults) ?? ""
+            accessToken: accessTokenLocked(defaults: defaults) ?? "",
+            sessionIntentGeneration: authSessionIntentGeneration(defaults: defaults)
         )
     }
 
@@ -4687,7 +4502,7 @@ nonisolated enum BackendAuthClient {
     }
 #endif
 
-    static func signUp(
+    @MainActor static func signUp(
         email: String,
         password: String,
         intent: BackendAuthOperationIntent,
@@ -4722,7 +4537,7 @@ nonisolated enum BackendAuthClient {
         }
     }
 
-    static func login(
+    @MainActor static func login(
         email: String,
         password: String,
         intent: BackendAuthOperationIntent,
@@ -4757,7 +4572,7 @@ nonisolated enum BackendAuthClient {
         }
     }
 
-    static func signInWithApple(
+    @MainActor static func signInWithApple(
         identityToken: String,
         authorizationCode: String? = nil,
         userIdentifier: String,
@@ -4834,7 +4649,11 @@ nonisolated enum BackendAuthClient {
         return body
     }
 
-    static func refreshAuthSession(force: Bool = false) async throws -> BackendAuthSessionState {
+    static func refreshAuthSession(force: Bool = false, expectedOwner: ScreenplayStudioAuthContext? = nil) async throws -> BackendAuthSessionState {
+        if let expectedOwner,
+           !ScreenplayStudioAuthContextPolicy.matches(expected: expectedOwner, current: .current()) {
+            throw BackendMemoryAPIError.server(status: 409, message: "auth_request_superseded")
+        }
         if !force {
             let current = currentAuthSessionState()
             if current.isAuthenticated, !current.accessExpired {
@@ -4844,12 +4663,20 @@ nonisolated enum BackendAuthClient {
         guard let lease = captureAuthSessionLease(), !lease.refreshToken.isEmpty else {
             throw BackendMemoryAPIError.server(status: 401, message: "refresh_token_required")
         }
+        if let expectedOwner,
+           !ScreenplayStudioAuthContextPolicy.matches(expected: expectedOwner, current:
+                .init(userID: lease.userID, sessionIntentGeneration: currentAuthSessionIntentGeneration())) {
+            throw BackendMemoryAPIError.server(status: 409, message: "auth_request_superseded")
+        }
         return try await authRefreshCoordinator.run(key: .init(lease: lease)) {
             try await performRefreshAuthSession(lease: lease)
         }
     }
 
-    private static func performRefreshAuthSession(
+    // Defaults mutations synchronously notify SwiftUI/KVO. Commit on the main
+    // actor, never with the auth queue held on a worker waiting for SwiftUI's
+    // graph lock while a view holds that lock and reads the auth queue.
+    @MainActor private static func performRefreshAuthSession(
         lease: BackendAuthSessionLease
     ) async throws -> BackendAuthSessionState {
         try await prepareVerifiedBackendForAuth()
@@ -4930,7 +4757,7 @@ nonisolated enum BackendAuthClient {
         }
     }
 
-    static func restorePersistedAuthSessionIfNeeded() async throws -> BackendAuthSessionState {
+    @MainActor static func restorePersistedAuthSessionIfNeeded() async throws -> BackendAuthSessionState {
         if authSessionTokenDeletionIsPending() {
             _ = retryPendingAuthSessionTokenDeletion()
             return currentAuthSessionState()
@@ -4941,7 +4768,7 @@ nonisolated enum BackendAuthClient {
         return try await refreshAuthSession(force: true)
     }
 
-    static func logout() async throws -> Bool {
+    @MainActor static func logout() async throws -> Bool {
         let local = authSessionStateQueue.sync { () -> (access: String, refresh: String, deleted: Bool) in
             let access = accessTokenLocked(defaults: .standard) ?? ""
             let refresh = refreshTokenLocked(defaults: .standard) ?? ""
@@ -5065,7 +4892,7 @@ nonisolated enum BackendAuthClient {
         return try await run(request, as: BackendAuthEnvelope.self)
     }
 
-    static func resetPassword(
+    @MainActor static func resetPassword(
         token: String,
         newPassword: String
     ) async throws -> BackendPasswordResetResult {
@@ -5175,7 +5002,7 @@ nonisolated enum BackendAuthClient {
             sessionStorageIsReadable
     }
 
-    static func requestEmailVerification(email: String? = nil) async throws -> BackendAuthEnvelope {
+    @MainActor static func requestEmailVerification(email: String? = nil) async throws -> BackendAuthEnvelope {
         let lease = captureAuthSessionLease()
         try await prepareVerifiedBackendForAuth()
         var request = try makeAuthWriteRequest(path: "/auth/request_email_verification")
@@ -5192,7 +5019,7 @@ nonisolated enum BackendAuthClient {
         return payload
     }
 
-    static func verifyEmail(token: String) async throws -> BackendAuthSessionState {
+    @MainActor static func verifyEmail(token: String) async throws -> BackendAuthSessionState {
         let lease = captureAuthSessionLease()
         try await prepareVerifiedBackendForAuth()
         var request = try makeAuthWriteRequest(path: "/auth/verify_email")
@@ -5319,7 +5146,7 @@ nonisolated enum BackendAuthClient {
     }
 
     private static func run<T: Decodable>(_ request: URLRequest, as type: T.Type) async throws -> T {
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await URLSession.shared.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -6181,6 +6008,12 @@ nonisolated enum BackendAuthClient {
     }
 
     #if DEBUG
+    static func seedStoredAuthUserForUITesting(_ user: BackendAuthUser) -> Bool {
+        guard BackendAuthDebugSessionPolicy.usesStoredCredentials(arguments: ProcessInfo.processInfo.arguments,
+            environment: ProcessInfo.processInfo.environment) else { return false }
+        return authSessionStateQueue.sync { persistAuthUser(user) }
+    }
+
     @discardableResult
     static func persistSharedAppTokenForUITesting(_ token: String) -> Bool {
         BackendCredentialMigration.writeString(
@@ -6821,12 +6654,16 @@ actor BackendMemoryAPI {
     private let baseURLOverride: URL?
     private let accountDeletionSessionHooks: BackendAccountDeletionSessionHooks
     private let requestIdentityProvider: @Sendable (Bool) -> BackendAuthRequestIdentity
+    private let projectWriteAuthRefresher: @Sendable (ScreenplayStudioAuthContext) async throws -> BackendAuthSessionState
     private var healthyBaseURL: URL?
     private var cachedSession: BackendSessionResponse?
     private var cachedSessionAt: Date?
+    private var cachedSessionBackendURL: URL?
+    private var readCacheOwner: ScreenplayStudioAuthContext?
     private var sessionBootstrapTask: (
         id: Int,
         authSessionEpoch: Int,
+        backendURL: URL,
         task: Task<SessionBootstrapHTTPResult, Error>
     )?
     private var nextSessionBootstrapTaskID: Int = 0
@@ -6837,12 +6674,16 @@ actor BackendMemoryAPI {
     private var latestCreativeMemoryRevision: String = ""
     private var inFlightStateVersions: Set<String> = []
     private var lastForcedSessionRefreshAt: Date?
-    private var didInjectExpiredScreenplaySaveAuthForUITest = false
+#if DEBUG
+    private var screenplaySaveAuthFault = ScreenplaySaveAuthFaultInjection()
+#endif
     private let forcedSessionRefreshCooldown: TimeInterval = 8
     private let sessionCacheTTL: TimeInterval = 90
     private let storedSessionRefreshSkew: TimeInterval = 30
 
     private struct SessionBootstrapHTTPResult: @unchecked Sendable {
+        let backendURL: URL
+        let responseURL: URL?
         let data: Data
         let statusCode: Int
         let responsePersonaKey: String
@@ -6855,12 +6696,16 @@ actor BackendMemoryAPI {
         accountDeletionSessionHooks: BackendAccountDeletionSessionHooks = .live,
         requestIdentityProvider: @escaping @Sendable (Bool) -> BackendAuthRequestIdentity = {
             BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: $0)
+        },
+        projectWriteAuthRefresher: @escaping @Sendable (ScreenplayStudioAuthContext) async throws -> BackendAuthSessionState = {
+            try await BackendAuthClient.refreshAuthSession(force: true, expectedOwner: $0)
         }
     ) {
         self.session = session
         self.baseURLOverride = baseURL
         self.accountDeletionSessionHooks = accountDeletionSessionHooks
         self.requestIdentityProvider = requestIdentityProvider
+        self.projectWriteAuthRefresher = projectWriteAuthRefresher
     }
 
     func currentSyncState() -> BackendSyncState {
@@ -6930,6 +6775,15 @@ actor BackendMemoryAPI {
     }
 
     func bootstrapSession(force: Bool = false) async throws -> BackendSessionResponse {
+        let origin = baseURL()
+        if let previous = cachedSessionBackendURL ?? sessionBootstrapTask?.backendURL,
+           !OfflineTalkRecoveryScope.sameBackend(previous, origin) { invalidateReadCaches(clearSyncState: true) }
+        let owner = requestIdentityProvider(true).ownerContext
+        if let previous = readCacheOwner,
+           !ScreenplayStudioAuthContextPolicy.matches(expected: previous, current: owner) {
+            invalidateReadCaches(clearSyncState: true)
+        }
+        readCacheOwner = owner
         let now = Date()
         if force {
             cachedSession = nil
@@ -6937,12 +6791,14 @@ actor BackendMemoryAPI {
         }
         if !force,
            let cachedSession,
-           let cachedSessionAt,
+           let cachedSessionAt, let cachedSessionBackendURL,
+           OfflineTalkRecoveryScope.sameBackend(cachedSessionBackendURL, origin),
            now.timeIntervalSince(cachedSessionAt) < sessionCacheTTL {
             return cachedSession
         }
-        if !force, let storedSession = storedSessionFromRecentSharedToken(now: now) {
+        if !force, let storedSession = storedSessionFromRecentSharedToken(now: now, backendURL: origin) {
             cachedSession = storedSession
+            cachedSessionBackendURL = origin
             cachedSessionAt = now
             return storedSession
         }
@@ -6950,22 +6806,23 @@ actor BackendMemoryAPI {
             return try await completeSessionBootstrap(
                 sessionBootstrapTask.task,
                 id: sessionBootstrapTask.id,
-                expectedAuthSessionEpoch: sessionBootstrapTask.authSessionEpoch
+                expectedAuthSessionEpoch: sessionBootstrapTask.authSessionEpoch, expectedBackendURL: origin
             )
         }
         let expectedAuthSessionEpoch = BackendAuthClient.currentAuthSessionEpoch()
-        var request = try makeRequest(path: "/session")
+        var request = try makeRequest(path: "/session", baseURL: origin)
         request.httpMethod = "POST"
         let urlSession = session
         let requestPath = request.url?.path ?? "/session"
         nextSessionBootstrapTaskID += 1
         let taskID = nextSessionBootstrapTaskID
         let task = Task { () throws -> SessionBootstrapHTTPResult in
-            let (data, response) = try await urlSession.data(for: request)
+            let (data, response) = try await urlSession.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
             guard let http = response as? HTTPURLResponse else {
                 throw BackendMemoryAPIError.invalidResponse
             }
             return SessionBootstrapHTTPResult(
+                backendURL: origin, responseURL: http.url,
                 data: data,
                 statusCode: http.statusCode,
                 responsePersonaKey: http.value(forHTTPHeaderField: "x-persona-key") ?? "",
@@ -6975,22 +6832,27 @@ actor BackendMemoryAPI {
         sessionBootstrapTask = (
             id: taskID,
             authSessionEpoch: expectedAuthSessionEpoch,
-            task: task
+            backendURL: origin, task: task
         )
         return try await completeSessionBootstrap(
             task,
             id: taskID,
-            expectedAuthSessionEpoch: expectedAuthSessionEpoch
+            expectedAuthSessionEpoch: expectedAuthSessionEpoch, expectedBackendURL: origin
         )
     }
 
     private func completeSessionBootstrap(
         _ task: Task<SessionBootstrapHTTPResult, Error>,
         id taskID: Int,
-        expectedAuthSessionEpoch: Int
+        expectedAuthSessionEpoch: Int, expectedBackendURL: URL
     ) async throws -> BackendSessionResponse {
         do {
             let result = try await task.value
+            guard OfflineTalkRecoveryScope.sameBackend(result.backendURL, expectedBackendURL),
+                  OfflineTalkRecoveryScope.sameBackend(result.backendURL, baseURL()),
+                  BackendAPIResponseValidator.hasMatchingOrigin(requestURL: result.backendURL, responseURL: result.responseURL) else {
+                throw BackendMemoryAPIError.server(status: 409, message: "session_bootstrap_superseded")
+            }
             let ownsCompletion = sessionBootstrapTask?.id == taskID
             if ownsCompletion {
                 sessionBootstrapTask = nil
@@ -7019,7 +6881,7 @@ actor BackendMemoryAPI {
                 expectedSessionEpoch: expectedAuthSessionEpoch,
                 clientToken: payload.clientToken,
                 expiryRaw: expiryRaw,
-                baseURLRaw: baseURL().absoluteString,
+                baseURLRaw: result.backendURL.absoluteString,
                 userID: payload.userId,
                 persistClientToken: !BackendAuthClient.isStudioDebugClientTokenOverrideActive()
             ) else {
@@ -7028,7 +6890,7 @@ actor BackendMemoryAPI {
                     message: "session_bootstrap_superseded"
                 )
             }
-            cacheSession(payload)
+            cacheSession(payload, backendURL: result.backendURL)
             guard BackendAuthClient.currentAuthSessionEpoch() == expectedAuthSessionEpoch else {
                 invalidateReadCaches(clearSyncState: true)
                 throw BackendMemoryAPIError.server(
@@ -7046,7 +6908,7 @@ actor BackendMemoryAPI {
         }
     }
 
-    private func storedSessionFromRecentSharedToken(now: Date) -> BackendSessionResponse? {
+    private func storedSessionFromRecentSharedToken(now: Date, backendURL: URL) -> BackendSessionResponse? {
         let identity = requestIdentityProvider(true)
         let token = identity.clientToken
         guard !token.isEmpty else { return nil }
@@ -7054,7 +6916,7 @@ actor BackendMemoryAPI {
               now.timeIntervalSince(cachedAt) < sessionCacheTTL else {
             return nil
         }
-        guard BackendAuthClient.sharedClientTokenBaseURL() == baseURL().absoluteString else {
+        guard BackendAuthClient.sharedClientTokenBaseURL() == backendURL.absoluteString else {
             return nil
         }
 
@@ -7130,7 +6992,7 @@ actor BackendMemoryAPI {
 
     func fetchOpsRoutesManifest() async throws -> BackendOpsRouteManifestResponse {
         let request = try makeRequest(path: "/ops/routes")
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -7145,7 +7007,7 @@ actor BackendMemoryAPI {
 
     func fetchMemoryStats() async throws -> BackendMemoryStatsResponse {
         let request = try makeRequest(path: "/memory/stats")
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -7158,7 +7020,7 @@ actor BackendMemoryAPI {
 
     func fetchTalkStats() async throws -> BackendTalkStatsResponse {
         let request = try makeRequest(path: "/talk/stats")
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -7175,7 +7037,7 @@ actor BackendMemoryAPI {
             queryItems.append(URLQueryItem(name: "sinceMs", value: String(Int(sinceMs.rounded()))))
         }
         let request = try makeRequest(path: "/talk/errors", extraQueryItems: queryItems)
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -7188,7 +7050,7 @@ actor BackendMemoryAPI {
 
     private func fetchHealth(path: String, baseURL: URL) async throws -> BackendHealthStatus {
         let request = try makeRequest(path: path, baseURL: baseURL)
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -7297,7 +7159,7 @@ actor BackendMemoryAPI {
         if !force, canUseSharedCache, let cached = historyCacheByLimit[limit], !cached.etag.isEmpty {
             request.setValue(cached.etag, forHTTPHeaderField: "If-None-Match")
         }
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -7364,7 +7226,7 @@ actor BackendMemoryAPI {
         if !force, canUseSharedCache, let cached = memoriesCacheByLimit[limit], !cached.etag.isEmpty {
             request.setValue(cached.etag, forHTTPHeaderField: "If-None-Match")
         }
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -7400,9 +7262,10 @@ actor BackendMemoryAPI {
     func resolvePendingScreenplayQuestion(
         _ pending: BackendPendingScreenplayQuestion,
         responseStatus: String,
-        answer: String = ""
+        answer: String = "",
+        initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
     ) async throws -> BackendReadResult<BackendScreenplayQuestionResolutionResponse> {
-        _ = try? await bootstrapSession(force: false)
+        let identity = try await screenplayRequestIdentity(owner)
         let normalizedStatus = responseStatus
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
@@ -7417,7 +7280,7 @@ actor BackendMemoryAPI {
             throw BackendMemoryAPIError.server(status: 400, message: "answer is required")
         }
 
-        var request = try makeWriteRequest(path: "/memory/screenplay-question/resolve")
+        var request = try makeWriteRequest(path: "/memory/screenplay-question/resolve", identity: identity)
         let idempotencyKey = String(
             "screenplay-question-\(pending.id)-\(normalizedStatus)".prefix(128)
         )
@@ -7440,10 +7303,8 @@ actor BackendMemoryAPI {
         request.httpBody = body
 
         do {
-            let (data, response) = try await session.data(for: request)
-            guard let http = response as? HTTPURLResponse else {
-                throw BackendMemoryAPIError.invalidResponse
-            }
+            let (data, http) = try await screenplayHTTPResponse(for: request, owner: owner)
+            try owner.requireCurrentOwner(requestIdentityProvider(false))
             guard (200...299).contains(http.statusCode) else {
                 throw BackendMemoryAPIError.server(
                     status: http.statusCode,
@@ -7472,16 +7333,19 @@ actor BackendMemoryAPI {
             )
             updateSyncState(
                 mergeSyncStates(base: bodySync, incoming: headerSync),
-                emitTurnEvent: true
+                emitTurnEvent: true, initiatingIdentity: owner
             )
             return BackendReadResult(payload: payload, sync: syncState, notModified: false)
         } catch {
+            try owner.requireCurrentOwner(requestIdentityProvider(false))
             guard shouldQueueScreenplayQuestionResolution(error) else { throw error }
             let queued = try await OfflineTalkOutbox.shared.enqueue(
                 request: request,
                 body: body,
-                reason: error.localizedDescription
+                reason: error.localizedDescription,
+                initiatingIdentity: owner
             )
+            try owner.requireCurrentOwner(requestIdentityProvider(false))
             cachedSession = nil
             cachedSessionAt = nil
             throw BackendTalkQueuedError(
@@ -7514,7 +7378,7 @@ actor BackendMemoryAPI {
             limit: max(1, historyLimit),
             extraQueryItems: extraQuery
         )
-        var responsePair = try await session.data(for: request)
+        var responsePair = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard var http = responsePair.1 as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -7524,7 +7388,7 @@ actor BackendMemoryAPI {
                 limit: max(1, historyLimit),
                 extraQueryItems: extraQuery
             )
-            responsePair = try await session.data(for: request)
+            responsePair = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
             guard let retryHTTP = responsePair.1 as? HTTPURLResponse else {
                 throw BackendMemoryAPIError.invalidResponse
             }
@@ -7579,7 +7443,7 @@ actor BackendMemoryAPI {
     ) async throws -> BackendReadResult<BackendActionReceiptsResponse> {
         _ = try? await bootstrapSession(force: false)
         let request = try makeRequest(path: "/actions/receipts", limit: limit)
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -7599,22 +7463,21 @@ actor BackendMemoryAPI {
         return BackendReadResult(payload: payload, sync: syncState, notModified: false)
     }
 
-    func clearHistory() async throws -> BackendReadResult<BackendDataControlResponse> {
-        try await runDataControl(path: "/data/history/clear")
+    func clearHistory(initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true), backendURL: URL? = nil) async throws -> BackendReadResult<BackendDataControlResponse> {
+        try await runDataControl(path: "/data/history/clear", owner: owner, backendURL: backendURL)
     }
 
-    func clearMemories() async throws -> BackendReadResult<BackendDataControlResponse> {
-        try await runDataControl(path: "/data/memories/clear")
+    func clearMemories(initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true), backendURL: URL? = nil) async throws -> BackendReadResult<BackendDataControlResponse> {
+        try await runDataControl(path: "/data/memories/clear", owner: owner, backendURL: backendURL)
     }
 
-    func exportAccountData() async throws -> BackendAccountExportArtifact {
-        _ = try? await bootstrapSession(force: false)
-        var request = try makeRequest(path: "/account/export")
+    func exportAccountData(initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true), backendURL: URL? = nil) async throws -> BackendAccountExportArtifact {
+        let identity = try await screenplayRequestIdentity(owner, expectedBackendURL: backendURL, originErrorMessage: "auth_request_superseded")
+        var request = try makeWriteRequest(path: "/account/export", identity: identity)
+        request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendMemoryAPIError.invalidResponse
-        }
+        try validateDataControlOrigin(request, expected: backendURL)
+        let (data, http) = try await screenplayHTTPResponse(for: request, owner: owner)
         guard (200...299).contains(http.statusCode) else {
             let message = decodeErrorMessage(from: data)
             throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
@@ -7633,10 +7496,12 @@ actor BackendMemoryAPI {
 
     func requestAccountDeletion(
         reason: String = "",
-        proof: BackendAccountDeletionProof
+        proof: BackendAccountDeletionProof,
+        initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
     ) async throws -> BackendAccountDeletionResponse {
         let proofFields = try proof.requestFields()
-        var request = try makeWriteRequest(path: "/account")
+        try owner.requireCurrentOwner(requestIdentityProvider(false))
+        var request = try makeWriteRequest(path: "/account", identity: owner)
         request.httpMethod = "DELETE"
         let normalizedReason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
         var body = proofFields
@@ -7645,11 +7510,15 @@ actor BackendMemoryAPI {
         // The fully authenticated request is captured first. Local secrets and
         // remembered credentials are then revoked before transport so a crash
         // or ambiguous network result cannot leave the account signed in.
-        let deletedUser = accountDeletionSessionHooks.clearLocalSession()
+        let hooks = accountDeletionSessionHooks, identityProvider = requestIdentityProvider
+        let deletedUser = try await MainActor.run {
+            try owner.requireCurrentOwner(identityProvider(false))
+            return hooks.clearLocalSession()
+        }
         invalidateReadCaches(clearSyncState: true)
         lastForcedSessionRefreshAt = nil
         let payload = try await run(request, as: BackendAccountDeletionResponse.self)
-        if accountDeletionSessionHooks.clearAfterSuccessfulDeletion(deletedUser) {
+        if await MainActor.run(body: { hooks.clearAfterSuccessfulDeletion(deletedUser) }) {
             invalidateReadCaches(clearSyncState: true)
             lastForcedSessionRefreshAt = nil
         }
@@ -7668,7 +7537,7 @@ actor BackendMemoryAPI {
             limit: max(1, limit),
             extraQueryItems: [URLQueryItem(name: "status", value: normalizedStatus.isEmpty ? "all" : normalizedStatus)]
         )
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -7695,7 +7564,7 @@ actor BackendMemoryAPI {
             path: "/recap",
             extraQueryItems: [URLQueryItem(name: "window", value: windowValue)]
         )
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -7716,42 +7585,27 @@ actor BackendMemoryAPI {
     func fetchScreenplayProjects(
         limit: Int = 12,
         includeVersions: Bool = false,
-        includeDrafts: Bool = false
+        includeDrafts: Bool = false,
+        initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
     ) async throws -> BackendReadResult<BackendScreenplayProjectsResponse> {
-        _ = try? await bootstrapSession(force: false)
+        let identity = try await screenplayRequestIdentity(owner)
         let request = try makeRequest(
             path: "/screenplay/projects",
             limit: max(1, limit),
             extraQueryItems: [
                 URLQueryItem(name: "include_versions", value: includeVersions ? "1" : "0"),
                 URLQueryItem(name: "include_drafts", value: includeDrafts ? "1" : "0"),
-            ]
+            ],
+            identity: identity
         )
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendMemoryAPIError.invalidResponse
-        }
+        let (data, http) = try await screenplayHTTPResponse(for: request, owner: owner)
+        try owner.requireCurrentOwner(requestIdentityProvider(false))
         guard (200...299).contains(http.statusCode) else {
             let message = decodeErrorMessage(from: data)
             throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
         }
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        let payload = try decoder.decode(BackendScreenplayProjectsResponse.self, from: data)
-        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
-        let bodySync = syncFromScreenplayEnvelope(
-            sessionId: payload.sessionId,
-            stateVersion: payload.stateVersion,
-            lastUpdatedAt: payload.lastUpdatedAt,
-            historyUpdatedAt: payload.historyUpdatedAt,
-            memoryUpdatedAt: payload.memoryUpdatedAt,
-            lastTurnId: payload.lastTurnId,
-            schemaVersion: payload.schemaVersion,
-            backendBuild: payload.backendBuild,
-            backendBootId: payload.backendBootId
-        )
-        updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
-        return BackendReadResult(payload: payload, sync: syncState, notModified: false)
+        return try screenplayReadResult(BackendScreenplayProjectsResponse.self, data: data, response: http,
+                                        owner: owner)
     }
 
     func fetchScreenplayProject(
@@ -7760,9 +7614,10 @@ actor BackendMemoryAPI {
         versionLimit: Int = 16,
         includeUserIdentity: Bool = true,
         includeAuthToken: Bool = true,
-        clientTokenOverride: String? = nil
+        clientTokenOverride: String? = nil,
+        initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
     ) async throws -> BackendReadResult<BackendScreenplayProjectResponse> {
-        _ = try? await bootstrapSession(force: false)
+        let identity = try await screenplayRequestIdentity(owner)
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else {
             throw BackendMemoryAPIError.server(status: 400, message: "project_id_required")
@@ -7772,7 +7627,8 @@ actor BackendMemoryAPI {
             extraQueryItems: [
                 URLQueryItem(name: "include_drafts", value: includeDrafts ? "1" : "0"),
                 URLQueryItem(name: "version_limit", value: String(max(1, versionLimit))),
-            ]
+            ],
+            identity: identity
         )
         applyProjectOwnerHeaders(
             to: &request,
@@ -7780,62 +7636,29 @@ actor BackendMemoryAPI {
             includeAuthToken: includeAuthToken,
             clientTokenOverride: clientTokenOverride
         )
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendMemoryAPIError.invalidResponse
-        }
+        let (data, http) = try await screenplayHTTPResponse(for: request, owner: owner)
+        try owner.requireCurrentOwner(requestIdentityProvider(false))
         guard (200...299).contains(http.statusCode) else {
             let message = decodeErrorMessage(from: data)
             throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
         }
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        let payload = try decoder.decode(BackendScreenplayProjectResponse.self, from: data)
-        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
-        let bodySync = syncFromScreenplayEnvelope(
-            sessionId: payload.sessionId,
-            stateVersion: payload.stateVersion,
-            lastUpdatedAt: payload.lastUpdatedAt,
-            historyUpdatedAt: payload.historyUpdatedAt,
-            memoryUpdatedAt: payload.memoryUpdatedAt,
-            lastTurnId: payload.lastTurnId,
-            schemaVersion: payload.schemaVersion,
-            backendBuild: payload.backendBuild,
-            backendBootId: payload.backendBootId
-        )
-        updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
-        return BackendReadResult(payload: payload, sync: syncState, notModified: false)
+        return try screenplayReadResult(BackendScreenplayProjectResponse.self, data: data, response: http,
+                                        owner: owner)
     }
 
-    func fetchScreenplayCompanionState() async throws -> BackendReadResult<BackendScreenplayCompanionStateResponse> {
-        _ = try? await bootstrapSession(force: false)
-        let request = try makeRequest(path: "/screenplay/companion/state")
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendMemoryAPIError.invalidResponse
-        }
+    func fetchScreenplayCompanionState(
+        initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
+    ) async throws -> BackendReadResult<BackendScreenplayCompanionStateResponse> {
+        let identity = try await screenplayRequestIdentity(owner)
+        let request = try makeRequest(path: "/screenplay/companion/state", identity: identity)
+        let (data, http) = try await screenplayHTTPResponse(for: request, owner: owner)
+        try owner.requireCurrentOwner(requestIdentityProvider(false))
         guard (200...299).contains(http.statusCode) else {
             let message = decodeErrorMessage(from: data)
             throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
         }
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        decoder.dateDecodingStrategy = .iso8601
-        let payload = try decoder.decode(BackendScreenplayCompanionStateResponse.self, from: data)
-        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
-        let bodySync = syncFromScreenplayEnvelope(
-            sessionId: payload.sessionId,
-            stateVersion: payload.stateVersion,
-            lastUpdatedAt: payload.lastUpdatedAt,
-            historyUpdatedAt: payload.historyUpdatedAt,
-            memoryUpdatedAt: payload.memoryUpdatedAt,
-            lastTurnId: payload.lastTurnId,
-            schemaVersion: payload.schemaVersion,
-            backendBuild: payload.backendBuild,
-            backendBootId: payload.backendBootId
-        )
-        updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
-        return BackendReadResult(payload: payload, sync: syncState, notModified: false)
+        return try screenplayReadResult(BackendScreenplayCompanionStateResponse.self, data: data, response: http,
+                                        owner: owner, dateDecodingStrategy: .iso8601)
     }
 
     func fetchScreenplayOutline(
@@ -7843,9 +7666,10 @@ actor BackendMemoryAPI {
         includeProject: Bool = true,
         includeUserIdentity: Bool = true,
         includeAuthToken: Bool = true,
-        clientTokenOverride: String? = nil
+        clientTokenOverride: String? = nil,
+        initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
     ) async throws -> BackendReadResult<BackendScreenplayOutlineResponse> {
-        _ = try? await bootstrapSession(force: false)
+        let identity = try await screenplayRequestIdentity(owner)
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else {
             throw BackendMemoryAPIError.server(status: 400, message: "project_id_required")
@@ -7854,7 +7678,8 @@ actor BackendMemoryAPI {
             path: "/screenplay/projects/\(normalizedProjectId)/outline",
             extraQueryItems: [
                 URLQueryItem(name: "include_project", value: includeProject ? "1" : "0"),
-            ]
+            ],
+            identity: identity
         )
         applyProjectOwnerHeaders(
             to: &request,
@@ -7862,154 +7687,30 @@ actor BackendMemoryAPI {
             includeAuthToken: includeAuthToken,
             clientTokenOverride: clientTokenOverride
         )
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendMemoryAPIError.invalidResponse
-        }
+        let (data, http) = try await screenplayHTTPResponse(for: request, owner: owner)
+        try owner.requireCurrentOwner(requestIdentityProvider(false))
         guard (200...299).contains(http.statusCode) else {
             let message = decodeErrorMessage(from: data)
             throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
         }
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        let payload = try decoder.decode(BackendScreenplayOutlineResponse.self, from: data)
-        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
-        let bodySync = syncFromScreenplayEnvelope(
-            sessionId: payload.sessionId,
-            stateVersion: payload.stateVersion,
-            lastUpdatedAt: payload.lastUpdatedAt,
-            historyUpdatedAt: payload.historyUpdatedAt,
-            memoryUpdatedAt: payload.memoryUpdatedAt,
-            lastTurnId: payload.lastTurnId,
-            schemaVersion: payload.schemaVersion,
-            backendBuild: payload.backendBuild,
-            backendBootId: payload.backendBootId
-        )
-        updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
-        return BackendReadResult(payload: payload, sync: syncState, notModified: false)
+        return try screenplayReadResult(BackendScreenplayOutlineResponse.self, data: data, response: http,
+                                        owner: owner)
     }
 
-    func upsertScreenplayProject(
-        projectId: String? = nil,
-        title: String,
-        phase: String = "scene_draft",
-        tags: [String] = [],
-        characters: [String] = [],
-        setting: String = "",
-        tone: String = "",
-        logline: String? = nil,
-        themeArgument: String? = nil,
-        centralQuestion: String? = nil,
-        protagonistWant: String? = nil,
-        protagonistNeed: String? = nil,
-        antagonisticForce: String? = nil,
-        actPosition: String? = nil,
-        endingImage: String? = nil,
-        unresolvedSetups: [String]? = nil,
-        studioThreadViewState: BackendScreenplayThreadViewState? = nil,
-        studioDiffAcknowledgedKeys: [String]? = nil,
-        studioDiffAcknowledgedEntries: [BackendScreenplayDiffAcknowledgementEntry]? = nil,
-        studioAskNoteHistory: [BackendScreenplayStudioExchange]? = nil
-    ) async throws -> BackendReadResult<BackendScreenplayProjectMutationResponse> {
-        _ = try? await bootstrapSession(force: false)
-        var request = try makeWriteRequest(path: "/screenplay/projects")
-        var payload: [String: Any] = [
-            "title": title,
-            "phase": phase,
-            "tags": tags,
-            "characters": characters,
-            "setting": setting,
-            "tone": tone,
-            "activate": true,
-        ]
-        if let logline {
-            payload["logline"] = logline
-        }
-        if let themeArgument {
-            payload["theme_argument"] = themeArgument
-        }
-        if let centralQuestion {
-            payload["central_question"] = centralQuestion
-        }
-        if let protagonistWant {
-            payload["protagonist_want"] = protagonistWant
-        }
-        if let protagonistNeed {
-            payload["protagonist_need"] = protagonistNeed
-        }
-        if let antagonisticForce {
-            payload["antagonistic_force"] = antagonisticForce
-        }
-        if let actPosition {
-            payload["act_position"] = actPosition
-        }
-        if let endingImage {
-            payload["ending_image"] = endingImage
-        }
-        if let unresolvedSetups {
-            payload["unresolved_setups"] = unresolvedSetups
-        }
-        if let projectId, !projectId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            payload["project_id"] = projectId
-        }
-        if let studioThreadViewState,
-           let encoded = try? JSONEncoder().encode(studioThreadViewState),
-           let statePayload = try? JSONSerialization.jsonObject(with: encoded) {
-            payload["studio_thread_view_state"] = statePayload
-        }
-        if let studioDiffAcknowledgedKeys {
-            payload["studio_diff_acknowledged_keys"] = studioDiffAcknowledgedKeys
-        }
-        if let studioDiffAcknowledgedEntries,
-           let encoded = try? JSONEncoder().encode(studioDiffAcknowledgedEntries),
-           let entriesPayload = try? JSONSerialization.jsonObject(with: encoded) {
-            payload["studio_diff_acknowledged_entries"] = entriesPayload
-        }
-        if let studioAskNoteHistory,
-           let encoded = try? JSONEncoder().encode(studioAskNoteHistory),
-           let historyPayload = try? JSONSerialization.jsonObject(with: encoded) {
-            payload["studio_ask_note_history"] = historyPayload
-        }
-        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendMemoryAPIError.invalidResponse
-        }
-        guard (200...299).contains(http.statusCode) else {
-            let message = decodeErrorMessage(from: data)
-            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
-        }
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        let parsed = try decoder.decode(BackendScreenplayProjectMutationResponse.self, from: data)
-        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
-        let bodySync = syncFromScreenplayEnvelope(
-            sessionId: parsed.sessionId,
-            stateVersion: parsed.stateVersion,
-            lastUpdatedAt: parsed.lastUpdatedAt,
-            historyUpdatedAt: parsed.historyUpdatedAt,
-            memoryUpdatedAt: parsed.memoryUpdatedAt,
-            lastTurnId: parsed.lastTurnId,
-            schemaVersion: parsed.schemaVersion,
-            backendBuild: parsed.backendBuild,
-            backendBootId: parsed.backendBootId
-        )
-        updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
-        return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
-    }
 
     func activateScreenplayProject(
         projectId: String,
         includeUserIdentity: Bool = true,
         includeAuthToken: Bool = true,
-        clientTokenOverride: String? = nil
+        clientTokenOverride: String? = nil,
+        initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
     ) async throws -> BackendReadResult<BackendScreenplayProjectMutationResponse> {
-        _ = try? await bootstrapSession(force: false)
+        let identity = try await screenplayRequestIdentity(owner)
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else {
             throw BackendMemoryAPIError.server(status: 400, message: "project_id_required")
         }
-        var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/activate")
+        var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/activate", identity: identity)
         applyProjectOwnerHeaders(
             to: &request,
             includeUserIdentity: includeUserIdentity,
@@ -8017,31 +7718,14 @@ actor BackendMemoryAPI {
             clientTokenOverride: clientTokenOverride
         )
         request.httpBody = Data("{}".utf8)
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendMemoryAPIError.invalidResponse
-        }
+        let (data, http) = try await screenplayHTTPResponse(for: request, owner: owner)
+        try owner.requireCurrentOwner(requestIdentityProvider(false))
         guard (200...299).contains(http.statusCode) else {
             let message = decodeErrorMessage(from: data)
             throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
         }
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        let parsed = try decoder.decode(BackendScreenplayProjectMutationResponse.self, from: data)
-        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
-        let bodySync = syncFromScreenplayEnvelope(
-            sessionId: parsed.sessionId,
-            stateVersion: parsed.stateVersion,
-            lastUpdatedAt: parsed.lastUpdatedAt,
-            historyUpdatedAt: parsed.historyUpdatedAt,
-            memoryUpdatedAt: parsed.memoryUpdatedAt,
-            lastTurnId: parsed.lastTurnId,
-            schemaVersion: parsed.schemaVersion,
-            backendBuild: parsed.backendBuild,
-            backendBootId: parsed.backendBootId
-        )
-        updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
-        return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
+        return try screenplayReadResult(BackendScreenplayProjectMutationResponse.self, data: data, response: http,
+                                        owner: owner)
     }
 
     func upsertScreenplayOutline(
@@ -8053,9 +7737,10 @@ actor BackendMemoryAPI {
         clientRequestId: String,
         includeUserIdentity: Bool = true,
         includeAuthToken: Bool = true,
-        clientTokenOverride: String? = nil
+        clientTokenOverride: String? = nil,
+        initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
     ) async throws -> BackendReadResult<BackendScreenplayOutlineMutationResponse> {
-        _ = try? await bootstrapSession(force: false)
+        let identity = try await screenplayRequestIdentity(owner)
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else {
             throw BackendMemoryAPIError.server(status: 400, message: "project_id_required")
@@ -8070,7 +7755,7 @@ actor BackendMemoryAPI {
         guard expectedOutlineRevision >= 0 else {
             throw BackendMemoryAPIError.server(status: 400, message: "expected_outline_revision_invalid")
         }
-        var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/outline")
+        var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/outline", identity: identity)
         applyProjectOwnerHeaders(
             to: &request,
             includeUserIdentity: includeUserIdentity,
@@ -8085,10 +7770,8 @@ actor BackendMemoryAPI {
             "beats": beats.map(screenplayBeatPayload),
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendMemoryAPIError.invalidResponse
-        }
+        let (data, http) = try await screenplayHTTPResponse(for: request, owner: owner)
+        try owner.requireCurrentOwner(requestIdentityProvider(false))
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         guard (200...299).contains(http.statusCode) else {
@@ -8100,21 +7783,8 @@ actor BackendMemoryAPI {
                 retryAfterMs: retryAfterMs
             )
         }
-        let parsed = try decoder.decode(BackendScreenplayOutlineMutationResponse.self, from: data)
-        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
-        let bodySync = syncFromScreenplayEnvelope(
-            sessionId: parsed.sessionId,
-            stateVersion: parsed.stateVersion,
-            lastUpdatedAt: parsed.lastUpdatedAt,
-            historyUpdatedAt: parsed.historyUpdatedAt,
-            memoryUpdatedAt: parsed.memoryUpdatedAt,
-            lastTurnId: parsed.lastTurnId,
-            schemaVersion: parsed.schemaVersion,
-            backendBuild: parsed.backendBuild,
-            backendBootId: parsed.backendBootId
-        )
-        updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
-        return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
+        return try screenplayReadResult(BackendScreenplayOutlineMutationResponse.self, data: data, response: http,
+                                        owner: owner)
     }
 
     private static func retryAfterMilliseconds(from response: HTTPURLResponse) -> Int? {
@@ -8133,14 +7803,15 @@ actor BackendMemoryAPI {
         projectId: String,
         scene: BackendScreenplaySceneDraft,
         title: String? = nil,
-        phase: String? = nil
+        phase: String? = nil,
+        initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
     ) async throws -> BackendReadResult<BackendScreenplaySceneMutationResponse> {
-        _ = try? await bootstrapSession(force: false)
+        let identity = try await screenplayRequestIdentity(owner)
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else {
             throw BackendMemoryAPIError.server(status: 400, message: "project_id_required")
         }
-        var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/scenes")
+        var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/scenes", identity: identity)
         var payload: [String: Any] = [
             "scene": screenplaySceneDraftPayload(scene),
         ]
@@ -8151,45 +7822,29 @@ actor BackendMemoryAPI {
             payload["phase"] = phase
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendMemoryAPIError.invalidResponse
-        }
+        let (data, http) = try await screenplayHTTPResponse(for: request, owner: owner)
+        try owner.requireCurrentOwner(requestIdentityProvider(false))
         guard (200...299).contains(http.statusCode) else {
             let message = decodeErrorMessage(from: data)
             throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
         }
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        let parsed = try decoder.decode(BackendScreenplaySceneMutationResponse.self, from: data)
-        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
-        let bodySync = syncFromScreenplayEnvelope(
-            sessionId: parsed.sessionId,
-            stateVersion: parsed.stateVersion,
-            lastUpdatedAt: parsed.lastUpdatedAt,
-            historyUpdatedAt: parsed.historyUpdatedAt,
-            memoryUpdatedAt: parsed.memoryUpdatedAt,
-            lastTurnId: parsed.lastTurnId,
-            schemaVersion: parsed.schemaVersion,
-            backendBuild: parsed.backendBuild,
-            backendBootId: parsed.backendBootId
-        )
-        updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
-        return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
+        return try screenplayReadResult(BackendScreenplaySceneMutationResponse.self, data: data, response: http,
+                                        owner: owner)
     }
 
     func upsertScreenplayBeat(
         projectId: String,
         beat: BackendScreenplayBeatDraft,
         title: String? = nil,
-        phase: String? = nil
+        phase: String? = nil,
+        initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
     ) async throws -> BackendReadResult<BackendScreenplayBeatMutationResponse> {
-        _ = try? await bootstrapSession(force: false)
+        let identity = try await screenplayRequestIdentity(owner)
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else {
             throw BackendMemoryAPIError.server(status: 400, message: "project_id_required")
         }
-        var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/beats")
+        var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/beats", identity: identity)
         var payload: [String: Any] = [
             "beat": screenplayBeatDraftPayload(beat),
         ]
@@ -8200,37 +7855,20 @@ actor BackendMemoryAPI {
             payload["phase"] = phase
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendMemoryAPIError.invalidResponse
-        }
+        let (data, http) = try await screenplayHTTPResponse(for: request, owner: owner)
+        try owner.requireCurrentOwner(requestIdentityProvider(false))
         guard (200...299).contains(http.statusCode) else {
             let message = decodeErrorMessage(from: data)
             throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
         }
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        let parsed = try decoder.decode(BackendScreenplayBeatMutationResponse.self, from: data)
-        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
-        let bodySync = syncFromScreenplayEnvelope(
-            sessionId: parsed.sessionId,
-            stateVersion: parsed.stateVersion,
-            lastUpdatedAt: parsed.lastUpdatedAt,
-            historyUpdatedAt: parsed.historyUpdatedAt,
-            memoryUpdatedAt: parsed.memoryUpdatedAt,
-            lastTurnId: parsed.lastTurnId,
-            schemaVersion: parsed.schemaVersion,
-            backendBuild: parsed.backendBuild,
-            backendBootId: parsed.backendBootId
-        )
-        updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
-        return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
+        return try screenplayReadResult(BackendScreenplayBeatMutationResponse.self, data: data, response: http,
+                                        owner: owner)
     }
 
     func exportMemories() async throws -> BackendReadResult<BackendMemoryExportResponse> {
         _ = try? await bootstrapSession(force: false)
         let request = try makeRequest(path: "/memories/export")
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -8252,45 +7890,29 @@ actor BackendMemoryAPI {
         projectId: String,
         includeUserIdentity: Bool = true,
         includeAuthToken: Bool = true,
-        clientTokenOverride: String? = nil
+        clientTokenOverride: String? = nil,
+        initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
     ) async throws -> BackendReadResult<BackendScreenplayCollaboratorsResponse> {
-        _ = try? await bootstrapSession(force: false)
+        let identity = try await screenplayRequestIdentity(owner)
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else {
             throw BackendMemoryAPIError.server(status: 400, message: "project_id_required")
         }
-        var request = try makeRequest(path: "/screenplay/projects/\(normalizedProjectId)/collaborators")
+        var request = try makeRequest(path: "/screenplay/projects/\(normalizedProjectId)/collaborators", identity: identity)
         applyProjectOwnerHeaders(
             to: &request,
             includeUserIdentity: includeUserIdentity,
             includeAuthToken: includeAuthToken,
             clientTokenOverride: clientTokenOverride
         )
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendMemoryAPIError.invalidResponse
-        }
+        let (data, http) = try await screenplayHTTPResponse(for: request, owner: owner)
+        try owner.requireCurrentOwner(requestIdentityProvider(false))
         guard (200...299).contains(http.statusCode) else {
             let message = decodeErrorMessage(from: data)
             throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
         }
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        let parsed = try decoder.decode(BackendScreenplayCollaboratorsResponse.self, from: data)
-        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
-        let bodySync = syncFromScreenplayEnvelope(
-            sessionId: parsed.sessionId,
-            stateVersion: parsed.stateVersion,
-            lastUpdatedAt: parsed.lastUpdatedAt,
-            historyUpdatedAt: parsed.historyUpdatedAt,
-            memoryUpdatedAt: parsed.memoryUpdatedAt,
-            lastTurnId: parsed.lastTurnId,
-            schemaVersion: parsed.schemaVersion,
-            backendBuild: parsed.backendBuild,
-            backendBootId: parsed.backendBootId
-        )
-        updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
-        return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
+        return try screenplayReadResult(BackendScreenplayCollaboratorsResponse.self, data: data, response: http,
+                                        owner: owner)
     }
 
     func upsertScreenplayCollaborator(
@@ -8301,9 +7923,10 @@ actor BackendMemoryAPI {
         invitedBy: String = "",
         includeUserIdentity: Bool = true,
         includeAuthToken: Bool = true,
-        clientTokenOverride: String? = nil
+        clientTokenOverride: String? = nil,
+        initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
     ) async throws -> BackendReadResult<BackendScreenplayCollaboratorsResponse> {
-        _ = try? await bootstrapSession(force: false)
+        let identity = try await screenplayRequestIdentity(owner)
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else {
             throw BackendMemoryAPIError.server(status: 400, message: "project_id_required")
@@ -8312,7 +7935,7 @@ actor BackendMemoryAPI {
         guard !normalizedEmail.isEmpty else {
             throw BackendMemoryAPIError.server(status: 400, message: "valid_email_required")
         }
-        var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/collaborators")
+        var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/collaborators", identity: identity)
         applyProjectOwnerHeaders(
             to: &request,
             includeUserIdentity: includeUserIdentity,
@@ -8326,31 +7949,14 @@ actor BackendMemoryAPI {
             "invited_by": invitedBy,
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendMemoryAPIError.invalidResponse
-        }
+        let (data, http) = try await screenplayHTTPResponse(for: request, owner: owner)
+        try owner.requireCurrentOwner(requestIdentityProvider(false))
         guard (200...299).contains(http.statusCode) else {
             let message = decodeErrorMessage(from: data)
             throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
         }
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        let parsed = try decoder.decode(BackendScreenplayCollaboratorsResponse.self, from: data)
-        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
-        let bodySync = syncFromScreenplayEnvelope(
-            sessionId: parsed.sessionId,
-            stateVersion: parsed.stateVersion,
-            lastUpdatedAt: parsed.lastUpdatedAt,
-            historyUpdatedAt: parsed.historyUpdatedAt,
-            memoryUpdatedAt: parsed.memoryUpdatedAt,
-            lastTurnId: parsed.lastTurnId,
-            schemaVersion: parsed.schemaVersion,
-            backendBuild: parsed.backendBuild,
-            backendBootId: parsed.backendBootId
-        )
-        updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
-        return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
+        return try screenplayReadResult(BackendScreenplayCollaboratorsResponse.self, data: data, response: http,
+                                        owner: owner)
     }
 
     func fetchScreenplayComments(
@@ -8359,9 +7965,10 @@ actor BackendMemoryAPI {
         actorEmail: String = "",
         includeUserIdentity: Bool = true,
         includeAuthToken: Bool = true,
-        clientTokenOverride: String? = nil
+        clientTokenOverride: String? = nil,
+        initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
     ) async throws -> BackendReadResult<BackendScreenplayCommentsResponse> {
-        _ = try? await bootstrapSession(force: false)
+        let identity = try await screenplayRequestIdentity(owner)
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else {
             throw BackendMemoryAPIError.server(status: 400, message: "project_id_required")
@@ -8374,7 +7981,8 @@ actor BackendMemoryAPI {
         var request = try makeRequest(
             path: "/screenplay/projects/\(normalizedProjectId)/comments",
             limit: max(1, limit),
-            extraQueryItems: query
+            extraQueryItems: query,
+            identity: identity
         )
         applyProjectOwnerHeaders(
             to: &request,
@@ -8382,31 +7990,14 @@ actor BackendMemoryAPI {
             includeAuthToken: includeAuthToken,
             clientTokenOverride: clientTokenOverride
         )
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendMemoryAPIError.invalidResponse
-        }
+        let (data, http) = try await screenplayHTTPResponse(for: request, owner: owner)
+        try owner.requireCurrentOwner(requestIdentityProvider(false))
         guard (200...299).contains(http.statusCode) else {
             let message = decodeErrorMessage(from: data)
             throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
         }
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        let parsed = try decoder.decode(BackendScreenplayCommentsResponse.self, from: data)
-        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
-        let bodySync = syncFromScreenplayEnvelope(
-            sessionId: parsed.sessionId,
-            stateVersion: parsed.stateVersion,
-            lastUpdatedAt: parsed.lastUpdatedAt,
-            historyUpdatedAt: parsed.historyUpdatedAt,
-            memoryUpdatedAt: parsed.memoryUpdatedAt,
-            lastTurnId: parsed.lastTurnId,
-            schemaVersion: parsed.schemaVersion,
-            backendBuild: parsed.backendBuild,
-            backendBootId: parsed.backendBootId
-        )
-        updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
-        return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
+        return try screenplayReadResult(BackendScreenplayCommentsResponse.self, data: data, response: http,
+                                        owner: owner)
     }
 
     func upsertScreenplayComment(
@@ -8426,9 +8017,10 @@ actor BackendMemoryAPI {
         actorEmail: String = "",
         includeUserIdentity: Bool = true,
         includeAuthToken: Bool = true,
-        clientTokenOverride: String? = nil
+        clientTokenOverride: String? = nil,
+        initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
     ) async throws -> BackendReadResult<BackendScreenplayCommentsResponse> {
-        _ = try? await bootstrapSession(force: false)
+        let identity = try await screenplayRequestIdentity(owner)
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else {
             throw BackendMemoryAPIError.server(status: 400, message: "project_id_required")
@@ -8442,7 +8034,7 @@ actor BackendMemoryAPI {
         guard isDeleteAction || isResolveAction || !normalizedText.isEmpty || !normalizedVoiceURL.isEmpty || !normalizedVoiceTranscript.isEmpty else {
             throw BackendMemoryAPIError.server(status: 400, message: "comment_or_voice_required")
         }
-        var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/comments")
+        var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/comments", identity: identity)
         applyProjectOwnerHeaders(
             to: &request,
             includeUserIdentity: includeUserIdentity,
@@ -8479,31 +8071,14 @@ actor BackendMemoryAPI {
             payload["anchor_line"] = anchorLine
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendMemoryAPIError.invalidResponse
-        }
+        let (data, http) = try await screenplayHTTPResponse(for: request, owner: owner)
+        try owner.requireCurrentOwner(requestIdentityProvider(false))
         guard (200...299).contains(http.statusCode) else {
             let message = decodeErrorMessage(from: data)
             throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
         }
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        let parsed = try decoder.decode(BackendScreenplayCommentsResponse.self, from: data)
-        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
-        let bodySync = syncFromScreenplayEnvelope(
-            sessionId: parsed.sessionId,
-            stateVersion: parsed.stateVersion,
-            lastUpdatedAt: parsed.lastUpdatedAt,
-            historyUpdatedAt: parsed.historyUpdatedAt,
-            memoryUpdatedAt: parsed.memoryUpdatedAt,
-            lastTurnId: parsed.lastTurnId,
-            schemaVersion: parsed.schemaVersion,
-            backendBuild: parsed.backendBuild,
-            backendBootId: parsed.backendBootId
-        )
-        updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
-        return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
+        return try screenplayReadResult(BackendScreenplayCommentsResponse.self, data: data, response: http,
+                                        owner: owner)
     }
 
     func upsertScreenplayProjectVersion(
@@ -8519,17 +8094,20 @@ actor BackendMemoryAPI {
         baseVersionId: String = "",
         conflictStrategy: String = "reject_if_stale",
         clientRequestId: String = "",
+        expectedBackendURL: URL? = nil,
         includeUserIdentity: Bool = true,
         includeAuthToken: Bool = true,
-        clientTokenOverride: String? = nil
+        clientTokenOverride: String? = nil,
+        initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
     ) async throws -> BackendReadResult<BackendScreenplayVersionMutationResponse> {
+        try owner.requireCurrentOwner(requestIdentityProvider(false))
         _ = try? await bootstrapSession(force: false)
+        try owner.requireCurrentOwner(requestIdentityProvider(false))
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else {
             throw BackendMemoryAPIError.server(status: 400, message: "project_id_required")
         }
-        let trimmedDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedDraft.isEmpty else {
+        guard !draft.isEmpty else {
             throw BackendMemoryAPIError.server(status: 400, message: "draft_required")
         }
 
@@ -8573,24 +8151,16 @@ actor BackendMemoryAPI {
         }
         let requestBody = try JSONSerialization.data(withJSONObject: payload, options: [])
 
-#if DEBUG
-        if IOThemRuntime.isRunningUITests,
-           ProcessInfo.processInfo.arguments.contains("--ui-screenplay-save-expire-auth-once"),
-           !didInjectExpiredScreenplaySaveAuthForUITest {
-            didInjectExpiredScreenplaySaveAuthForUITest = true
-            BackendUserDefaultsStore.set(
-                "expired-screenplay-save-access-token",
-                forKey: "auth_debug_access_token"
-            )
-            BackendUserDefaultsStore.set(true, forKey: "auth_debug_access_token_enabled")
-        }
-#endif
-
         var data = Data()
         var http: HTTPURLResponse?
         var didAttemptAuthRefresh = false
         while true {
-            var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/version")
+            let identity = requestIdentityProvider(false)
+            try owner.requireCurrentOwner(identity)
+            var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/version", identity: identity)
+            guard expectedBackendURL.map({ expected in request.url.map { OfflineTalkRecoveryScope.sameBackend(expected, $0) } ?? false }) ?? true else {
+                throw BackendMemoryAPIError.server(status: 409, message: "The queued draft belongs to another backend. Its original words are kept for recovery.")
+            }
             applyProjectOwnerHeaders(
                 to: &request,
                 includeUserIdentity: includeUserIdentity,
@@ -8598,7 +8168,11 @@ actor BackendMemoryAPI {
                 clientTokenOverride: clientTokenOverride
             )
             request.httpBody = requestBody
-            let responsePair = try await session.data(for: request)
+#if DEBUG
+            screenplaySaveAuthFault.apply(to: &request)
+#endif
+            let responsePair = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
+            try owner.requireCurrentOwner(requestIdentityProvider(false))
             guard let response = responsePair.1 as? HTTPURLResponse else {
                 throw BackendMemoryAPIError.invalidResponse
             }
@@ -8612,7 +8186,7 @@ actor BackendMemoryAPI {
             }
             didAttemptAuthRefresh = true
             do {
-                let refreshed = try await BackendAuthClient.refreshAuthSession(force: true)
+                let refreshed = try await projectWriteAuthRefresher(owner.ownerContext)
                 if refreshed.isAuthenticated {
                     continue
                 }
@@ -8621,55 +8195,25 @@ actor BackendMemoryAPI {
             }
             break
         }
+        try owner.requireCurrentOwner(requestIdentityProvider(false))
         guard let http else { throw BackendMemoryAPIError.invalidResponse }
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        if http.statusCode == 409 {
-            let parsed = try decoder.decode(BackendScreenplayVersionMutationResponse.self, from: data)
-            let headerSync = syncFromHeaders(http, fallbackStatus: "up")
-            let bodySync = syncFromScreenplayEnvelope(
-                sessionId: parsed.sessionId,
-                stateVersion: parsed.stateVersion,
-                lastUpdatedAt: parsed.lastUpdatedAt,
-                historyUpdatedAt: parsed.historyUpdatedAt,
-                memoryUpdatedAt: parsed.memoryUpdatedAt,
-                lastTurnId: parsed.lastTurnId,
-                schemaVersion: parsed.schemaVersion,
-                backendBuild: parsed.backendBuild,
-                backendBootId: parsed.backendBootId
-            )
-            updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
-            return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
-        }
-        guard (200...299).contains(http.statusCode) else {
+        guard http.statusCode == 409 || (200...299).contains(http.statusCode) else {
             let message = decodeErrorMessage(from: data)
             throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
         }
-        let parsed = try decoder.decode(BackendScreenplayVersionMutationResponse.self, from: data)
-        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
-        let bodySync = syncFromScreenplayEnvelope(
-            sessionId: parsed.sessionId,
-            stateVersion: parsed.stateVersion,
-            lastUpdatedAt: parsed.lastUpdatedAt,
-            historyUpdatedAt: parsed.historyUpdatedAt,
-            memoryUpdatedAt: parsed.memoryUpdatedAt,
-            lastTurnId: parsed.lastTurnId,
-            schemaVersion: parsed.schemaVersion,
-            backendBuild: parsed.backendBuild,
-            backendBootId: parsed.backendBootId
-        )
-        updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
-        return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
+        return try screenplayReadResult(BackendScreenplayVersionMutationResponse.self, data: data, response: http,
+                                        owner: owner)
     }
 
     func updateScreenplayCompanionState(
         mode: StudioCompanionMode,
         recentTurns: [ScreenplayConversationTurn],
         analytics: ScreenplayCompanionAnalyticsSnapshot,
-        signals: CreativeCompanionSignalState
+        signals: CreativeCompanionSignalState,
+        initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
     ) async throws -> BackendReadResult<BackendScreenplayCompanionStateResponse> {
-        _ = try? await bootstrapSession(force: false)
-        var request = try makeWriteRequest(path: "/screenplay/companion/state")
+        let identity = try await screenplayRequestIdentity(owner)
+        var request = try makeWriteRequest(path: "/screenplay/companion/state", identity: identity)
         var payload: [String: Any] = [
             "mode_raw": mode.rawValue,
         ]
@@ -8691,42 +8235,25 @@ actor BackendMemoryAPI {
             payload["signals"] = signalsPayload
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendMemoryAPIError.invalidResponse
-        }
+        let (data, http) = try await screenplayHTTPResponse(for: request, owner: owner)
+        try owner.requireCurrentOwner(requestIdentityProvider(false))
         guard (200...299).contains(http.statusCode) else {
             let message = decodeErrorMessage(from: data)
             throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
         }
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        decoder.dateDecodingStrategy = .iso8601
-        let parsed = try decoder.decode(BackendScreenplayCompanionStateResponse.self, from: data)
-        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
-        let bodySync = syncFromScreenplayEnvelope(
-            sessionId: parsed.sessionId,
-            stateVersion: parsed.stateVersion,
-            lastUpdatedAt: parsed.lastUpdatedAt,
-            historyUpdatedAt: parsed.historyUpdatedAt,
-            memoryUpdatedAt: parsed.memoryUpdatedAt,
-            lastTurnId: parsed.lastTurnId,
-            schemaVersion: parsed.schemaVersion,
-            backendBuild: parsed.backendBuild,
-            backendBootId: parsed.backendBootId
-        )
-        updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
-        return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
+        return try screenplayReadResult(BackendScreenplayCompanionStateResponse.self, data: data, response: http,
+                                        owner: owner, dateDecodingStrategy: .iso8601)
     }
 
     func recordFirstPageWritten(
         occurredAt: Date,
         source: String,
         projectId: String,
-        versionId: String
+        versionId: String,
+        initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
     ) async throws -> BackendReadResult<BackendFirstPageTelemetryResponse> {
-        _ = try? await bootstrapSession(force: false)
-        var request = try makeWriteRequest(path: "/telemetry/first-page-written")
+        let identity = try await screenplayRequestIdentity(owner)
+        var request = try makeWriteRequest(path: "/telemetry/first-page-written", identity: identity)
         var payload: [String: Any] = [
             "occurred_at_ms": Int((occurredAt.timeIntervalSince1970 * 1_000).rounded()),
         ]
@@ -8744,10 +8271,9 @@ actor BackendMemoryAPI {
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
 
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendMemoryAPIError.invalidResponse
-        }
+        let (data, http) = try await screenplayHTTPResponse(for: request, owner: owner)
+
+        try owner.requireCurrentOwner(requestIdentityProvider(false))
         guard (200...299).contains(http.statusCode) else {
             let message = decodeErrorMessage(from: data)
             throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
@@ -8756,7 +8282,7 @@ actor BackendMemoryAPI {
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         let parsed = try decoder.decode(BackendFirstPageTelemetryResponse.self, from: data)
         let headerSync = syncFromHeaders(http, fallbackStatus: "up")
-        updateSyncState(mergeSyncStates(base: syncState, incoming: headerSync), emitTurnEvent: false)
+        updateSyncState(mergeSyncStates(base: syncState, incoming: headerSync), emitTurnEvent: false, initiatingIdentity: owner)
         return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
     }
 
@@ -8765,18 +8291,19 @@ actor BackendMemoryAPI {
         title: String = "",
         phase: String = "scene_draft",
         targetPages: Int? = nil,
-        linesPerPage: Int = 55
+        linesPerPage: Int = ScreenplayPageLayout.defaultLinesPerPage,
+        initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
     ) async throws -> BackendReadResult<BackendScreenplayPaginateResponse> {
-        _ = try? await bootstrapSession(force: false)
+        let identity = try await screenplayRequestIdentity(owner)
         let trimmedDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedDraft.isEmpty else {
             throw BackendMemoryAPIError.server(status: 400, message: "draft_required")
         }
-        var request = try makeWriteRequest(path: "/screenplay/paginate")
+        var request = try makeWriteRequest(path: "/screenplay/paginate", identity: identity)
         var payload: [String: Any] = [
             "draft": draft,
             "phase": phase,
-            "lines_per_page": max(24, linesPerPage),
+            "lines_per_page": min(max(ScreenplayPageLayout.minimumLinesPerPage, linesPerPage), ScreenplayPageLayout.maximumLinesPerPage),
         ]
         if !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             payload["title"] = title
@@ -8786,10 +8313,9 @@ actor BackendMemoryAPI {
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
 
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendMemoryAPIError.invalidResponse
-        }
+        let (data, http) = try await screenplayHTTPResponse(for: request, owner: owner)
+
+        try owner.requireCurrentOwner(requestIdentityProvider(false))
         guard (200...299).contains(http.statusCode) else {
             let message = decodeErrorMessage(from: data)
             throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
@@ -8798,31 +8324,30 @@ actor BackendMemoryAPI {
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         let parsed = try decoder.decode(BackendScreenplayPaginateResponse.self, from: data)
         let headerSync = syncFromHeaders(http, fallbackStatus: "up")
-        updateSyncState(headerSync, emitTurnEvent: false)
+        updateSyncState(headerSync, emitTurnEvent: false, initiatingIdentity: owner)
         return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
     }
 
     func fetchScreenplayRevisionColors(
         baseDraft: String,
         draft: String,
-        revisionColor: String = "blue"
+        revisionColor: String = "blue",
+        initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
     ) async throws -> BackendReadResult<BackendScreenplayRevisionResponse> {
-        _ = try? await bootstrapSession(force: false)
+        let identity = try await screenplayRequestIdentity(owner)
         let trimmedDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedDraft.isEmpty else {
             throw BackendMemoryAPIError.server(status: 400, message: "draft_required")
         }
-        var request = try makeWriteRequest(path: "/screenplay/revision-colors")
+        var request = try makeWriteRequest(path: "/screenplay/revision-colors", identity: identity)
         let payload: [String: Any] = [
             "base_draft": baseDraft,
             "draft": draft,
             "revision_color": revisionColor,
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendMemoryAPIError.invalidResponse
-        }
+        let (data, http) = try await screenplayHTTPResponse(for: request, owner: owner)
+        try owner.requireCurrentOwner(requestIdentityProvider(false))
         guard (200...299).contains(http.statusCode) else {
             let message = decodeErrorMessage(from: data)
             throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
@@ -8831,7 +8356,37 @@ actor BackendMemoryAPI {
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         let parsed = try decoder.decode(BackendScreenplayRevisionResponse.self, from: data)
         let headerSync = syncFromHeaders(http, fallbackStatus: "up")
-        updateSyncState(headerSync, emitTurnEvent: false)
+        updateSyncState(headerSync, emitTurnEvent: false, initiatingIdentity: owner)
+        return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
+    }
+
+    func fetchScreenplayCoverage(
+        draft: String,
+        title: String = "",
+        initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
+    ) async throws -> BackendReadResult<BackendScreenplayCoverageReport> {
+        let identity = try await screenplayRequestIdentity(owner)
+        let trimmedDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedDraft.isEmpty else {
+            throw BackendMemoryAPIError.server(status: 400, message: "draft_required")
+        }
+        var request = try makeWriteRequest(path: "/screenplay/coverage", identity: identity)
+        let payload: [String: Any] = [
+            "draft": draft,
+            "title": title,
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
+        let (data, http) = try await screenplayHTTPResponse(for: request, owner: owner)
+        try owner.requireCurrentOwner(requestIdentityProvider(false))
+        guard (200...299).contains(http.statusCode) else {
+            let message = decodeErrorMessage(from: data)
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
+        }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let parsed = try decoder.decode(BackendScreenplayCoverageReport.self, from: data)
+        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
+        updateSyncState(headerSync, emitTurnEvent: false, initiatingIdentity: owner)
         return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
     }
 
@@ -8842,18 +8397,20 @@ actor BackendMemoryAPI {
         format: String = "fountain",
         projectId: String? = nil,
         versionId: String? = nil,
-        targetPages: Int? = nil
+        targetPages: Int? = nil,
+        initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
     ) async throws -> BackendScreenplayExportArtifact {
-        _ = try? await bootstrapSession(force: false)
+        let identity = try await screenplayRequestIdentity(owner)
         let normalizedFormat = format.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if normalizedFormat == "fdx" {
             return try await exportFinalDraftXML(
                 draft: draft,
                 title: title,
-                format: normalizedFormat
+                format: normalizedFormat,
+                initiatingIdentity: owner
             )
         }
-        var request = try makeWriteRequest(path: "/screenplay/export")
+        var request = try makeWriteRequest(path: "/screenplay/export", identity: identity)
         var payload: [String: Any] = [
             "draft": draft,
             "phase": phase,
@@ -8873,15 +8430,14 @@ actor BackendMemoryAPI {
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
 
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendMemoryAPIError.invalidResponse
-        }
+        let (data, http) = try await screenplayHTTPResponse(for: request, owner: owner)
+
+        try owner.requireCurrentOwner(requestIdentityProvider(false))
         guard (200...299).contains(http.statusCode) else {
             throw decodeScreenplayExportError(status: http.statusCode, data: data)
         }
         let headerSync = syncFromHeaders(http, fallbackStatus: "up")
-        updateSyncState(headerSync, emitTurnEvent: false)
+        updateSyncState(headerSync, emitTurnEvent: false, initiatingIdentity: owner)
         let contentType = headerValue(http, "Content-Type").trimmingCharacters(in: .whitespacesAndNewlines)
         let disposition = headerValue(http, "Content-Disposition")
         let filename = parseDispositionFilename(disposition, fallbackFormat: normalizedFormat.isEmpty ? format : normalizedFormat)
@@ -8897,23 +8453,24 @@ actor BackendMemoryAPI {
     private func exportFinalDraftXML(
         draft: String,
         title: String,
-        format: String
+        format: String,
+        initiatingIdentity owner: BackendAuthRequestIdentity
     ) async throws -> BackendScreenplayExportArtifact {
-        var request = try makeWriteRequest(path: "/screenplay/export/fdx")
+        let identity = requestIdentityProvider(false)
+        try owner.requireCurrentOwner(identity)
+        var request = try makeWriteRequest(path: "/screenplay/export/fdx", identity: identity)
         request.setValue("application/xml", forHTTPHeaderField: "Accept")
         request.httpBody = try JSONSerialization.data(
             withJSONObject: screenplayExportDocumentPayload(draft: draft, title: title),
             options: []
         )
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendMemoryAPIError.invalidResponse
-        }
+        let (data, http) = try await screenplayHTTPResponse(for: request, owner: owner)
+        try owner.requireCurrentOwner(requestIdentityProvider(false))
         guard (200...299).contains(http.statusCode) else {
             throw decodeScreenplayExportError(status: http.statusCode, data: data)
         }
         let headerSync = syncFromHeaders(http, fallbackStatus: "up")
-        updateSyncState(headerSync, emitTurnEvent: false)
+        updateSyncState(headerSync, emitTurnEvent: false, initiatingIdentity: owner)
         let contentType = headerValue(http, "Content-Type").trimmingCharacters(in: .whitespacesAndNewlines)
         let filename = parseDispositionFilename(
             headerValue(http, "Content-Disposition"),
@@ -9047,13 +8604,13 @@ actor BackendMemoryAPI {
         return !trimmed.contains(":") && !trimmed.contains(".")
     }
 
-    func fetchScreenplayExportFormats() async throws -> BackendScreenplayExportFormatsResponse {
-        _ = try? await bootstrapSession(force: false)
-        let request = try makeRequest(path: "/screenplay/export/formats")
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendMemoryAPIError.invalidResponse
-        }
+    func fetchScreenplayExportFormats(
+        initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
+    ) async throws -> BackendScreenplayExportFormatsResponse {
+        let identity = try await screenplayRequestIdentity(owner)
+        let request = try makeRequest(path: "/screenplay/export/formats", identity: identity)
+        let (data, http) = try await screenplayHTTPResponse(for: request, owner: owner)
+        try owner.requireCurrentOwner(requestIdentityProvider(false))
         guard (200...299).contains(http.statusCode) else {
             let message = decodeErrorMessage(from: data)
             throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
@@ -9063,21 +8620,22 @@ actor BackendMemoryAPI {
         return try decoder.decode(BackendScreenplayExportFormatsResponse.self, from: data)
     }
 
-    func importFountainDraft(text: String) async throws -> BackendScreenplayImportResponse {
-        _ = try? await bootstrapSession(force: false)
-        var request = try makeWriteRequest(path: "/screenplay/import/fountain")
+    func importFountainDraft(
+        text: String,
+        initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
+    ) async throws -> BackendScreenplayImportResponse {
+        let identity = try await screenplayRequestIdentity(owner)
+        var request = try makeWriteRequest(path: "/screenplay/import/fountain", identity: identity)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: ["text": text], options: [])
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendMemoryAPIError.invalidResponse
-        }
+        let (data, http) = try await screenplayHTTPResponse(for: request, owner: owner)
+        try owner.requireCurrentOwner(requestIdentityProvider(false))
         guard (200...299).contains(http.statusCode) else {
             let message = decodeErrorMessage(from: data)
             throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
         }
         let headerSync = syncFromHeaders(http, fallbackStatus: "up")
-        updateSyncState(headerSync, emitTurnEvent: false)
+        updateSyncState(headerSync, emitTurnEvent: false, initiatingIdentity: owner)
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         return try decoder.decode(BackendScreenplayImportResponse.self, from: data)
@@ -9274,7 +8832,7 @@ actor BackendMemoryAPI {
         if let priority, !priority.isEmpty { payload["priority"] = priority }
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
 
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -9334,10 +8892,11 @@ actor BackendMemoryAPI {
         writeID: String,
         projectID: String = "",
         versionID: String = "",
-        source: String = "ios_screenplay_render"
+        source: String = "ios_screenplay_render",
+        initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
     ) async throws -> BackendCharacterMentionReceipt {
-        _ = try? await bootstrapSession(force: false)
-        var request = try makeWriteRequest(path: "/memory/record-character-mention")
+        let identity = try await screenplayRequestIdentity(owner)
+        var request = try makeWriteRequest(path: "/memory/record-character-mention", identity: identity)
         request.httpBody = try JSONSerialization.data(
             withJSONObject: Self.characterMentionPayload(
                 mention: mention,
@@ -9348,7 +8907,15 @@ actor BackendMemoryAPI {
             ),
             options: []
         )
-        return try await run(request, as: BackendCharacterMentionReceipt.self)
+        let (data, http) = try await screenplayHTTPResponse(for: request, owner: owner)
+        try owner.requireCurrentOwner(requestIdentityProvider(false))
+        validatePersonaContract(response: http, path: request.url?.path ?? "unknown")
+        guard (200...299).contains(http.statusCode) else {
+            throw BackendMemoryAPIError.server(status: http.statusCode, message: decodeErrorMessage(from: data))
+        }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try decoder.decode(BackendCharacterMentionReceipt.self, from: data)
     }
 
     func recordCharacterMentionsFromScreenplayReply(
@@ -9356,15 +8923,18 @@ actor BackendMemoryAPI {
         writeID: String,
         projectID: String = "",
         versionID: String = "",
-        source: String = "ios_screenplay_render"
+        source: String = "ios_screenplay_render",
+        initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
     ) async throws {
+        try owner.requireCurrentOwner(requestIdentityProvider(false))
         for mention in mentions {
             _ = try await recordCharacterMentionFromScreenplayReply(
                 mention,
                 writeID: writeID,
                 projectID: projectID,
                 versionID: versionID,
-                source: source
+                source: source,
+                initiatingIdentity: owner
             )
         }
     }
@@ -9373,10 +8943,15 @@ actor BackendMemoryAPI {
         userMessage: String,
         assistantMessage: String,
         requestId: String? = nil,
-        studioMetadata: BackendStudioThreadCommitMetadata? = nil
+        studioMetadata: BackendStudioThreadCommitMetadata? = nil,
+        expectedBackendURL: URL? = nil,
+        initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
     ) async throws -> BackendReadResult<BackendRealtimeTurnCommitResponse> {
-        _ = try? await bootstrapSession(force: false)
-        var request = try makeWriteRequest(path: "/realtime/turn_commit")
+        let identity = try await screenplayRequestIdentity(owner, expectedBackendURL: expectedBackendURL)
+        var request = try makeWriteRequest(path: "/realtime/turn_commit", identity: identity)
+        if let expectedBackendURL {
+            guard let url = request.url, OfflineTalkRecoveryScope.sameBackend(url, expectedBackendURL) else { throw BackendMemoryAPIError.server(status: 409, message: "backend_request_superseded") }
+        }
         let normalizedRequestId = requestId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !normalizedRequestId.isEmpty {
             request.setValue(
@@ -9394,10 +8969,15 @@ actor BackendMemoryAPI {
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
 
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendMemoryAPIError.invalidResponse
+        let (data, http) = try await screenplayHTTPResponse(for: request, owner: owner)
+        if let expectedBackendURL {
+            guard let url = http.url, OfflineTalkRecoveryScope.sameBackend(url, expectedBackendURL),
+                  OfflineTalkRecoveryScope.sameBackend(baseURL(), expectedBackendURL) else {
+                throw BackendMemoryAPIError.server(status: 409, message: "backend_request_superseded")
+            }
         }
+
+        try owner.requireCurrentOwner(requestIdentityProvider(false))
         guard (200...299).contains(http.statusCode) else {
             let message = decodeErrorMessage(from: data)
             throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
@@ -9416,13 +8996,13 @@ actor BackendMemoryAPI {
                     "targetField": resolution.targetField ?? "",
                     "learningPromoted": resolution.learningPromoted ?? false,
                     "correctionProtected": resolution.correctionProtected ?? false,
-                ]
+                ], initiatingIdentity: owner, identityProvider: requestIdentityProvider
             )
         }
         let headerSync = syncFromHeaders(http, fallbackStatus: parsed.ok ? "up" : "degraded")
         let bodySync = syncFromRealtimeTurnCommitPayload(parsed)
         let incoming = mergeSyncStates(base: bodySync, incoming: headerSync)
-        updateSyncState(incoming, emitTurnEvent: false)
+        updateSyncState(incoming, emitTurnEvent: false, initiatingIdentity: owner)
         let emittedTurnId = (parsed.turnId ?? parsed.lastTurnId ?? incoming.lastTurnId)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if !emittedTurnId.isEmpty {
@@ -9437,7 +9017,8 @@ actor BackendMemoryAPI {
                 memoryUpdatedAt: syncState.memoryUpdatedAt,
                 userMessage: userMessage,
                 assistantMessage: assistantMessage,
-                studioMetadata: studioMetadata
+                studioMetadata: studioMetadata,
+                initiatingIdentity: owner
             )
         }
         return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
@@ -9445,7 +9026,9 @@ actor BackendMemoryAPI {
 
     func annotateTurnHistory(
         turnId: String,
-        studioMetadata: BackendStudioThreadCommitMetadata
+        studioMetadata: BackendStudioThreadCommitMetadata,
+        expectedBackendURL: URL? = nil,
+        initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
     ) async throws -> BackendReadResult<BackendRealtimeTurnCommitResponse> {
         let normalizedTurnId = turnId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedTurnId.isEmpty else {
@@ -9454,18 +9037,26 @@ actor BackendMemoryAPI {
         guard studioMetadata.isMeaningful else {
             throw BackendMemoryAPIError.server(status: 400, message: "studio_metadata_required")
         }
-        _ = try? await bootstrapSession(force: false)
-        var request = try makeWriteRequest(path: "/history/annotate_turn")
+        let identity = try await screenplayRequestIdentity(owner, expectedBackendURL: expectedBackendURL)
+        var request = try makeWriteRequest(path: "/history/annotate_turn", identity: identity)
+        if let expectedBackendURL {
+            guard let url = request.url, OfflineTalkRecoveryScope.sameBackend(url, expectedBackendURL) else { throw BackendMemoryAPIError.server(status: 409, message: "backend_request_superseded") }
+        }
         let payload: [String: Any] = [
             "turn_id": normalizedTurnId,
             "studio": Self.studioTurnPayload(studioMetadata)
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
 
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendMemoryAPIError.invalidResponse
+        let (data, http) = try await screenplayHTTPResponse(for: request, owner: owner)
+        if let expectedBackendURL {
+            guard let url = http.url, OfflineTalkRecoveryScope.sameBackend(url, expectedBackendURL),
+                  OfflineTalkRecoveryScope.sameBackend(baseURL(), expectedBackendURL) else {
+                throw BackendMemoryAPIError.server(status: 409, message: "backend_request_superseded")
+            }
         }
+
+        try owner.requireCurrentOwner(requestIdentityProvider(false))
         guard (200...299).contains(http.statusCode) else {
             let message = decodeErrorMessage(from: data)
             throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
@@ -9476,7 +9067,7 @@ actor BackendMemoryAPI {
         let headerSync = syncFromHeaders(http, fallbackStatus: parsed.ok ? "up" : "degraded")
         let bodySync = syncFromRealtimeTurnCommitPayload(parsed)
         let incoming = mergeSyncStates(base: bodySync, incoming: headerSync)
-        updateSyncState(incoming, emitTurnEvent: true)
+        updateSyncState(incoming, emitTurnEvent: true, initiatingIdentity: owner)
         return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
     }
 
@@ -9526,7 +9117,7 @@ actor BackendMemoryAPI {
             request.setValue(latestSeenStateVersion, forHTTPHeaderField: "X-State-Version")
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: outgoingPayload, options: [])
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -9571,14 +9162,16 @@ actor BackendMemoryAPI {
         return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
     }
 
-    private func runDataControl(path: String) async throws -> BackendReadResult<BackendDataControlResponse> {
-        _ = try? await bootstrapSession(force: false)
-        var request = try makeWriteRequest(path: path)
+    private func validateDataControlOrigin(_ request: URLRequest, expected: URL?) throws {
+        guard let expected else { return }
+        guard let actual = request.url, OfflineTalkRecoveryScope.sameBackend(actual, expected) else { throw BackendMemoryAPIError.server(status: 409, message: "auth_request_superseded") }
+    }
+    private func runDataControl(path: String, owner: BackendAuthRequestIdentity, backendURL: URL?) async throws -> BackendReadResult<BackendDataControlResponse> {
+        let identity = try await screenplayRequestIdentity(owner, expectedBackendURL: backendURL, originErrorMessage: "auth_request_superseded")
+        var request = try makeWriteRequest(path: path, identity: identity)
         request.httpBody = Data("{}".utf8)
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw BackendMemoryAPIError.invalidResponse
-        }
+        try validateDataControlOrigin(request, expected: backendURL)
+        let (data, http) = try await screenplayHTTPResponse(for: request, owner: owner)
         guard (200...299).contains(http.statusCode) else {
             let message = decodeErrorMessage(from: data)
             throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
@@ -9588,8 +9181,7 @@ actor BackendMemoryAPI {
         let payload = try decoder.decode(BackendDataControlResponse.self, from: data)
         let headerSync = syncFromHeaders(http, fallbackStatus: "up")
         let bodySync = syncFromDataControlPayload(payload)
-        let incoming = mergeSyncStates(base: bodySync, incoming: headerSync)
-        updateSyncState(incoming, emitTurnEvent: false)
+        updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: false, initiatingIdentity: owner)
         historyCacheByLimit.removeAll()
         memoriesCacheByLimit.removeAll()
         return BackendReadResult(payload: payload, sync: syncState, notModified: false)
@@ -9690,8 +9282,11 @@ actor BackendMemoryAPI {
         lastThemeCue: String,
         preferredName: String,
         isScreenwriter: Bool,
-        latestUserMessage: String? = nil
+        latestUserMessage: String? = nil,
+        expectedBackendURL: URL? = nil,
+        initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: false)
     ) {
+        let origin = expectedBackendURL ?? baseURL()
         Task {
             do {
                 guard BackendEvolutionSyncPolicy.shouldAutoSync(
@@ -9700,87 +9295,19 @@ actor BackendMemoryAPI {
                 ) else {
                     return
                 }
-                let url = baseURL().appendingPathComponent("session").appendingPathComponent("evolution")
-                var request = URLRequest(url: url)
+                let identity = try await screenplayRequestIdentity(owner, expectedBackendURL: origin)
+                var request = try makeWriteRequest(path: "/session/evolution", identity: identity)
+                guard let url = request.url, OfflineTalkRecoveryScope.sameBackend(url, origin) else { return }
                 request.httpMethod = "PATCH"
                 request.timeoutInterval = 8
-                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                request.setValue("application/json", forHTTPHeaderField: "Accept")
-                if let token = appToken(), !token.isEmpty {
-                    request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
-                }
-                if let userId = userID(), !userId.isEmpty {
-                    request.setValue(userId, forHTTPHeaderField: "X-User-Id")
-                }
-                if let ct = clientToken(), !ct.isEmpty {
-                    request.setValue(ct, forHTTPHeaderField: "X-Client-Token")
-                }
-                request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
 
-                var payload: [String: Any] = [
-                    "stage": stage,
-                    "depth_score": round(depthScore * 100) / 100,
-                    "romance_tension": round(romanceTension * 100) / 100,
-                    "session_count": sessionCount,
-                    "reassurance_need": round(reassuranceNeed * 1000) / 1000,
-                    "boundary_need": round(boundaryNeed * 1000) / 1000,
-                    "playful_momentum": round(playfulMomentum * 1000) / 1000,
-                    "trust_signal": round(trustSignal * 1000) / 1000,
-                ]
-                let trimmedCue = lastThemeCue.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmedCue.isEmpty { payload["last_theme_cue"] = trimmedCue }
-                let trimmedName = preferredName.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmedName.isEmpty { payload["preferred_name"] = String(trimmedName.prefix(64)) }
-                payload["is_screenwriter"] = isScreenwriter
-                let latestMessage = (latestUserMessage ?? "")
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                if !latestMessage.isEmpty {
-                    payload["latest_user_message"] = String(latestMessage.prefix(220))
-                }
-
-                let loweredMessage = latestMessage.lowercased()
-                let loveTopicActive = loweredMessage.contains("love") ||
-                    loweredMessage.contains("relationship") ||
-                    loweredMessage.contains("romance") ||
-                    loweredMessage.contains("dating") ||
-                    loweredMessage.contains("miss you") ||
-                    loweredMessage.contains("heart")
-                if loveTopicActive {
-                    payload["love_topic_active"] = true
-                }
-                let reassuranceStyleHint: String = {
-                    if loweredMessage.contains("be direct") ||
-                        loweredMessage.contains("straight up") ||
-                        loweredMessage.contains("no sugarcoat") {
-                        return "direct"
-                    }
-                    if loweredMessage.contains("hype me") ||
-                        loweredMessage.contains("pep talk") {
-                        return "hype"
-                    }
-                    if loweredMessage.contains("gentle") ||
-                        loweredMessage.contains("comfort me") ||
-                        loweredMessage.contains("hold space") {
-                        return "motherly"
-                    }
-                    return reassuranceNeed > 0.62 ? "soft" : "direct"
-                }()
-                payload["reassurance_style_hint"] = reassuranceStyleHint
-
-                let affectionStyleHint: String = {
-                    if loveTopicActive {
-                        if playfulMomentum > 0.62 { return "playful" }
-                        if trustSignal > 0.68 && romanceTension > 2.2 { return "tender" }
-                        if romanceTension > 4.2 { return "intimate" }
-                    }
-                    return "casual"
-                }()
-                payload["affection_style_hint"] = affectionStyleHint
-                payload["romance_depth_hint"] = round(min(max(romanceTension / 10.0, 0), 1) * 1000) / 1000
-                payload["support_intent_hint"] = reassuranceNeed > 0.58 ? "comfort_first" : "clarity_then_comfort"
-
+                let payload = BackendEvolutionSyncPayload.make(stage: stage, depthScore: depthScore,
+                    romanceTension: romanceTension, sessionCount: sessionCount,
+                    reassuranceNeed: reassuranceNeed, boundaryNeed: boundaryNeed,
+                    playfulMomentum: playfulMomentum, trustSignal: trustSignal, lastThemeCue: lastThemeCue,
+                    preferredName: preferredName, isScreenwriter: isScreenwriter, latestUserMessage: latestUserMessage)
                 request.httpBody = try JSONSerialization.data(withJSONObject: payload)
-                let (_, response) = try await URLSession.shared.data(for: request)
+                let (_, response) = try await screenplayHTTPResponse(for: request, owner: owner)
                 let status = (response as? HTTPURLResponse)?.statusCode ?? -1
                 // 404 = backend doesn't support this endpoint yet — silently skip.
                 if status != 200 && status != 204 && status != 404 {
@@ -9866,10 +9393,60 @@ actor BackendMemoryAPI {
         return false
     }
 
+    // Preserve caller ownership across bootstrap without introducing another
+    // auth store or transport. Ordinary token refresh keeps the same login intent.
+    func screenplayRequestIdentity(_ owner: BackendAuthRequestIdentity,
+        expectedBackendURL: URL? = nil, originErrorMessage: String = "backend_request_superseded") async throws -> BackendAuthRequestIdentity {
+        try owner.requireCurrentOwner(requestIdentityProvider(false))
+        // Bootstrap carries credentials too: reject a deferred foreign origin
+        // before it can reach /session, then recheck after the suspension.
+        guard expectedBackendURL.map({ OfflineTalkRecoveryScope.sameBackend(baseURL(), $0) }) ?? true else {
+            throw BackendMemoryAPIError.server(status: 409, message: originErrorMessage)
+        }
+        _ = try? await bootstrapSession(force: false)
+        let identity = requestIdentityProvider(false)
+        try owner.requireCurrentOwner(identity)
+        guard expectedBackendURL.map({ OfflineTalkRecoveryScope.sameBackend(baseURL(), $0) }) ?? true else {
+            throw BackendMemoryAPIError.server(status: 409, message: originErrorMessage)
+        }
+        return identity
+    }
+
+    func screenplayHTTPResponse(for request: URLRequest, owner: BackendAuthRequestIdentity) async throws -> (Data, HTTPURLResponse) {
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
+        try owner.requireCurrentOwner(requestIdentityProvider(false))
+        guard let http = response as? HTTPURLResponse else { throw BackendMemoryAPIError.invalidResponse }
+        return (data, http)
+    }
+
+    func screenplayReadResult<Payload: BackendScreenplaySyncEnvelope>(
+        _ type: Payload.Type, data: Data, response: HTTPURLResponse,
+        owner: BackendAuthRequestIdentity,
+        dateDecodingStrategy: JSONDecoder.DateDecodingStrategy = .deferredToDate
+    ) throws -> BackendReadResult<Payload> {
+        try owner.requireCurrentOwner(requestIdentityProvider(false))
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        decoder.dateDecodingStrategy = dateDecodingStrategy
+        let payload = try decoder.decode(type, from: data)
+        let headerSync = syncFromHeaders(response, fallbackStatus: "up")
+        let bodySync = syncFromScreenplayEnvelope(
+            sessionId: payload.sessionId, stateVersion: payload.stateVersion,
+            lastUpdatedAt: payload.lastUpdatedAt, historyUpdatedAt: payload.historyUpdatedAt,
+            memoryUpdatedAt: payload.memoryUpdatedAt, lastTurnId: payload.lastTurnId,
+            schemaVersion: payload.schemaVersion, backendBuild: payload.backendBuild,
+            backendBootId: payload.backendBootId
+        )
+        try owner.requireCurrentOwner(requestIdentityProvider(false))
+        updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true, initiatingIdentity: owner)
+        return BackendReadResult(payload: payload, sync: syncState, notModified: false, responseURL: response.url)
+    }
+
     private func makeRequest(
         path: String,
         limit: Int,
-        extraQueryItems: [URLQueryItem] = []
+        extraQueryItems: [URLQueryItem] = [],
+        identity: BackendAuthRequestIdentity? = nil
     ) throws -> URLRequest {
         guard var components = URLComponents(url: baseURL(), resolvingAgainstBaseURL: false) else {
             throw BackendMemoryAPIError.invalidBaseURL
@@ -9886,15 +9463,15 @@ actor BackendMemoryAPI {
         request.httpMethod = "GET"
         request.timeoutInterval = 12
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
-        applyStandardHeaders(to: &request)
+        applyStandardHeaders(to: &request, identity: identity)
         return request
     }
 
-    private func makeRequest(path: String) throws -> URLRequest {
-        try makeRequest(path: path, baseURL: baseURL())
+    private func makeRequest(path: String, identity: BackendAuthRequestIdentity? = nil) throws -> URLRequest {
+        try makeRequest(path: path, baseURL: baseURL(), identity: identity)
     }
 
-    private func makeRequest(path: String, baseURL: URL) throws -> URLRequest {
+    private func makeRequest(path: String, baseURL: URL, identity: BackendAuthRequestIdentity? = nil) throws -> URLRequest {
         guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
             throw BackendMemoryAPIError.invalidBaseURL
         }
@@ -9907,13 +9484,14 @@ actor BackendMemoryAPI {
         request.httpMethod = "GET"
         request.timeoutInterval = 12
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
-        applyStandardHeaders(to: &request)
+        applyStandardHeaders(to: &request, identity: identity)
         return request
     }
 
     private func makeRequest(
         path: String,
-        extraQueryItems: [URLQueryItem]
+        extraQueryItems: [URLQueryItem],
+        identity: BackendAuthRequestIdentity? = nil
     ) throws -> URLRequest {
         guard var components = URLComponents(url: baseURL(), resolvingAgainstBaseURL: false) else {
             throw BackendMemoryAPIError.invalidBaseURL
@@ -9930,11 +9508,11 @@ actor BackendMemoryAPI {
         request.httpMethod = "GET"
         request.timeoutInterval = 12
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
-        applyStandardHeaders(to: &request)
+        applyStandardHeaders(to: &request, identity: identity)
         return request
     }
 
-    private func makeWriteRequest(path: String) throws -> URLRequest {
+    func makeWriteRequest(path: String, identity: BackendAuthRequestIdentity? = nil) throws -> URLRequest {
         guard var components = URLComponents(url: baseURL(), resolvingAgainstBaseURL: false) else {
             throw BackendMemoryAPIError.invalidBaseURL
         }
@@ -9947,7 +9525,7 @@ actor BackendMemoryAPI {
         request.httpMethod = "POST"
         request.timeoutInterval = 15
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
-        applyStandardHeaders(to: &request, includeContentType: true)
+        applyStandardHeaders(to: &request, includeContentType: true, identity: identity)
         return request
     }
 
@@ -9956,9 +9534,10 @@ actor BackendMemoryAPI {
         includeContentType: Bool = false,
         includeUserIdentity: Bool = true,
         includeClientToken: Bool = true,
-        includeAuthToken: Bool = true
+        includeAuthToken: Bool = true,
+        identity capturedIdentity: BackendAuthRequestIdentity? = nil
     ) {
-        let identity = requestIdentityProvider(includeUserIdentity)
+        let identity = capturedIdentity ?? requestIdentityProvider(includeUserIdentity)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if includeContentType {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -10013,7 +9592,7 @@ actor BackendMemoryAPI {
     }
 
     private func run<T: Decodable>(_ request: URLRequest, as type: T.Type) async throws -> T {
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -10390,7 +9969,7 @@ actor BackendMemoryAPI {
         return merged
     }
 
-    private func updateSyncState(_ incoming: BackendSyncState, emitTurnEvent: Bool) {
+    private func updateSyncState(_ incoming: BackendSyncState, emitTurnEvent: Bool, initiatingIdentity owner: BackendAuthRequestIdentity? = nil) {
         let previous = syncState
         let merged = mergeSyncStates(base: previous, incoming: incoming)
         let syncChanged = merged != previous
@@ -10412,7 +9991,7 @@ actor BackendMemoryAPI {
                     NotificationKey.historyUpdatedAt: merged.historyUpdatedAt,
                     NotificationKey.memoryUpdatedAt: merged.memoryUpdatedAt,
                     NotificationKey.stateVersion: merged.stateVersion,
-                ]
+                ], initiatingIdentity: owner, identityProvider: requestIdentityProvider
             )
         }
         if emitTurnEvent,
@@ -10427,12 +10006,14 @@ actor BackendMemoryAPI {
                 historyUpdatedAt: merged.historyUpdatedAt,
                 memoryUpdatedAt: merged.memoryUpdatedAt,
                 userMessage: nil,
-                assistantMessage: nil
+                assistantMessage: nil,
+                initiatingIdentity: owner
             )
         }
     }
 
     private func invalidateReadCaches(clearSyncState: Bool) {
+        cachedSessionBackendURL = nil
         cachedSession = nil
         cachedSessionAt = nil
         sessionBootstrapTask?.task.cancel()
@@ -10480,7 +10061,8 @@ actor BackendMemoryAPI {
         memoryUpdatedAt: TimeInterval,
         userMessage: String?,
         assistantMessage: String?,
-        studioMetadata: BackendStudioThreadCommitMetadata? = nil
+        studioMetadata: BackendStudioThreadCommitMetadata? = nil,
+        initiatingIdentity owner: BackendAuthRequestIdentity? = nil
     ) {
         var userInfo: [AnyHashable: Any] = [
             NotificationKey.source: source,
@@ -10549,7 +10131,8 @@ actor BackendMemoryAPI {
                 userInfo[NotificationKey.screenplayResolvedAnchorExcerpt] = resolvedAnchorExcerpt
             }
         }
-        postBackendNotificationOnMain(name: .themTurnCommitted, userInfo: userInfo)
+        postBackendNotificationOnMain(name: .themTurnCommitted, userInfo: userInfo,
+                                      initiatingIdentity: owner, identityProvider: requestIdentityProvider)
     }
 
     private func normalizedEtag(from http: HTTPURLResponse, fallbackStateVersion: String) -> String {
@@ -10638,7 +10221,7 @@ actor BackendMemoryAPI {
         }
     }
 
-    private func decodeErrorMessage(from data: Data) -> String {
+    func decodeErrorMessage(from data: Data) -> String {
         struct ErrorPayload: Decodable {
             let error: String?
             let stage: String?
@@ -10684,7 +10267,7 @@ actor BackendMemoryAPI {
         return BackendMemoryAPIError.server(status: status, message: decodeErrorMessage(from: data))
     }
 
-    private func baseURL() -> URL {
+    func baseURL() -> URL {
         if let baseURLOverride {
             return baseURLOverride
         }
@@ -10746,6 +10329,7 @@ actor BackendMemoryAPI {
 
     private func adoptHealthyBaseURL(_ url: URL) {
         let resolved = canonicalizeLoopbackURL(url)
+        if !OfflineTalkRecoveryScope.sameBackend(baseURL(), resolved) { invalidateReadCaches(clearSyncState: true) }
         healthyBaseURL = resolved
         BackendUserDefaultsStore.set(resolved.absoluteString, forKey: DefaultsKey.baseURL)
     }
@@ -10843,7 +10427,8 @@ actor BackendMemoryAPI {
         return value
     }
 
-    private func cacheSession(_ sessionPayload: BackendSessionResponse) {
+    private func cacheSession(_ sessionPayload: BackendSessionResponse, backendURL: URL) {
+        cachedSessionBackendURL = backendURL
         cachedSession = sessionPayload
         cachedSessionAt = Date()
         if let assistant = sessionPayload.assistantSelfName ?? sessionPayload.assistantName,

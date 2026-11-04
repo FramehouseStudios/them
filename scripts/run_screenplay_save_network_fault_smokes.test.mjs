@@ -102,7 +102,8 @@ test("[screenplay-save-network-fault-smokes] runs the recovery UI smoke on iPhon
     assert.ok(call.includes("-xcconfig"));
     assert.ok(call.includes(xcconfig));
     assert.ok(call.includes("-only-testing:themUITests/V1SmokeUITests/test_screenplay_save_outbox_survives_relaunch_and_reconnects_once"));
-    assert.ok(call.includes("-only-testing:themUITests/V1SmokeUITests/test_screenplay_save_outbox_refreshes_auth_and_resolves_stale_conflict_once"));
+    assert.ok(call.includes("-only-testing:themUITests/V1SmokeUITests/test_screenplay_save_outbox_restores_conflict_choice_and_resolves_once"));
+    assert.ok(call.includes("-only-testing:themUITests/V1SmokeUITests/test_screenplay_save_outbox_refreshes_real_auth_and_restores_exact_words"));
   }
 });
 

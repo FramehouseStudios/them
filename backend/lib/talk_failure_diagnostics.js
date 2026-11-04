@@ -119,6 +119,9 @@ function publicStageLabel(stage) {
 
 function buildPublicMessage({ requestId = "", stage = "server", errorClass = "" } = {}) {
   const reference = requestId ? ` Reference ${requestId}.` : "";
+  if (errorClass === "wallet_empty") {
+    return `There are not enough Page turns for this request. Your draft was left unchanged.${reference}`;
+  }
   if (errorClass === "screenplay_page_quality_failed") {
     return `The screenplay pages did not pass Clementine's quality check, so the draft was left unchanged.${reference}`;
   }

@@ -5,6 +5,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { startBackend } from "./helpers/backend_test_server.mjs";
+import { TALK_RESPONSE_HEADER_BYTES, talkResponseHeaderBytes } from "../lib/talk_response_headers.js";
 
 const THIS_DIR = dirname(fileURLToPath(import.meta.url));
 const BACKEND_DIR = resolve(THIS_DIR, "..");
@@ -57,6 +58,14 @@ function decodeHeaderJson(value) {
   } catch (_) {
     return null;
   }
+}
+
+function canonicalTalkField(headers, headerName, canonicalValue) {
+  if (headers[headerName] == null) return canonicalValue;
+  const inline = decodeHeaderJson(headers[headerName]);
+  assert.ok(inline && typeof inline === "object", `invalid inline ${headerName} payload`);
+  assert.deepEqual(inline, canonicalValue, `${headerName} disagrees with complete turn metadata`);
+  return inline;
 }
 
 function assertDialogueTimeline(
@@ -364,19 +373,25 @@ test(
     assert.ok(Number(headers["x-audio-duration-ms"] || 0) > 0, "expected debug audio duration");
     assert.equal(decodeHeaderValue(headers["x-screenplay-target"]), "page");
 
-    const previewReply = decodeHeaderValue(headers["x-reply"]);
+    const turnId = String(headers["x-turn-id"] || "").trim();
+    assert.ok(turnId, "debug page-write turn missing x-turn-id");
+    assert.equal(headers["x-turn-meta-available"], "1");
+    assert.ok(talkResponseHeaderBytes(headers) <= TALK_RESPONSE_HEADER_BYTES, "aggregate audio response headers exceed budget");
+    const meta = await getTurnMeta(turnId);
+    assert.equal(meta.response.status, 200, `GET /talk/turn failed status=${meta.response.status} body=${meta.raw}`);
+    const previewReply = decodeHeaderValue(headers["x-reply"]) || String(meta.body.reply || "");
     assert.ok(previewReply.length > 0, "missing preview x-reply header");
 
-    const screenplayOutput = decodeHeaderJson(headers["x-screenplay-output"]);
+    const screenplayOutput = canonicalTalkField(headers, "x-screenplay-output", meta.body.screenplay_output);
     assert.ok(screenplayOutput && typeof screenplayOutput === "object", "missing x-screenplay-output payload");
     assert.equal(String(screenplayOutput.target || ""), "page");
     assert.equal(String(screenplayOutput.text || "").trim(), screenplayTranscript.trim());
     assert.ok(String(screenplayOutput.text || "").length > previewReply.length, "authoritative page text should exceed preview");
 
-    const screenplayCues = decodeHeaderJson(headers["x-screenplay-cues"]);
+    const screenplayCues = canonicalTalkField(headers, "x-screenplay-cues", meta.body.screenplay_cues);
     assert.ok(Array.isArray(screenplayCues), "missing x-screenplay-cues payload");
     assert.ok(screenplayCues.length > 0, "expected at least one screenplay cue");
-    const dialogueTimeline = decodeHeaderJson(headers["x-dialogue-timeline"]);
+    const dialogueTimeline = canonicalTalkField(headers, "x-dialogue-timeline", meta.body.dialogue_timeline);
     assertDialogueTimeline(dialogueTimeline, {
       expectedText: screenplayTranscript,
       expectedDocumentRevisionId: "integration-version-42",
@@ -389,10 +404,6 @@ test(
       expectedFirstSegmentAnchorLine: 42,
     });
 
-    const turnId = String(headers["x-turn-id"] || "").trim();
-    assert.ok(turnId, "debug page-write turn missing x-turn-id");
-    const meta = await getTurnMeta(turnId);
-    assert.equal(meta.response.status, 200, `GET /talk/turn failed status=${meta.response.status} body=${meta.raw}`);
     assert.equal(String(meta.body.turn_id || "").trim(), turnId);
     assert.equal(Number(meta.body.audio_duration_ms || 0) > 0, true, "turn meta missing audio duration");
     assert.equal(String(meta.body.timing_source || "").trim(), "fixture_estimated");
@@ -444,29 +455,31 @@ test(
 
     const turnId = String(headers["x-turn-id"] || "").trim();
     assert.ok(turnId, "page-write turn missing x-turn-id");
+    assert.equal(headers["x-turn-meta-available"], "1");
+    assert.ok(talkResponseHeaderBytes(headers) <= TALK_RESPONSE_HEADER_BYTES, "aggregate audio response headers exceed budget");
+    const meta = await getTurnMeta(turnId);
+    assert.equal(meta.response.status, 200, `GET /talk/turn failed status=${meta.response.status} body=${meta.raw}`);
     assert.equal(String(headers["x-reply-role"] || "").trim(), "preview");
     assert.equal(String(headers["x-screenplay-authoritative"] || "").trim(), "1");
     assert.equal(String(headers["x-screenplay-sync-ready"] || "").trim(), "1");
     assert.equal(String(headers["x-screenplay-output-available"] || "").trim(), "1");
     assert.equal(decodeHeaderValue(headers["x-screenplay-target"]), "page");
 
-    const previewReply = decodeHeaderValue(headers["x-reply"]);
+    const previewReply = decodeHeaderValue(headers["x-reply"]) || String(meta.body.reply || "");
     assert.ok(previewReply.length > 0, "missing preview x-reply header");
 
-    const screenplayOutput = decodeHeaderJson(headers["x-screenplay-output"]);
+    const screenplayOutput = canonicalTalkField(headers, "x-screenplay-output", meta.body.screenplay_output);
     assert.ok(screenplayOutput && typeof screenplayOutput === "object", "missing x-screenplay-output payload");
     assert.equal(String(screenplayOutput.target || ""), "page");
     assert.ok(String(screenplayOutput.text || "").length > previewReply.length, "authoritative page text should exceed preview");
 
-    const screenplayCues = decodeHeaderJson(headers["x-screenplay-cues"]);
+    const screenplayCues = canonicalTalkField(headers, "x-screenplay-cues", meta.body.screenplay_cues);
     assert.ok(Array.isArray(screenplayCues), "missing x-screenplay-cues payload");
     assert.ok(screenplayCues.length > 0, "expected at least one screenplay cue");
-    const dialogueTimeline = decodeHeaderJson(headers["x-dialogue-timeline"]);
+    const dialogueTimeline = canonicalTalkField(headers, "x-dialogue-timeline", meta.body.dialogue_timeline);
     assertDialogueTimeline(dialogueTimeline);
     assert.ok(String(headers["x-screenplay-timing-source"] || "").trim(), "missing x-screenplay-timing-source");
 
-    const meta = await getTurnMeta(turnId);
-    assert.equal(meta.response.status, 200, `GET /talk/turn failed status=${meta.response.status} body=${meta.raw}`);
     assert.equal(String(meta.body.turn_id || "").trim(), turnId);
     assert.equal(String(meta.body.screenplay_output?.target || ""), "page");
     assert.equal(String(meta.body.screenplay_output?.text || "").trim(), String(screenplayOutput.text || "").trim());

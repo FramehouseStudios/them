@@ -7,6 +7,294 @@ import { test } from "node:test";
 import express from "express";
 
 import { mountScreenplayProjectsRoutes } from "../lib/screenplay_projects_routes.js";
+import { createScreenplayModelServices } from "../services/screenplay_model.js";
+
+function initialProjectBody(draft = "Title: The Reel\r\n\r\nINT. ROOM - NIGHT\r\nCafe\u0301. \t ") {
+  return { project_id: "project-initial", title: "The Reel", phase: "scene_draft",
+    initial_draft: { draft, client_request_id: "initial-request-1" } };
+}
+
+function blankProjectBody(overrides = {}) {
+  return { project_id: "project-blank", title: "The Empty Reel", phase: "scene_draft",
+    blank_project: { client_request_id: "blank-request-1" }, ...overrides };
+}
+
+function assertBlankCreationReceipt(response, body) {
+  assert.deepEqual(Object.keys(response.body.blank_creation).sort(), [
+    "client_request_id", "creation_request_hash", "project_id",
+  ]);
+  assert.equal(response.body.blank_creation.client_request_id, body.blank_project.client_request_id);
+  assert.equal(response.body.blank_creation.project_id, body.project_id);
+  assert.match(response.body.blank_creation.creation_request_hash, /^[a-f0-9]{64}$/);
+}
+
+test("[blank-project] lost response replay creates one zero-version project with one durable write", async () => {
+  const deps = defaultDeps();
+  const stats = { calls: 0, writes: 0 };
+  deps.commitScreenplayOwnerMutation = serializedCommitter(deps._owner, stats);
+  await withTestServer(deps, async (base) => {
+    const body = blankProjectBody();
+    const ignoredResponse = await postJson(base, "/screenplay/projects/initialize", body);
+    assert.equal(ignoredResponse.status, 201);
+    assertBlankCreationReceipt(ignoredResponse, body);
+    const replay = await postJson(base, "/screenplay/projects", body);
+    assert.equal(replay.status, 200);
+    assertBlankCreationReceipt(replay, body);
+    assert.deepEqual(replay.body.blank_creation, ignoredResponse.body.blank_creation);
+    assert.equal(replay.body.replayed, true);
+    assert.equal(replay.body.project_id, body.project_id);
+    assert.equal(Object.hasOwn(replay.body, "version_id"), false);
+    assert.equal(Object.hasOwn(replay.body, "version"), false);
+    const matching = deps._owner.projects.filter(project => project.id === body.project_id);
+    assert.equal(matching.length, 1);
+    assert.equal(matching[0].versions.length, 0);
+    assert.equal(matching[0].initialCreationRequestId, body.blank_project.client_request_id);
+    assert.match(matching[0].initialCreationRequestHash, /^[a-f0-9]{64}$/);
+    assert.equal(stats.writes, 1);
+  });
+});
+
+test("[blank-project] concurrent identical requests serialize to one project", async () => {
+  const deps = defaultDeps();
+  const stats = { calls: 0, writes: 0 };
+  deps.commitScreenplayOwnerMutation = serializedCommitter(deps._owner, stats);
+  await withTestServer(deps, async (base) => {
+    const body = blankProjectBody();
+    const responses = await Promise.all([
+      postJson(base, "/screenplay/projects/initialize", body),
+      postJson(base, "/screenplay/projects/initialize", body),
+    ]);
+    assert.deepEqual(responses.map(response => response.status).sort(), [200, 201]);
+    for (const response of responses) assertBlankCreationReceipt(response, body);
+    assert.deepEqual(responses[0].body.blank_creation, responses[1].body.blank_creation);
+    assert.equal(deps._owner.projects.filter(project => project.id === body.project_id).length, 1);
+    assert.equal(stats.writes, 1);
+  });
+});
+
+test("[blank-project] persisted receipt survives normalization and replay does not rewind later metadata", async () => {
+  const deps = defaultDeps();
+  const body = blankProjectBody();
+  await withTestServer(deps, async base => {
+    assert.equal((await postJson(base, "/screenplay/projects/initialize", body)).status, 201);
+  });
+  const project = deps._owner.projects.find(item => item.id === body.project_id);
+  project.title = "Writer's Later Title";
+  project.tags = ["later-tag"];
+  project.updatedAt += 100;
+  const { normalizeStoredScreenplayOwner } = createScreenplayModelServices();
+  const restored = normalizeStoredScreenplayOwner(JSON.parse(JSON.stringify(deps._owner)));
+  for (const key of Object.keys(deps._owner)) delete deps._owner[key];
+  Object.assign(deps._owner, restored);
+
+  await withTestServer(deps, async base => {
+    const replay = await postJson(base, "/screenplay/projects/initialize", body);
+    assert.equal(replay.status, 200);
+    assert.equal(replay.body.replayed, true);
+    assertBlankCreationReceipt(replay, body);
+  });
+  const replayed = deps._owner.projects.find(item => item.id === body.project_id);
+  assert.equal(replayed.title, "Writer's Later Title");
+  assert.deepEqual(replayed.tags, ["later-tag"]);
+  assert.equal(replayed.initialCreationRequestId, body.blank_project.client_request_id);
+  assert.match(replayed.initialCreationRequestHash, /^[a-f0-9]{64}$/);
+});
+
+test("[blank-project] collisions and changed creation metadata fail without mutation", async () => {
+  const deps = defaultDeps();
+  const beforeExisting = structuredClone(deps._owner.projects.find(project => project.id === "p1"));
+  await withTestServer(deps, async base => {
+    const collision = await postJson(base, "/screenplay/projects/initialize",
+      blankProjectBody({ project_id: "p1" }));
+    assert.equal(collision.status, 409);
+    assert.equal(collision.body.error, "screenplay_initial_request_reused");
+    assert.deepEqual(deps._owner.projects.find(project => project.id === "p1"), beforeExisting);
+
+    const body = blankProjectBody();
+    assert.equal((await postJson(base, "/screenplay/projects/initialize", body)).status, 201);
+    const committed = structuredClone(deps._owner.projects.find(project => project.id === body.project_id));
+    for (const changes of [
+      { title: "Changed title" },
+      { phase: "rewrite" },
+      { activate: false },
+    ]) {
+      const changed = await postJson(base, "/screenplay/projects/initialize", { ...body, ...changes });
+      assert.equal(changed.status, 409);
+      assert.equal(changed.body.error, "screenplay_initial_request_reused");
+      assert.deepEqual(deps._owner.projects.find(project => project.id === body.project_id), committed);
+    }
+    const reusedElsewhere = await postJson(base, "/screenplay/projects/initialize",
+      blankProjectBody({ project_id: "project-other" }));
+    assert.equal(reusedElsewhere.status, 409);
+    assert.equal(reusedElsewhere.body.error, "screenplay_initial_request_reused");
+    assert.equal(deps._owner.projects.some(project => project.id === "project-other"), false);
+  });
+});
+
+test("[blank-project] mixed project and request identities or a corrupted stored hash fail closed", async () => {
+  const deps = defaultDeps();
+  await withTestServer(deps, async base => {
+    const first = blankProjectBody();
+    const second = blankProjectBody({
+      project_id: "project-blank-two",
+      title: "The Other Empty Reel",
+      blank_project: { client_request_id: "blank-request-2" },
+    });
+    assert.equal((await postJson(base, "/screenplay/projects/initialize", first)).status, 201);
+    assert.equal((await postJson(base, "/screenplay/projects/initialize", second)).status, 201);
+    const before = structuredClone(deps._owner);
+
+    const mixed = await postJson(base, "/screenplay/projects/initialize", {
+      ...first,
+      blank_project: second.blank_project,
+    });
+    assert.equal(mixed.status, 409);
+    assert.equal(mixed.body.error, "screenplay_initial_request_reused");
+    assert.deepEqual(deps._owner, before);
+
+    const stored = deps._owner.projects.find(project => project.id === first.project_id);
+    stored.initialCreationRequestHash = "0".repeat(64);
+    const corrupted = structuredClone(deps._owner);
+    const replay = await postJson(base, "/screenplay/projects/initialize", first);
+    assert.equal(replay.status, 409);
+    assert.equal(replay.body.error, "screenplay_initial_request_reused");
+    assert.deepEqual(deps._owner, corrupted);
+  });
+});
+
+test("[blank-project] invalid or mixed envelopes fail before mutation", async () => {
+  for (const body of [
+    blankProjectBody({ project_id: "" }),
+    blankProjectBody({ blank_project: { client_request_id: "" } }),
+    blankProjectBody({ blank_project: { client_request_id: "r", extra: true } }),
+    { ...blankProjectBody(), initial_draft: { draft: "Words", client_request_id: "draft-request" } },
+  ]) {
+    const deps = defaultDeps(), before = structuredClone(deps._owner);
+    await withTestServer(deps, async base => {
+      const result = await postJson(base, "/screenplay/projects/initialize", body);
+      assert.equal(result.status, 400);
+      assert.deepEqual(deps._owner, before);
+    });
+  }
+});
+
+test("[initial-project] metadata and exact first draft commit together and replay without another write", async () => {
+  const deps = defaultDeps();
+  const stats = { calls: 0, writes: 0 };
+  deps.commitScreenplayOwnerMutation = serializedCommitter(deps._owner, stats);
+  await withTestServer(deps, async (base) => {
+    const body = initialProjectBody();
+    const first = await postJson(base, "/screenplay/projects", body);
+    assert.equal(first.status, 201);
+    assert.ok(first.body.version_id);
+    const project = deps._owner.projects.find(p => p.id === body.project_id);
+    assert.equal(project.versions.length, 1);
+    assert.equal(project.versions[0].draft, body.initial_draft.draft);
+    const replay = await postJson(base, "/screenplay/projects", body);
+    assert.equal(replay.status, 200);
+    assert.equal(replay.body.replayed, true);
+    assert.equal(replay.body.version_id, first.body.version_id);
+    assert.equal(stats.writes, 1);
+    assert.equal(deps._owner.projects.filter(p => p.id === body.project_id).length, 1);
+  });
+});
+
+test("[initial-project] preserves nonempty whitespace-only draft bytes across replay and conflict", async () => {
+  const deps = defaultDeps();
+  const stats = { calls: 0, writes: 0 };
+  deps.commitScreenplayOwnerMutation = serializedCommitter(deps._owner, stats);
+  await withTestServer(deps, async (base) => {
+    const body = initialProjectBody("\r\n\t \r\n");
+    const first = await postJson(base, "/screenplay/projects/initialize", body);
+    assert.equal(first.status, 201);
+    assert.equal(first.body.version.draft, body.initial_draft.draft);
+    assert.equal(deps._owner.projects[0].versions[0].draft, body.initial_draft.draft);
+
+    const replay = await postJson(base, "/screenplay/projects/initialize", body);
+    assert.equal(replay.status, 200);
+    assert.equal(replay.body.version_id, first.body.version_id);
+    assert.equal(replay.body.version.draft, body.initial_draft.draft);
+
+    const changed = structuredClone(body);
+    changed.initial_draft.draft = "\r\n \t\r\n";
+    const conflict = await postJson(base, "/screenplay/projects/initialize", changed);
+    assert.equal(conflict.status, 409);
+    assert.equal(conflict.body.error, "screenplay_initial_request_reused");
+    assert.equal(stats.writes, 1);
+  });
+});
+
+test("[initial-project] concurrent retries cannot duplicate or acknowledge different intent", async () => {
+  const deps = defaultDeps();
+  const stats = { calls: 0, writes: 0 };
+  deps.commitScreenplayOwnerMutation = serializedCommitter(deps._owner, stats);
+  await withTestServer(deps, async (base) => {
+    const body = initialProjectBody();
+    const results = await Promise.all([postJson(base, "/screenplay/projects", body), postJson(base, "/screenplay/projects", body)]);
+    assert.deepEqual(results.map(r => r.status).sort(), [200, 201]);
+    assert.equal(results[0].body.version_id, results[1].body.version_id);
+    const changed = structuredClone(body); changed.initial_draft.draft = changed.initial_draft.draft.normalize("NFC");
+    const conflict = await postJson(base, "/screenplay/projects", changed);
+    assert.equal(conflict.status, 409);
+    assert.equal(conflict.body.error, "screenplay_initial_request_reused");
+    const changedTitle = await postJson(base, "/screenplay/projects", { ...body, title: "A different title" });
+    assert.equal(changedTitle.status, 409);
+    assert.equal(deps._owner.projects.find(p => p.id === body.project_id).title, body.title);
+    assert.equal(stats.writes, 1);
+  });
+});
+
+test("[initial-project] failed persistence publishes neither an empty project nor an acknowledged draft", async () => {
+  const deps = defaultDeps();
+  const before = structuredClone(deps._owner);
+  deps.markScreenplayOwnerDirty = () => false;
+  deps.commitScreenplayOwnerMutation = async ({ mutate }) => {
+    await mutate(structuredClone(deps._owner), { currentOwner: structuredClone(deps._owner), attempt: 1 });
+    return { ok: false, committed: false, persistenceKind: "test" };
+  };
+  await withTestServer(deps, async (base) => {
+    const result = await postJson(base, "/screenplay/projects", initialProjectBody());
+    assert.equal(result.status, 503);
+    assert.equal(result.body.error, "screenplay_persistence_failed");
+    assert.deepEqual(deps._owner, before);
+  });
+});
+
+test("[initial-project] missing durable identity or invalid draft fails before mutation", async () => {
+  for (const changes of [{ project_id: "" }, { initial_draft: { draft: "", client_request_id: "r" } },
+    { initial_draft: { draft: 42, client_request_id: "r" } },
+    { initial_draft: { draft: null, client_request_id: "r" } },
+    { initial_draft: { draft: "Exact words", client_request_id: "" } }]) {
+    const deps = defaultDeps(), before = structuredClone(deps._owner);
+    await withTestServer(deps, async (base) => {
+      const result = await postJson(base, "/screenplay/projects", { ...initialProjectBody(), ...changes });
+      assert.equal(result.status, 400);
+      assert.deepEqual(deps._owner, before);
+    });
+  }
+});
+
+test("[initial-project] waits for the owner transaction and does not expose a pending project", async () => {
+  const deps = defaultDeps(), before = structuredClone(deps._owner);
+  let started, release;
+  const pending = new Promise(resolve => { started = resolve; });
+  const gate = new Promise(resolve => { release = resolve; });
+  const committer = serializedCommitter(deps._owner);
+  deps.commitScreenplayOwnerMutation = args => committer({ ...args, mutate: async (...parameters) => {
+    const result = await args.mutate(...parameters);
+    started();
+    await gate;
+    return result;
+  } });
+  await withTestServer(deps, async base => {
+    const response = postJson(base, "/screenplay/projects", initialProjectBody());
+    try {
+      await assertRequestReachedPersistenceGate(pending, response, "initial project");
+      assert.deepEqual(deps._owner, before, "Uncommitted metadata must not enter the live owner.");
+    } finally { release(); }
+    assert.equal((await response).status, 201);
+  });
+});
 
 function defaultOwner() {
   return {
@@ -1599,6 +1887,97 @@ test("[screenplay-projects-routes] POST /version replays a committed client requ
   });
 });
 
+test("[screenplay-projects-routes] POST /version rejects reused identity when saved intent changes", async () => {
+  const deps = defaultDeps();
+  const project = deps._owner.projects.find((p) => p.id === "p1");
+  project.activeVersionId = "base_v1";
+  project.versions = [{ id: "base_v1", draft: "Old draft.", updatedAt: 1000 }];
+  const body = {
+    draft: "FADE IN:\n\nINT. KITCHEN - NIGHT\n\nLucy waits.",
+    title: "The Kitchen",
+    phase: "scene_draft",
+    source: "studio_manual",
+    notes: "Writer-approved save",
+    studio_write_anchors: [{ write_id: "write-1", anchor_line: 4, inserted_text: "Lucy waits." }],
+    screenplay_bindings: [{ draft_scene_id: "scene-1", draft_line: 3, outline_scene_id: "outline-1" }],
+    base_version_id: "base_v1",
+    conflict_strategy: "reject_if_stale",
+    client_request_id: "full-save-identity",
+  };
+
+  await withTestServer(deps, async (baseURL) => {
+    const first = await postJson(baseURL, "/screenplay/projects/p1/version", body);
+    const replay = await postJson(baseURL, "/screenplay/projects/p1/version", body);
+    assert.equal(first.status, 201);
+    assert.equal(replay.status, 200);
+    assert.match(project.versions[0].saveRequestHash, /^[a-f0-9]{64}$/);
+
+    const changedRequests = [
+      ["phase", { phase: "rewrite" }],
+      ["source", { source: "studio_autosave" }],
+      ["notes", { notes: "Changed note" }],
+      ["anchors", { studio_write_anchors: [{ write_id: "write-1", anchor_line: 5, inserted_text: "Lucy waits." }] }],
+      ["bindings", { screenplay_bindings: [{ draft_scene_id: "scene-1", draft_line: 4, outline_scene_id: "outline-1" }] }],
+      ["base", { base_version_id: first.body.version_id }],
+      ["title", { title: "A Different Kitchen" }],
+    ];
+    for (const [label, change] of changedRequests) {
+      const reused = await postJson(baseURL, "/screenplay/projects/p1/version", { ...body, ...change });
+      assert.equal(reused.status, 409, `${label} change must not replay`);
+      assert.equal(reused.body.status, "client_request_id_reused");
+      assert.equal(reused.body.replayed, false);
+    }
+    assert.equal(project.versions.length, 2);
+  });
+});
+
+test("[screenplay-projects-routes] legacy version replay compares only durable identity fields", async () => {
+  const deps = defaultDeps();
+  const project = deps._owner.projects.find((p) => p.id === "p1");
+  const legacy = {
+    id: "legacy_v1",
+    draft: "FADE IN:\n\nINT. ROOM - DAY\n\nLegacy words.",
+    phase: "scene_draft",
+    source: "studio_manual",
+    notes: "Legacy note",
+    studioWriteAnchors: [{ writeId: "write-legacy", anchorLine: 2 }],
+    screenplayBindings: [{ draftSceneId: "scene-legacy", draftLine: 2 }],
+    clientRequestId: "legacy-save-request",
+    updatedAt: 1000,
+  };
+  project.activeVersionId = legacy.id;
+  project.versions = [legacy];
+
+  await withTestServer(deps, async (baseURL) => {
+    const replay = await postJson(baseURL, "/screenplay/projects/p1/version", {
+      draft: legacy.draft,
+      title: "Unavailable original title",
+      phase: legacy.phase,
+      source: legacy.source,
+      notes: legacy.notes,
+      studio_write_anchors: legacy.studioWriteAnchors,
+      screenplay_bindings: legacy.screenplayBindings,
+      base_version_id: "unavailable-original-base",
+      client_request_id: legacy.clientRequestId,
+    });
+    assert.equal(replay.status, 200);
+    assert.equal(replay.body.status, "replayed");
+    assert.equal(project.title, "First Project", "legacy replay must not infer or apply an unavailable title");
+
+    const changed = await postJson(baseURL, "/screenplay/projects/p1/version", {
+      draft: legacy.draft,
+      phase: legacy.phase,
+      source: legacy.source,
+      notes: "Changed legacy note",
+      studio_write_anchors: legacy.studioWriteAnchors,
+      screenplay_bindings: legacy.screenplayBindings,
+      client_request_id: legacy.clientRequestId,
+    });
+    assert.equal(changed.status, 409);
+    assert.equal(changed.body.status, "client_request_id_reused");
+  });
+});
+
 test("[screenplay-projects-routes] POST /version does not replay before durable persistence completes", async () => {
   let releasePersistence;
   const persistencePromise = new Promise((resolve) => {
@@ -1773,8 +2152,43 @@ test("[screenplay-projects-routes] explicit allow strategy permits an unbased ov
 
 test("[screenplay-projects-routes] POST /version rejects empty draft with 400", async () => {
   await withTestServer(defaultDeps(), async (baseURL) => {
-    const r = await postJson(baseURL, "/screenplay/projects/p1/version", { draft: "  " });
-    assert.equal(r.status, 400);
-    assert.equal(r.body.error, "draft_required");
+    for (const draft of ["", 42, null, { text: "words" }]) {
+      const r = await postJson(baseURL, "/screenplay/projects/p1/version", { draft });
+      assert.equal(r.status, 400);
+      assert.equal(r.body.error, "draft_required");
+    }
+  });
+});
+
+test("[screenplay-projects-routes] POST /version preserves whitespace-only bytes for save, replay and conflict", async () => {
+  const deps = defaultDeps();
+  const project = deps._owner.projects.find((item) => item.id === "p1");
+  project.activeVersionId = "base_v1";
+  project.versions = [{ id: "base_v1", draft: "Earlier words.", updatedAt: 1000 }];
+  const body = {
+    draft: "\r\n\t \r\n",
+    base_version_id: "base_v1",
+    client_request_id: "whitespace-only-version",
+    conflict_strategy: "reject_if_stale",
+  };
+  await withTestServer(deps, async (baseURL) => {
+    const first = await postJson(baseURL, "/screenplay/projects/p1/version", body);
+    assert.equal(first.status, 201);
+    assert.equal(first.body.version.draft, body.draft);
+    assert.equal(project.versions[0].draft, body.draft);
+
+    const replay = await postJson(baseURL, "/screenplay/projects/p1/version", body);
+    assert.equal(replay.status, 200);
+    assert.equal(replay.body.version_id, first.body.version_id);
+    assert.equal(replay.body.version.draft, body.draft);
+
+    const changed = await postJson(baseURL, "/screenplay/projects/p1/version", {
+      ...body,
+      draft: "\r\n \t\r\n",
+    });
+    assert.equal(changed.status, 409);
+    assert.equal(changed.body.status, "client_request_id_reused");
+    assert.equal(project.versions.length, 2);
+    assert.equal(project.versions[0].draft, body.draft);
   });
 });

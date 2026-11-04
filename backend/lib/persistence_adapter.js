@@ -12,6 +12,7 @@
 // absent → JSON. A single createPersistence() factory returns the
 // correct one. Both adapters also expose compareAndSwap so durable
 // read-modify-write operations can reject stale writers across instances.
+// compareAndDelete lets retention cleanup reject a stale deletion snapshot.
 // All stores accept a persistence handle via DI; no store imports either
 // implementation directly.
 //
@@ -50,6 +51,11 @@ const KNOWN_DOMAINS = Object.freeze([
   // Postgres prod uses dedicated wallet_balances / iap_transactions tables (012).
   "wallet_balances",
   "iap_transactions",
+  "wallet_talk_settlements",
+  // T-1118: accepted /talk results and their turn metadata must survive a
+  // backend restart for the bounded replay/recovery retention window.
+  "talk_idempotency",
+  "talk_turns",
 ]);
 
 function isKnownDomain(domain) {

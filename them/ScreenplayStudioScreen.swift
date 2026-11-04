@@ -67,7 +67,7 @@ struct ScreenplayStudioScreen: View {
         self.shouldRoutePromptToPage = shouldRoutePromptToPage
     }
 
-    @StateObject private var vm = ScreenplayStudioViewModel()
+    @StateObject var vm = ScreenplayStudioViewModel()
     @StateObject private var creativeInstincts = StudioCreativeInstinctsModel()
     @AppStorage("studio_debug_overlay_enabled") private var studioDebugOverlayEnabled = false
     @State private var navigatorRootURL: URL?
@@ -79,11 +79,11 @@ struct ScreenplayStudioScreen: View {
     @State private var navigatorShowHidden: Bool = false
     @State private var navigatorNewFolderName: String = ""
     @State private var navigatorDropIsTargeted: Bool = false
-    @State private var isDirectionOneSidebarVisible = true
+    @State var isDirectionOneSidebarVisible = true
     @State private var isDirectionOneCompactLayout = false
     @State private var directionOneWorkspaceMode: DirectionOneWorkspaceMode = .draft
-    @State private var directionOneRightPanelTab: DirectionOneRightPanelTab = .them
-    @State private var isDirectionOneRightRailExpanded = true
+    @State var directionOneRightPanelTab: DirectionOneRightPanelTab = .them
+    @State var isDirectionOneRightRailExpanded = true
     @State private var isDirectionOneComposerExpanded = false
     @State private var showingDirectionOneSettings = false
     @State private var lastVoiceFeedback: String = ""
@@ -102,7 +102,7 @@ struct ScreenplayStudioScreen: View {
     @State private var showingDraftImportChoice = false
     @State private var showingDraftFileImporter = false
     @State private var hoveredDirectionOneDraftShortcut: DirectionOneDraftShortcut?
-    @State private var selectedBeatInspectorID: String = ""
+    @State var selectedBeatInspectorID: String = ""
     @State private var draggedBeatID: String?
     @State private var draggedActID: String?
     @State private var draggedSceneID: String?
@@ -118,9 +118,9 @@ struct ScreenplayStudioScreen: View {
     @State private var isRestoringInspectorWorkspaceState = false
     @State private var beatComposerProvenance: BeatProvenanceSource = .manual
     @State private var shouldRestoreInspectorWorkspaceOnNextOutlineChange = false
-    @State private var selectedSidebarSection: SidebarSection = .projects
+    @State var selectedSidebarSection: SidebarSection = .projects
     @State private var selectedInspectorSection: InspectorSection = .comments
-    @State private var selectedDraftToolsSection: DraftToolsSection = .pages
+    @State var selectedDraftToolsSection: DraftToolsSection = .pages
     @State private var queuedIntelligenceFixes: [IntelligenceFixQueueItem] = []
     @State private var lastAppliedIntelligenceFixBatch: IntelligenceFixBatchSnapshot?
     @State private var studioAppliedMemoryCorrectionDraft = ""
@@ -377,7 +377,10 @@ struct ScreenplayStudioScreen: View {
             .onReceive(
                 NotificationCenter.default.publisher(for: .themScreenplayDraftSaveOutboxUpdated)
             ) { _ in
-                Task { await vm.refreshDraftSaveOutboxStatus() }
+                Task {
+                    await vm.refreshDraftSaveOutboxStatus()
+                    await vm.resumeQueuedDraftSavesIfNeeded()
+                }
             }
             .onReceive(
                 NotificationCenter.default.publisher(for: .themScreenplayDraftSaveOutboxRetryRequested)
@@ -428,6 +431,14 @@ struct ScreenplayStudioScreen: View {
             "conflict_project_id": vm.conflictState?.projectId ?? "",
             "conflict_server_version_id": vm.conflictState?.serverVersionId ?? "",
             "conflict_fixture_applied": didApplyUITestDraftConflictFixture,
+            "recovery_present": vm.recoveryCandidate != nil,
+            "recovery_slot": vm.recoveryCandidate.map { $0.isPreservedConflict ? "preservedConflict" : "ordinary" } ?? "",
+            "recovery_base_version_id": vm.recoveryCandidate?.baseVersionId ?? "",
+            "recovery_matches_current_draft": vm.recoveryCandidate.map { vm.fountainDraft.utf8.elementsEqual($0.draft.utf8) } ?? false,
+            "held_recovery_is_synthetic_fixture": ScreenplayStudioUITestFixtures
+                .isSyntheticHeldRecovery(vm.heldDraftRecovery),
+            "held_recovery_backend_is_loopback": ScreenplayStudioUITestFixtures
+                .heldRecoveryUsesLoopback(vm.heldDraftRecovery),
             "loaded_draft_project_id": vm.debugLoadedDraftProjectID,
             "load_project_token": trackedStudioDebugProjectLoadToken,
             "load_project_ack_token": studioDebugLoadProjectAckToken,
@@ -545,11 +556,15 @@ Replace is best when this file should become the script you edit. Append is safe
             .sheet(isPresented: $showingFullStudioThread) {
                 fullStudioThreadSheet
             }
+            .sheet(isPresented: $vm.isPagesOverviewPresented) { screenplayPagesOverviewSheet }
             .background(studioFocusShortcutLayer)
     }
 
     private var studioLifecycleBoundView: some View {
         studioLifecycleInteractionBoundView
+            .onReceive(NotificationCenter.default.publisher(for: .themStudioActionRequested)) { notification in
+                handleStudioActionNotification(notification)
+            }
             .onReceive(NotificationCenter.default.publisher(for: .themTurnCommitted)) { notification in
                 guard let event = BackendTurnCommittedEvent(notification: notification) else { return }
                 handleStudioTurnCommittedEvent(event)
@@ -604,6 +619,11 @@ Replace is best when this file should become the script you edit. Append is safe
 
     private var studioLifecycleInteractionBoundView: some View {
         studioLifecycleDebugBoundView
+            .onReceive(NotificationCenter.default.publisher(for: .themStudioPromptSubmissionStopped)) { notification in
+                guard StudioPromptSubmissionLease.shouldRevoke(state: perceivedSpeedState, notification: notification,
+                    currentScope: .current(), isCurrentEditor: ScreenplayLiveDraftSyncService.shared.ownsEditor(vm)) else { return }
+                revokeStudioPromptSubmission()
+            }
             .onChange(of: studioPromptFocused) { _, _ in
                 publishDebugStudioDiffState()
             }
@@ -718,6 +738,7 @@ Replace is best when this file should become the script you edit. Append is safe
     private var studioLifecycleTaskBoundView: some View {
         studioStateBoundView
             .onDisappear {
+                revokeStudioPromptSubmission()
                 backendThreadViewStatePersistTask?.cancel()
                 backendAskNoteHistoryPersistTask?.cancel()
                 liveDraftBridge.clearAnchoredTextRect()
@@ -783,10 +804,9 @@ Replace is best when this file should become the script you edit. Append is safe
 
     private var studioStateBoundView: some View {
         studioInspectorWorkspaceBoundView
-            .onChange(of: vm.fountainDraft) { _, newValue in
-                if liveDraftBridge.draftText != newValue {
-                    liveDraftBridge.draftText = newValue
-                }
+            .onChange(of: ScreenplayDraftTextObservation(text: vm.fountainDraft)) { _, observed in
+                let newValue = observed.text
+                guard vm.mirrorDraftIntoLiveBridgeIfOwned(newValue) else { return }
                 if let committed = liveDraftBridge.lastCommittedWrite,
                    newValue != committed.committedDraft {
                     dismissLastCommittedWriteActions()
@@ -856,6 +876,7 @@ Replace is best when this file should become the script you edit. Append is safe
                 }
             }
             .onChange(of: vm.outline) { _, _ in
+                StudioOutlineRegistry.shared.update(beats: vm.outline.beats)
                 if shouldRestoreInspectorWorkspaceOnNextOutlineChange {
                     shouldRestoreInspectorWorkspaceOnNextOutlineChange = false
                     restoreInspectorWorkspaceState()
@@ -899,10 +920,6 @@ Replace is best when this file should become the script you edit. Append is safe
             }
             .onChange(of: selectedInspectorSection) { _, _ in
                 persistInspectorWorkspaceState()
-            }
-            .onChange(of: vm.selectedCraftFrameworkID) { _, _ in
-                guard directionOneRightPanelTab == .craft else { return }
-                vm.noteCraftFrameworkSelectionChanged()
             }
             .onChange(of: selectedBeatInspectorID) { _, _ in
                 persistInspectorWorkspaceState()
@@ -1085,6 +1102,7 @@ Replace is best when this file should become the script you edit. Append is safe
                 }
                 #endif
                 await vm.load()
+                await vm.reconnectAndResumeQueuedDraftSaves()
                 _ = await selectPreferredProjectIfNeeded(liveDraftBridge.preferredProjectID)
                 _ = await applyBridgeDebugProjectLoadIfNeeded(force: true)
                 await restoreStudioWorkspaceAfterProjectHydration()
@@ -1146,9 +1164,9 @@ Replace is best when this file should become the script you edit. Append is safe
                     }
                 }
             }
-            .onChange(of: liveDraftBridge.draftText) { _, newValue in
+            .onChange(of: ScreenplayDraftTextObservation(text: liveDraftBridge.draftText)) { _, newValue in
                 vm.replaceDraftFromVoiceBridgeIfNeeded(
-                    newValue,
+                    newValue.text,
                     draftOriginProjectID: liveDraftBridge.draftOriginProjectIDSnapshot()
                 )
             }
@@ -1195,7 +1213,7 @@ Replace is best when this file should become the script you edit. Append is safe
             }
             .onChange(of: liveDraftBridge.lastCommittedWrite) { _, committedWrite in
                 guard let committedWrite else { return }
-                vm.adoptCommittedPageWriteIfNeeded(committedWrite)
+                vm.adoptCommittedPageWriteIfNeeded(committedWrite, sceneLabel: sceneLabelForLine(committedWrite.startLine))
                 if suppressLastCommittedWriteAutoReveal {
                     suppressLastCommittedWriteAutoReveal = false
                     publishDebugStudioDiffState()
@@ -2071,21 +2089,15 @@ Replace is best when this file should become the script you edit. Append is safe
                         .ignoresSafeArea()
 
                     draftConflictBanner(conflict)
-                        .frame(maxWidth: 560)
-                        .padding(.horizontal, 20)
-                        .padding(.top, 70 + compactTopInset)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .screenplayRecoveryOverlay(topInset: compactTopInset)
+                } else if vm.heldDraftRecovery != nil {
+                    ScreenplayHeldDraftRecoveryOverlay(viewModel: vm, topInset: compactTopInset)
                 } else if let recovery = vm.recoveryCandidate {
                     Color.black.opacity(0.08)
                         .ignoresSafeArea()
 
                     draftRecoveryBanner(recovery)
-                        .frame(maxWidth: 560)
-                        .padding(.horizontal, 20)
-                        .padding(.top, 70 + compactTopInset)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .screenplayRecoveryOverlay(topInset: compactTopInset)
                 }
             }
             .animation(.easeOut(duration: 0.18), value: vm.conflictState != nil)
@@ -2335,17 +2347,22 @@ Replace is best when this file should become the script you edit. Append is safe
                     .accessibilityIdentifier("studio.prompt.field")
 #if os(iOS)
                     .toolbar {
+                        // Keyboard toolbar items show for every focused field on
+                        // the screen, so without this check a Send for the command
+                        // bar floated over the keyboard while writing the page.
                         ToolbarItemGroup(placement: .keyboard) {
-                            Spacer()
-                            Button("Send") {
-                                submitStudioPromptSeed()
+                            if studioPromptFocused {
+                                Spacer()
+                                Button("Send") {
+                                    submitStudioPromptSeed()
+                                }
+                                .accessibilityIdentifier("studio.prompt.keyboard-send")
+                                .disabled(
+                                    isSubmittingStudioPrompt ||
+                                    isSubmittingPrompt ||
+                                    studioPromptSeed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                )
                             }
-                            .accessibilityIdentifier("studio.prompt.keyboard-send")
-                            .disabled(
-                                isSubmittingStudioPrompt ||
-                                isSubmittingPrompt ||
-                                studioPromptSeed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                            )
                         }
                     }
 #endif
@@ -2720,29 +2737,30 @@ private var directionOneHeaderDoneButton: some View {
 }
 
 private var directionOneCompactTalkButton: some View {
-    Button {
-        if talkIsActive {
-            onStopTalk()
+    let isActive = talkIsActive || isSubmittingStudioPrompt
+    return Button {
+        if isActive {
+            stopStudioPromptAndTalk()
         } else if canTalk {
             onArmTalk()
         }
     } label: {
-        Image(systemName: talkIsActive ? "stop.fill" : "waveform")
+        Image(systemName: isActive ? "stop.fill" : "waveform")
             .font(.system(size: 12, weight: .semibold))
             .foregroundStyle(
-                talkIsActive
+                isActive
                     ? Color.red.opacity(0.86)
                     : (canTalk ? directionOneChromeText.opacity(0.90) : directionOneChromeSecondaryText)
             )
             .frame(width: 28, height: 28)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(talkIsActive ? Color.red.opacity(0.10) : directionOneChromePanelSoft)
+                    .fill(isActive ? Color.red.opacity(0.10) : directionOneChromePanelSoft)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .stroke(
-                        talkIsActive
+                        isActive
                             ? Color.red.opacity(0.22)
                             : directionOneChromeStroke.opacity(0.55),
                         lineWidth: 1
@@ -2750,10 +2768,10 @@ private var directionOneCompactTalkButton: some View {
             )
     }
     .buttonStyle(.plain)
-    .disabled(!canTalk && !talkIsActive)
-    .accessibilityLabel(talkIsActive ? "Stop talking" : "Start talking")
+    .disabled(!canTalk && !isActive)
+    .accessibilityLabel(isActive ? "Stop talking" : "Start talking")
     .accessibilityIdentifier("studio.compact.talk")
-    .help(talkIsActive ? "Stop talking" : "Start talking")
+    .help(isActive ? "Stop talking" : "Start talking")
 }
 
 private var directionOneCompactDoneButton: some View {
@@ -2780,22 +2798,23 @@ private var directionOneCompactDoneButton: some View {
 }
 
 private var directionOneTalkButton: some View {
-    Button {
-        if talkIsActive {
-            onStopTalk()
+    let isActive = talkIsActive || isSubmittingStudioPrompt
+    return Button {
+        if isActive {
+            stopStudioPromptAndTalk()
         } else if canTalk {
             onArmTalk()
         }
     } label: {
         HStack(spacing: 6) {
             Circle()
-                .fill(talkIsActive ? Color.white.opacity(0.92) : (canTalk ? Color.white.opacity(0.92) : Color.herStudioActiveFill.opacity(0.30)))
+                .fill(isActive ? Color.white.opacity(0.92) : (canTalk ? Color.white.opacity(0.92) : Color.herStudioActiveFill.opacity(0.30)))
                 .frame(width: 8, height: 8)
-            Text(talkIsActive ? "Stop" : "Talk")
+            Text(isActive ? "Stop" : "Talk")
                 .font(.system(size: 11, weight: .semibold, design: .default))
         }
         .foregroundStyle(
-            talkIsActive
+            isActive
                 ? Color.red.opacity(0.86)
                 : (canTalk ? Color.white : Color.herText.opacity(0.42))
         )
@@ -2804,7 +2823,7 @@ private var directionOneTalkButton: some View {
         .background(
             RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .fill(
-                    talkIsActive
+                    isActive
                         ? Color.red.opacity(0.10)
                         : (canTalk ? Color.accentColor.opacity(0.92) : directionOneChromePanelSoft)
                 )
@@ -2812,7 +2831,7 @@ private var directionOneTalkButton: some View {
         .overlay(
             RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .stroke(
-                    talkIsActive
+                    isActive
                         ? Color.red.opacity(0.22)
                         : (canTalk ? Color.accentColor.opacity(0.94) : directionOneChromeStroke.opacity(0.55)),
                     lineWidth: 1
@@ -2820,18 +2839,18 @@ private var directionOneTalkButton: some View {
         )
     }
     .buttonStyle(.plain)
-    .disabled(!canTalk && !talkIsActive)
+    .disabled(!canTalk && !isActive)
 }
 private var directionOneScriptEditor: some View {
     GeometryReader { proxy in
         ScrollView(.vertical, showsIndicators: false) {
-            VStack(spacing: 0) {
+            ZStack(alignment: .top) {
+                directionOnePageEditor(proxy.size)
+                    .disabled(vm.isLoading)
                 if vm.isLoading {
                     ProgressView("Loading screenplay projects…")
                         .controlSize(.large)
-                        .frame(width: proxy.size.width, height: max(proxy.size.height * 0.6, 360))
-                } else {
-                    directionOnePageEditor(proxy.size)
+                        .padding(.top, 20)
                 }
             }
             .frame(maxWidth: .infinity)
@@ -2874,7 +2893,12 @@ private var directionOneScriptEditor: some View {
                 isCommitNoticeVisible: isPageCommitNoticeVisible
             ) {
                 CursorInsertTextEditor(
-                    text: $vm.fountainDraft, documentID: vm.selectedProjectID,
+                    text: Binding(
+                        get: { vm.fountainDraft },
+                        set: { vm.publishNativeEditorDraft($0) }
+                    ),
+                    documentID: liveDraftBridge.draftOrigin.documentID ?? vm.selectedProjectID,
+                    externalMutationRevision: vm.editorExternalDraftMutationRevision,
                     activeScreenplayElement: $liveDraftBridge.activeScreenplayElement,
                     insertionRequest: $liveDraftBridge.pendingInsertion,
                     lineJumpRequest: $liveDraftBridge.pendingLineJump,
@@ -3911,56 +3935,6 @@ Detail:
         }
     }
 
-    private var directionOneCraftPanel: some View {
-        ScreenplayCraftRailView(
-            projectTitle: vm.selectedProject?.title ?? "",
-            versionId: vm.latestVersionID,
-            selectedFrameworkID: $vm.selectedCraftFrameworkID,
-            frameworks: vm.craftFrameworks,
-            report: vm.craftReport,
-            isLoading: vm.isCraftLoading,
-            isAnalyzing: vm.isCraftAnalyzing,
-            errorText: vm.craftErrorText,
-            infoText: vm.craftInfoText,
-            fallbackPageCount: vm.craftFallbackPageCount,
-            isSavingOverride: vm.isCraftOverrideSaving,
-            logline: vm.craftLogline,
-            loglineDrift: vm.craftLoglineDrift,
-            loglineHistory: vm.craftLoglineHistory,
-            isLoglineLoading: vm.isCraftLoglineLoading,
-            loglineErrorText: vm.craftLoglineErrorText,
-            loglineInfoText: vm.craftLoglineInfoText,
-            formatLintCards: vm.formatLintCards,
-            isFormatLinting: vm.isFormatLinting,
-            formatLintErrorText: vm.formatLintErrorText,
-            formatLintSource: vm.formatLintSourceText,
-            coverageSimulationReport: vm.coverageSimulationReport,
-            isCoverageSimulating: vm.isCoverageSimulating,
-            coverageSimulationErrorText: vm.coverageSimulationErrorText,
-            coverageSimulationSource: vm.coverageSimulationSourceText,
-            canSimulateCoverage: vm.canSimulateCraftCoverage,
-            isCoverageSimulationCurrent: vm.isCoverageSimulationCurrent,
-            onRefresh: {
-                Task { await vm.loadCraftReport(force: true) }
-            },
-            onRefreshLogline: {
-                Task { await vm.refreshCraftLogline(source: "Manual check") }
-            },
-            onRefreshFormatLint: {
-                Task { await vm.refreshFormatLint(source: "Manual check") }
-            },
-            onSimulateCoverage: {
-                Task { await vm.refreshCraftCoverage(source: "Manual check") }
-            },
-            onAnalyze: {
-                Task { await vm.analyzeCraftReport() }
-            },
-            onCreateOverride: { override in
-                Task { await vm.createCraftTurnOverride(override) }
-            }
-        )
-    }
-
     private var directionOneOutlinePanel: some View {
         sectionCard(title: "Outline") {
             let featureSnapshot = featureWorkflowSnapshot
@@ -4543,13 +4517,13 @@ private func refreshStudioCreativeInstincts(
                         .foregroundStyle(Color.red.opacity(0.90))
                     HStack(spacing: 8) {
                         Button("Load Server") {
-                            vm.applyServerVersionFromConflict()
+                            Task { await vm.applyServerVersionFromConflict() }
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.bordered).disabled(vm.isPreparingConflictResolution)
                         Button("Keep Mine") {
                             Task { await vm.keepLocalDraftAfterConflict() }
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.borderedProminent).disabled(vm.isPreparingConflictResolution)
                     }
                 }
                 .padding(10)
@@ -4568,8 +4542,7 @@ private func refreshStudioCreativeInstincts(
             .font(.system(size: 12, weight: .regular, design: .default))
 
             Button("Clear Draft") {
-                vm.clearDraft()
-                liveDraftBridge.clearDraft()
+                Task { _ = await vm.clearDraft() }
                 showingDirectionOneSettings = false
             }
             .font(.system(size: 12, weight: .regular, design: .default))
@@ -5081,7 +5054,7 @@ private var projectsSidebarContent: some View {
             revisionColor: $vm.revisionColor,
             snapshotLabel: $vm.snapshotLabel,
             presentation: draftToolsPresentation,
-            actions: draftToolsActions
+            actions: draftToolsActions, recoveryVM: vm, onStopTalk: stopStudioPromptAndTalk
         )
     }
 
@@ -5104,7 +5077,7 @@ private var projectsSidebarContent: some View {
             ),
             pages: ScreenplayStudioDraftPagesPresentation(
                 isRefreshing: vm.isPaginationRefreshing,
-                isDraftEmpty: isDraftEmpty,
+                isDraftEmpty: vm.localPaginationPages.isEmpty,
                 errorText: vm.paginationErrorText,
                 pages: draftPaginationPagePresentations
             ),
@@ -5122,10 +5095,11 @@ private var projectsSidebarContent: some View {
     }
 
     private var draftPaginationPagePresentations: [ScreenplayStudioPaginationPagePresentation] {
-        vm.paginationPages.map { page in
-            ScreenplayStudioPaginationPagePresentation(
+        vm.localPaginationPages.map { layoutPage in
+            let page = layoutPage.backendPage(linesPerPage: vm.linesPerPage)
+            return ScreenplayStudioPaginationPagePresentation(
                 page: page,
-                thumbnailLines: ScreenplayStudioDraftToolsPresentationPlanner.paginationThumbnailLines(
+                thumbnailLines: ScreenplayStudioDraftToolsPresentationPlanner.paginationPreviewLines(
                     for: page,
                     draft: vm.fountainDraft
                 ),
@@ -5179,8 +5153,14 @@ private var projectsSidebarContent: some View {
             onImport: {
                 importDraftDocument()
             },
-            onExport: { format in
-                Task { await exportCurrentDraft(format: format) }
+            onPrepareExport: {
+                #if os(iOS)
+                endCompactScreenplayEditing()
+                #endif
+            },
+            exportProjectID: vm.selectedProjectID,
+            onExport: { format, coordinator in
+                Task { await exportCurrentDraft(format: format, coordinator: coordinator) }
             },
             onRefreshExportFormats: {
                 Task { await vm.refreshScreenplayExportFormats() }
@@ -8285,16 +8265,7 @@ Current draft version:
         }
     }
 
-    private var studioPromptPlaceholder: String {
-        switch studioPromptIntent {
-        case .advice:
-            return "Ask for guidance or the next move"
-        case .rewrite:
-            return "Describe the rewrite you want on the page"
-        case .voicePin:
-            return "Pin a note for io.them to hold"
-        }
-    }
+    private var studioPromptPlaceholder: String { studioPromptIntent.placeholder }
 
     private var promptRoutingControl: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -8341,16 +8312,7 @@ Current draft version:
 
     private func selectStudioPromptRoutingMode(_ mode: PromptRoutingMode) {
         studioPromptRoutingMode = mode
-        switch mode {
-        case .automatic:
-            studioPromptIntent = .advice
-        case .page:
-            studioPromptIntent = .rewrite
-        case .voicePin:
-            if studioPromptIntent == .rewrite {
-                studioPromptIntent = .voicePin
-            }
-        }
+        studioPromptIntent = studioPromptIntent.selectingDestination(mode)
     }
 
     private func selectStudioPromptIntent(_ intent: StudioPromptIntent) {
@@ -8360,7 +8322,7 @@ Current draft version:
             if studioPromptRoutingMode == .page {
                 studioPromptRoutingMode = .voicePin
             }
-        case .rewrite:
+        case .write, .rewrite:
             studioPromptRoutingMode = .page
         case .voicePin:
             studioPromptRoutingMode = .voicePin
@@ -8759,7 +8721,8 @@ Current draft version:
                 Spacer(minLength: 0)
 
                 HStack(spacing: 8) {
-                    if vm.selectedProject == nil {
+                    screenplayPagesOverviewChip
+                    if vm.selectedProject == nil && !vm.hasPendingInitialProject {
                         screenplayPageActionChipButton(
                             title: "Create Project",
                             systemImage: "rectangle.stack.badge.plus",
@@ -8772,9 +8735,9 @@ Current draft version:
                                 selectedSidebarSection = .projects
                             }
                         }
-                    } else if vm.hasUnsavedDraftChanges {
+                    } else if vm.hasUnsavedDraftChanges || vm.hasPendingInitialProject {
                         screenplayPageActionChipButton(
-                            title: vm.isSaving ? "Saving…" : "Save now",
+                            title: vm.isSaving ? "Saving…" : (vm.hasPendingInitialProject ? "Finish setup" : "Save now"),
                             systemImage: vm.isSaving ? "arrow.clockwise" : "square.and.arrow.down",
                             tint: vm.isSaving ? Color.orange.opacity(0.86) : Color.blue.opacity(0.84),
                             fill: vm.isSaving ? Color.orange.opacity(0.08) : Color.blue.opacity(0.08),
@@ -8916,18 +8879,7 @@ Current draft version:
     }
 
     private var screenplayPagePageCountText: String {
-        if !vm.paginationPages.isEmpty {
-            return "\(vm.paginationPages.count)"
-        }
-        guard !screenplayPageShouldShowEmptyPlaceholder else {
-            return "0"
-        }
-        let normalized = vm.fountainDraft
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-        let lineCount = max(1, normalized.components(separatedBy: "\n").count)
-        let estimated = Int(ceil(Double(lineCount) / Double(max(vm.linesPerPage, 1))))
-        return "\(max(1, estimated))"
+        "\(vm.estimatedFeaturePageCount)"
     }
 
     private var screenplayPageRevisionStateText: String {
@@ -9025,31 +8977,6 @@ Current draft version:
                 }
             }
         }
-    }
-
-    private func screenplayPageStatusChip(
-        title: String,
-        systemImage: String,
-        tint: Color,
-        fill: Color,
-        stroke: Color
-    ) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: systemImage)
-                .font(.system(size: 10, weight: .semibold, design: .default))
-                .foregroundStyle(tint)
-            Text(title)
-                .font(.system(size: 10, weight: .semibold, design: .default))
-                .foregroundStyle(tint)
-        }
-        .padding(.horizontal, 9)
-        .padding(.vertical, 5)
-        .background(fill)
-        .overlay(
-            Capsule()
-                .stroke(stroke, lineWidth: 1)
-        )
-        .clipShape(Capsule())
     }
 
     private func screenplayPageActionChipButton(
@@ -9160,41 +9087,32 @@ Current draft version:
     private func draftRecoveryBanner(
         _ recovery: ScreenplayStudioViewModel.LocalDraftRecoveryCandidate
     ) -> some View {
-        let currentDraft = vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        let recoveryDraft = recovery.draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        let recoveryAlreadyOnPage = vm.hasUnsavedDraftChanges &&
-            !currentDraft.isEmpty &&
-            currentDraft == recoveryDraft
+        let recoveryAlreadyOnPage = vm.fountainDraft.utf8.elementsEqual(recovery.draft.utf8)
         let savedText = relativeTimestamp(dateFromTimestamp(recovery.savedAt) ?? .now)
+        let preview = recovery.draft.split(whereSeparator: \.isNewline)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+            .prefix(2).joined(separator: "\n")
 
         return draftAlertBanner(
-            title: recoveryAlreadyOnPage ? "Local draft protected" : "Unsaved local draft found",
+            title: recoveryAlreadyOnPage ? "Recovery copy matches page" : "Unsaved local draft found",
             message: recoveryAlreadyOnPage
-                ? "Saved locally \(savedText). Retry Save when the connection is back, or discard the recovery copy."
-                : "Saved \(savedText). Recover it or keep the server draft.",
+                ? "This recovery copy matches the current page. Keep it or discard the copy."
+                : recovery.overflowSnapshot != nil
+                    ? "A newer page was kept separately. Recover it or discard this copy and keep the current page."
+                    : "Saved \(savedText). Recover it or discard this copy and keep the current page.",
             hint: recoveryAlreadyOnPage
-                ? "Press 1 to keep the local draft on the page or 2 to discard the recovery copy."
-                : "Press 1 to recover local or 2 to keep the server draft.",
+                ? "Press 1 to keep the current page or 2 to discard the recovery copy."
+                : "Press 1 to recover local or 2 to discard this recovery copy.",
             tint: Color.orange.opacity(0.88),
-            excerpt: nil
+            excerpt: preview
         ) {
-            NumberedChoiceActionButton(
-                number: "1",
-                title: recoveryAlreadyOnPage ? "Keep Local" : "Recover Local",
-                prominence: .prominent
-            ) {
-                vm.restoreDraftFromRecovery()
-            }
-            NumberedChoiceActionButton(
-                number: "2",
-                title: recoveryAlreadyOnPage ? "Discard Copy" : "Keep Server"
-            ) {
-                if recoveryAlreadyOnPage {
-                    vm.discardLocalRecoveryCopy()
-                } else {
-                    vm.keepServerDraft()
-                }
-            }
+            ScreenplayRecoveryActionButtons(
+                recoveryAlreadyOnPage: recoveryAlreadyOnPage,
+                canReviewNext: vm.canReviewNextRecoveryCopy,
+                onRecover: { vm.restoreDraftFromRecovery() },
+                onDiscard: { recoveryAlreadyOnPage ? vm.discardLocalRecoveryCopy() : vm.keepServerDraft() },
+                onNext: { vm.reviewNextRecoveryCopy() }
+            )
         }
     }
 
@@ -9216,14 +9134,14 @@ Current draft version:
             excerpt: conflict.serverDraftExcerpt
         ) {
             Button {
-                vm.applyServerVersionFromConflict()
+                Task { await vm.applyServerVersionFromConflict() }
             } label: {
                 Text("1 Load Server")
             }
             .buttonStyle(.bordered)
             .tint(Color.white.opacity(0.24))
             .keyboardShortcut("1", modifiers: [])
-            .accessibilityIdentifier("studio.conflict.load-server")
+            .accessibilityIdentifier("studio.conflict.load-server").disabled(vm.isPreparingConflictResolution)
 
             Button {
                 Task { await vm.keepLocalDraftAfterConflict() }
@@ -9233,7 +9151,7 @@ Current draft version:
             .buttonStyle(.borderedProminent)
             .tint(Color.white.opacity(0.24))
             .keyboardShortcut("2", modifiers: [])
-            .accessibilityIdentifier("studio.conflict.keep-mine")
+            .accessibilityIdentifier("studio.conflict.keep-mine").disabled(vm.isPreparingConflictResolution)
         }
     }
 
@@ -9282,6 +9200,7 @@ Current draft version:
             }
         }
         .padding(12)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(tint.opacity(0.10))
@@ -9411,12 +9330,12 @@ Return revised screenplay lines only.
     }
 
     private func canRevertCommittedWrite(_ committedWrite: ScreenplayCommittedWrite) -> Bool {
-        vm.fountainDraft == committedWrite.committedDraft
+        ScreenplayCommittedDraftAdoptionPolicy.canRevert(selectedProjectID: vm.selectedProjectID, committedProjectID: committedWrite.projectID, currentDraft: vm.fountainDraft, committedDraft: committedWrite.committedDraft)
     }
 
     private func revertCommittedWrite(_ committedWrite: ScreenplayCommittedWrite, successMessage: String) {
         guard canRevertCommittedWrite(committedWrite) else {
-            vm.infoText = "The draft changed after that write, so there is nothing simple to undo now."
+            vm.infoText = "This write no longer matches the open draft. Your current words were kept."
             dismissLastCommittedWriteActions()
             return
         }
@@ -9510,7 +9429,7 @@ Return revised screenplay lines only.
         )
     }
 
-    private func undoLastCommittedWrite(_ committedWrite: ScreenplayCommittedWrite) {
+    func undoLastCommittedWrite(_ committedWrite: ScreenplayCommittedWrite) {
         revertCommittedWrite(committedWrite, successMessage: "Removed the last write from the page.")
     }
 
@@ -10155,7 +10074,7 @@ Return revised screenplay lines only.
             sluglineAnchorLine: resolvedSluglineAnchorLine,
             memoryDomainRaw: liveDraftBridge.latestMemoryDomain.rawValue,
             companionModeRaw: liveDraftBridge.companionMode.rawValue,
-            timestamp: Date()
+            timestamp: resolvedWriteID == nil ? Date() : (committedWriteOverride ?? liveDraftBridge.lastCommittedWrite)?.committedAt ?? Date()
         ))
 
         let shouldAutoOpenOnVoiceTurn = source == .voice && target == .page && !didAutoOpenVoicePinOnFirstVoiceTurn
@@ -10248,7 +10167,7 @@ Return revised screenplay lines only.
     private func restoredStudioPromptIntent(
         for exchange: StudioAskNoteExchange
     ) -> StudioPromptIntent {
-        guard exchange.target == .voicePin else { return .rewrite }
+        guard exchange.target == .voicePin else { return .write }
         return resolvedMemoryDomain(for: exchange) == .companion ? .voicePin : .advice
     }
 
@@ -10871,26 +10790,7 @@ Return revised screenplay lines only.
     }
 
     private func currentScreenplayBindingPayload() -> [BackendScreenplayBindingRecord] {
-        let bindingSnapshot = liveDraftBridge.projectBinding
-        guard !bindingSnapshot.projectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
-        let timestamp = max(bindingSnapshot.updatedAt.timeIntervalSince1970 * 1000, 1)
-        return bindingSnapshot.sceneBindings.map { binding in
-            BackendScreenplayBindingRecord(
-                draftSceneId: binding.draftSceneID,
-                draftLine: binding.draftLine,
-                draftEndLine: binding.draftEndLine,
-                draftSlugline: binding.draftSlugline,
-                draftShortLabel: binding.draftShortLabel,
-                outlineSceneId: binding.outlineSceneID,
-                outlineSceneTitle: binding.outlineSceneTitle,
-                outlineSceneSlugline: binding.outlineSceneSlugline,
-                outlineBeatIds: binding.outlineBeatIDs,
-                outlineBeatLabels: binding.outlineBeatLabels,
-                actTitle: binding.actTitle,
-                matchedBy: binding.matchedBy,
-                updatedAt: timestamp
-            )
-        }
+        ScreenplayBindingPayload.make(snapshot: liveDraftBridge.projectBinding, previous: vm.screenplayBindings)
     }
 
     private func currentStudioWriteAnchorPayload(from entries: [StudioAskNoteExchange]) -> [BackendScreenplayWriteAnchor] {
@@ -12403,7 +12303,7 @@ Return revised screenplay lines only.
             : "Sidebar hidden."
     }
 
-    private func toggleDirectionOneRightRailVisibility() {
+    func toggleDirectionOneRightRailVisibility() {
         let nextIsVisible = !isDirectionOneRightRailExpanded
         #if os(iOS)
         if isDirectionOneCompactLayout, nextIsVisible {
@@ -12464,7 +12364,7 @@ Return revised screenplay lines only.
         }
     }
 
-    private func triggerStudioManualSave(revealSavedTab: Bool = true) {
+    func triggerStudioManualSave(revealSavedTab: Bool = true) {
         #if DEBUG
         if IOThemRuntime.isRunningUITests {
             uiTestManualSaveTriggerCount += 1
@@ -12995,26 +12895,34 @@ Return revised screenplay lines only.
         perceivedSpeedState = completedState
     }
 
-    @MainActor
-    private func waitForCommittedStudioPageWrite(
-        submittedAt: Date,
-        timeoutMs: UInt64 = 8_000
-    ) async -> ScreenplayCommittedWrite? {
-        let deadline = Date().addingTimeInterval(TimeInterval(timeoutMs) / 1_000)
-        while Date() < deadline {
-            if let committedWrite = liveDraftBridge.lastCommittedWrite {
-                let insertedText = committedWrite.insertedText.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !insertedText.isEmpty,
-                   committedWrite.committedAt >= submittedAt.addingTimeInterval(-0.5) {
-                    return committedWrite
-                }
-            }
-            try? await Task.sleep(nanoseconds: 100_000_000)
-        }
-        return nil
+    private func studioPromptMayPublish(_ lease: StudioPromptSubmissionLease) -> Bool {
+        lease.mayPublish(state: perceivedSpeedState, documentIsCurrent: liveDraftBridge.permitsLiveTalkDocument(lease.document),
+            backendURL: BackendAuthClient.resolvedBackendBaseURL(), selectedProjectID: vm.selectedProjectID,
+            originProjectID: liveDraftBridge.draftOrigin.projectID, isCurrentEditor: !isSubmittingPrompt && ScreenplayLiveDraftSyncService.shared.ownsEditor(vm),
+            isCancelled: Task.isCancelled)
     }
 
-    private func submitStudioPromptText(
+    private func finishStudioPromptSubmission(_ lease: StudioPromptSubmissionLease) {
+        guard let completed = lease.finishedState(state: perceivedSpeedState) else { return }
+        if studioPromptMayPublish(lease), liveDraftBridge.autoInsertStatusText == perceivedSpeedState.statusText {
+            liveDraftBridge.autoInsertStatusText = ""
+        }
+        isSubmittingStudioPrompt = false; isResolvingPendingScreenplayQuestion = false
+        sendingVoicePinSuggestionID = nil; perceivedSpeedState = completed
+    }
+
+    private func revokeStudioPromptSubmission() {
+        perceivedSpeedState = .idle
+        isSubmittingStudioPrompt = false; isResolvingPendingScreenplayQuestion = false
+        sendingVoicePinSuggestionID = nil
+    }
+
+    private func stopStudioPromptAndTalk() {
+        revokeStudioPromptSubmission()
+        onStopTalk()
+    }
+
+    func submitStudioPromptText(
         _ rawText: String,
         displayText: String? = nil,
         source: StudioPromptSource = .typed,
@@ -13034,6 +12942,12 @@ Return revised screenplay lines only.
             return
         }
         guard !isSubmittingStudioPrompt, !isSubmittingPrompt else { return }
+        guard let document = liveDraftBridge.captureLiveTalkDocument(), vm.selectedProjectID == document.projectID,
+              ScreenplayLiveDraftSyncService.shared.ownsEditor(vm) else {
+            vm.infoText = "The writing account or page is still changing. Reopen Studio, then try again."; return
+        }
+        let backendURL = BackendAuthClient.resolvedBackendBaseURL()
+        let seedAtSubmission = studioPromptSeed
         let routesToPage = shouldRoutePromptToPage(text, routingMode)
         let featureSnapshotForSubmission = routesToPage ? featureWorkflowSnapshot : nil
         let restoredStudioContextForSubmission = routesToPage ? restoredStudioPromptContinuityContext : []
@@ -13047,7 +12961,7 @@ Return revised screenplay lines only.
         let baseSubmittedText = featureContinuationPrompt ?? text
         let compatibleIntent = intent?.compatible(routesToPage: routesToPage)
         let submittedText = compatibleIntent?.preparing(baseSubmittedText) ?? baseSubmittedText
-        let requestID = requestIDOverride ?? "studio-\(UUID().uuidString.lowercased())"
+        let requestID = StudioPromptSubmissionLease.requestID(proposed: requestIDOverride)
         let pendingQuestionAtSubmission = vm.pendingScreenplayQuestion
         let pendingQuestionIDAtSubmission = pendingQuestionAtSubmission?.id
         if let featureSnapshotForSubmission {
@@ -13079,6 +12993,9 @@ Return revised screenplay lines only.
         } else {
             liveDraftBridge.clearPendingPageWriteReplacement()
         }
+        let lease = StudioPromptSubmissionLease(document: document, backendURL: backendURL, state: perceivedSpeedState,
+            pendingReplacementID: liveDraftBridge.pendingReplacementTarget?.id,
+            submittedReplacementID: liveDraftBridge.submittedReplacementTarget?.id)
         let debugReplacementMode = resolvedStudioDebugReplacementModeForSubmission(debugSubmitReplacementMode)
         let preparedDebugSubmitToken = matchingPreparedStudioDebugSubmitToken(
             text: text,
@@ -13138,6 +13055,15 @@ Return revised screenplay lines only.
         }
 #endif
         Task { @MainActor in
+            let watcher = Task { @MainActor in
+                await StudioPromptSubmissionLease.watchRevocation(changes: StudioPromptSubmissionLease.revocationEvents(bridge: liveDraftBridge),
+                    isCurrent: { lease.ownsDispatch(state: perceivedSpeedState) && perceivedSpeedState.isActive },
+                    stillOwned: { lease.stillOwnsScope(documentID: liveDraftBridge.draftOrigin.documentID, owner: .current(),
+                        backendURL: BackendAuthClient.resolvedBackendBaseURL(), isCurrentEditor: ScreenplayLiveDraftSyncService.shared.ownsEditor(vm)) },
+                    onRevoked: { finishStudioPromptSubmission(lease) })
+            }
+            defer { watcher.cancel(); finishStudioPromptSubmission(lease) }
+            guard studioPromptMayPublish(lease) else { return }
 #if DEBUG
             if let effectiveDebugSubmitToken {
                 setStudioDebugSubmitStage("on_submit_started", token: effectiveDebugSubmitToken)
@@ -13151,44 +13077,43 @@ Return revised screenplay lines only.
                         responseStatus: "answered",
                         answer: text
                     )
+                    guard studioPromptMayPublish(lease) else { return }
                     dismissPendingScreenplayQuestion(id: pendingQuestionAtSubmission.id)
                     isResolvingPendingScreenplayQuestion = false
                 } catch is BackendTalkQueuedError {
+                    guard studioPromptMayPublish(lease) else { return }
                     dismissPendingScreenplayQuestion(id: pendingQuestionAtSubmission.id)
                     isResolvingPendingScreenplayQuestion = false
-                    isSubmittingStudioPrompt = false
-                    self.sendingVoicePinSuggestionID = nil
-                    liveDraftBridge.clearPendingPageWriteReplacement()
-                    completePerceivedSpeedResponse(requestID: requestID)
-                    if clearSeedOnSuccess {
+                    if lease.ownsReplacement(pendingID: liveDraftBridge.pendingReplacementTarget?.id,
+                        submittedID: liveDraftBridge.submittedReplacementTarget?.id) { liveDraftBridge.clearPendingPageWriteReplacement() }
+                    if clearSeedOnSuccess, StudioPromptSubmissionLease.mayClearSeed(original: seedAtSubmission, current: studioPromptSeed) {
                         studioPromptSeed = ""
                     }
                     vm.infoText = "Answer saved. Clementine will use it when you're online."
+                    finishStudioPromptSubmission(lease)
                     completion?(nil)
                     return
                 } catch {
+                    guard studioPromptMayPublish(lease) else { return }
                     restorePendingScreenplayQuestion(pendingQuestionAtSubmission)
                     isResolvingPendingScreenplayQuestion = false
-                    isSubmittingStudioPrompt = false
-                    self.sendingVoicePinSuggestionID = nil
-                    liveDraftBridge.clearPendingPageWriteReplacement()
-                    completePerceivedSpeedResponse(requestID: requestID)
+                    if lease.ownsReplacement(pendingID: liveDraftBridge.pendingReplacementTarget?.id,
+                        submittedID: liveDraftBridge.submittedReplacementTarget?.id) { liveDraftBridge.clearPendingPageWriteReplacement() }
                     let resolutionError = "Couldn’t save that answer. \(error.localizedDescription)"
                     vm.infoText = resolutionError
+                    finishStudioPromptSubmission(lease)
                     completion?(resolutionError)
                     return
                 }
             }
             let submittedAt = Date()
             let error = await onSubmitPrompt(submittedText, routingMode, requestID)
+            guard studioPromptMayPublish(lease) else { return }
 #if DEBUG || os(macOS)
             if let effectiveDebugSubmitToken {
                 setStudioDebugSubmitStage("on_submit_finished", token: effectiveDebugSubmitToken, error: error ?? "")
             }
 #endif
-            isSubmittingStudioPrompt = false
-            self.sendingVoicePinSuggestionID = nil
-            completePerceivedSpeedResponse(requestID: requestID)
             if let error, !error.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
 #if DEBUG || os(macOS)
                 if let effectiveDebugSubmitToken {
@@ -13205,23 +13130,27 @@ Return revised screenplay lines only.
                 }
 #endif
                 vm.infoText = error
+                finishStudioPromptSubmission(lease)
                 completion?(error)
                 return
             }
-            if clearSeedOnSuccess {
+            if clearSeedOnSuccess, StudioPromptSubmissionLease.mayClearSeed(original: seedAtSubmission, current: studioPromptSeed) {
                 studioPromptSeed = ""
             }
             if let pendingQuestionIDAtSubmission {
                 dismissPendingScreenplayQuestion(id: pendingQuestionIDAtSubmission)
                 await vm.refreshPendingScreenplayQuestion()
+                guard studioPromptMayPublish(lease) else { return }
             }
             let resolvedTarget: StudioTarget = routesToPage ? .page : .voicePin
             let committedPageWrite: ScreenplayCommittedWrite?
             if routesToPage {
-                committedPageWrite = await waitForCommittedStudioPageWrite(submittedAt: submittedAt)
+                committedPageWrite = await StudioPromptSubmissionLease.waitForCommittedWrite(submittedAt: submittedAt,
+                    isCurrent: { studioPromptMayPublish(lease) }, currentWrite: { liveDraftBridge.lastCommittedWrite })
             } else {
                 committedPageWrite = nil
             }
+            guard studioPromptMayPublish(lease) else { return }
             let pageInsertedTextFallback: String? = {
                 guard routesToPage else { return nil }
                 if let committedPageWrite {
@@ -13234,30 +13163,8 @@ Return revised screenplay lines only.
             let promptSummary = (displayText ?? text).trimmingCharacters(in: .whitespacesAndNewlines)
             let voicePinTextFallback: String? = {
                 guard !routesToPage else { return nil }
-                let defaults = UserDefaults.standard
-                let storedUpdatedAtSeconds = defaults.double(forKey: ScreenplayLiveDraftBridge.latestVoicePinReplyUpdatedAtStorageKey)
-                let storedUpdatedAt = storedUpdatedAtSeconds > 0
-                    ? Date(timeIntervalSince1970: storedUpdatedAtSeconds)
-                    : Date.distantPast
-                let latestUpdatedAt = max(liveDraftBridge.latestVoicePinReplyUpdatedAt, storedUpdatedAt)
-                guard latestUpdatedAt >= submittedAt.addingTimeInterval(-5.0) else { return nil }
-                let latestPrompt = {
-                    let bridgePrompt = liveDraftBridge.latestVoicePinPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !bridgePrompt.isEmpty { return bridgePrompt }
-                    return defaults.string(forKey: ScreenplayLiveDraftBridge.latestVoicePinPromptStorageKey)?
-                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                }()
-                guard latestPrompt.isEmpty ||
-                        latestPrompt == text ||
-                        latestPrompt == promptSummary ||
-                        latestPrompt == submittedText else { return nil }
-                let latest = {
-                    let bridgeReply = liveDraftBridge.latestVoicePinReply.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !bridgeReply.isEmpty { return bridgeReply }
-                    return defaults.string(forKey: ScreenplayLiveDraftBridge.latestVoicePinReplyStorageKey)?
-                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                }()
-                return latest.isEmpty ? nil : latest
+                return StudioPromptSubmissionLease.voicePinReply(bridge: liveDraftBridge,
+                    submittedAt: submittedAt, matchingPrompts: [text, promptSummary, submittedText])
             }()
             lastCommittedStudioPrompt = promptSummary
             lastCommittedStudioPromptTarget = resolvedTarget
@@ -13289,6 +13196,7 @@ Return revised screenplay lines only.
             }
 #endif
             vm.infoText = successMessage
+            finishStudioPromptSubmission(lease)
             completion?(nil)
         }
     }
@@ -13342,7 +13250,7 @@ Return revised screenplay lines only.
     ) {
         let resolvedTarget: StudioTarget = routesToPage ? .page : .voicePin
         let promptSummary = (displayText ?? prompt).trimmingCharacters(in: .whitespacesAndNewlines)
-        let memoryDomain = debugStudioPromptMemoryDomain(for: prompt, routesToPage: routesToPage)
+        let memoryDomain = StudioPromptSubmissionLease.debugMemoryDomain(for: prompt, routesToPage: routesToPage)
         var matchingExchange: StudioAskNoteExchange?
         let noteTitle: String
         let noteBody: String
@@ -13506,39 +13414,6 @@ Lucy--
 
 The door closes softly. That is worse than a slam.
 """
-    }
-
-    private func debugStudioPromptMemoryDomain(for prompt: String, routesToPage: Bool) -> StudioMemoryDomain {
-        guard !routesToPage else { return .project }
-        let normalized = " \(prompt.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) "
-        let companionCues = [
-            " i feel ",
-            " i am ",
-            " i'm ",
-            " im ",
-            " spiraling ",
-            " reassure ",
-            " talk me through ",
-            " stuck ",
-            " need you "
-        ]
-        let projectCues = [
-            " screenplay ",
-            " script ",
-            " scene ",
-            " midpoint ",
-            " story ",
-            " character ",
-            " beat ",
-            " act ",
-            " calls him ",
-            " parking lot "
-        ]
-        let hasCompanion = companionCues.contains(where: normalized.contains)
-        let hasProject = projectCues.contains(where: normalized.contains)
-        if hasCompanion && hasProject { return .mixed }
-        if hasCompanion { return .companion }
-        return .project
     }
 
     private func debugMentionedCharacterName(from prompt: String) -> String? {
@@ -14724,6 +14599,9 @@ Look at the city.
         shouldRestoreInspectorWorkspaceOnNextOutlineChange = true
         vm.outline = outline
         vm.applyStructuralUITestDraft(sampleDraft, versionID: "debug-version")
+        if ProcessInfo.processInfo.arguments.contains("--ui-draft-recovery-two-slot-fixture") {
+            vm.applyServerDraft(sampleDraft, versionId: "debug-version")
+        }
         vm.characterTraits = BackendCharacterTraitsResponse(
             schemaVersion: 1,
             userId: "ui-structural",
@@ -14829,7 +14707,9 @@ Look at the city.
             openStudioCommandBar()
         }
         applyUITestCompanionSignalFixtureIfNeeded(arguments)
-        applyUITestDraftConflictFixtureIfNeeded()
+        didApplyUITestDraftConflictFixture = ScreenplayStudioUITestFixtures.applyDraftConflictIfRequested(
+            viewModel: vm, alreadyApplied: didApplyUITestDraftConflictFixture)
+        ScreenplayStudioUITestFixtures.applyHeldDraftRecoveryIfRequested(viewModel: vm)
         applyUITestPendingScreenplayQuestionFixtureIfNeeded()
         if let prompt = uiTestLaunchArgumentValue("--ui-auto-submit-page-prompt", in: arguments) {
             studioPromptRoutingMode = .page
@@ -14913,9 +14793,7 @@ Look at the city.
               ) else {
             return
         }
-        didApplyUITestSaveNetworkFault = await vm.runQueuedSaveNetworkFaultUITest(
-            marker: marker
-        )
+        didApplyUITestSaveNetworkFault = await vm.runQueuedSaveNetworkFaultUITest(marker: marker)
         publishDebugStudioDiffState()
     }
 
@@ -14972,37 +14850,6 @@ Look at the city.
         isDirectionOneRightRailExpanded = true
     }
 
-    private func applyUITestDraftConflictFixtureIfNeeded() {
-        guard IOThemRuntime.isRunningUITests,
-              ProcessInfo.processInfo.arguments.contains("--ui-show-draft-conflict"),
-              !didApplyUITestDraftConflictFixture,
-              vm.conflictState == nil else {
-            return
-        }
-        let selectedID = vm.selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let project = vm.selectedProject ?? vm.projects.first(where: {
-            selectedID.isEmpty || $0.id == selectedID
-        }) else { return }
-        vm.selectedProject = project
-        vm.selectedProjectID = project.id
-        let serverDraft = """
-        EXT. FERRY TERMINAL - DAWN
-        MARA
-        The server copy survives.
-        """
-        vm.conflictState = ScreenplayStudioViewModel.SaveConflictState(
-            projectId: project.id,
-            baseVersionId: vm.latestVersionID,
-            serverVersionId: "ui-server-version",
-            serverDraft: serverDraft,
-            serverDraftExcerpt: "EXT. FERRY TERMINAL - DAWN",
-            serverUpdatedAt: Date().timeIntervalSince1970 * 1_000
-        )
-        vm.hasUnsavedDraftChanges = true
-        vm.autosaveStatusText = "Conflict detected"
-        vm.infoText = "Another device updated this draft. Choose keep mine or load server."
-        didApplyUITestDraftConflictFixture = true
-    }
     #endif
 
     private func applyDebugDraftInspectorIfNeeded() {
@@ -16118,7 +15965,7 @@ Look at the city.
                     break
                 }
                 vm.errorText = ""
-                vm.applyServerVersionFromConflict()
+                await vm.applyServerVersionFromConflict()
                 if vm.conflictState != nil {
                     status = "error"
                     errorText = "conflict_not_cleared"
@@ -17298,46 +17145,22 @@ Look at the city.
         return collapsed.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func jumpToPaginationPage(_ page: BackendScreenplayPaginationPage) {
-        liveDraftBridge.jumpToLine(page.startLine)
-        liveDraftBridge.highlightLineRange(startLine: page.startLine, endLine: page.endLine)
-    }
-
     @MainActor
     private func studioExportDependencies() -> ScreenplayStudioExportSupport.Dependencies {
-        ScreenplayStudioExportSupport.Dependencies(
-            draft: vm.fountainDraft,
-            projectTitle: vm.selectedProject?.title,
+        ScreenplayStudioExportSupport.makeStudioDependencies(
+            viewModel: vm,
             navigatorCurrentURL: navigatorCurrentURL,
-            isRunningUITests: IOThemRuntime.isRunningUITests,
-            refreshFormatLint: { source in
-                await vm.refreshFormatLint(source: source)
-            },
-            exportFromBackend: { format in
-                try await vm.exportArtifact(format: format)
-            },
-            setInfo: { message in
-                vm.infoText = message
-            },
-            setError: { message in
-                vm.errorText = message
-            },
-            noteSavedDirectory: { directoryURL in
-                navigatorCurrentURL = directoryURL
+            noteSavedDirectory: {
+                navigatorCurrentURL = $0
                 refreshNavigatorEntries()
             },
-            openURL: { url in
-                openURL(url)
-            }
+            openURL: { openURL($0, completion: $1) }
         )
     }
 
     @MainActor
-    private func exportCurrentDraft(format: String) async {
-        await ScreenplayStudioExportSupport.exportCurrentDraft(
-            format: format,
-            deps: studioExportDependencies()
-        )
+    private func exportCurrentDraft(format: String, coordinator: ScreenplayStudioExportCoordinator) async {
+        await coordinator.export(format: format, deps: studioExportDependencies())
     }
 
     @MainActor

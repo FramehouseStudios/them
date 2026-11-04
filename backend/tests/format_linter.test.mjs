@@ -14,6 +14,22 @@ function rules(suggestions) {
   return suggestions.map((s) => s.rule);
 }
 
+test("[format_linter] title metadata is not dialogue and body suggestions retain document ranges", () => {
+  for (const separator of ["\n", "\r\n", "\r", "\u2028", "\u2029", "\u0085"]) {
+    const normalized = "Title: NIGHT SIGNAL\nAuthor: Zoë Chen\n\nINT. ROOM - NIGHT\n\njune\nKeep the light on.";
+    const report = lintScreenplay({ text: normalized.replaceAll("\n", separator) });
+    const cues = report.suggestions.filter(suggestion => suggestion.rule === "character_cue_caps");
+    assert.deepEqual(cues.map(suggestion => [suggestion.line, suggestion.excerpt]), [[6, "june"]]);
+    assert.deepEqual(cues[0].range, [normalized.indexOf("june"), normalized.indexOf("june") + 4]);
+    assert.equal(lintScreenplay({ text: "Title: NIGHT SIGNAL\nAuthor: Zoë Chen\n" }).totalSuggestions, 0);
+  }
+});
+
+test("[format_linter] the Pages navigator source does not acquire false character cues", () => {
+  const source = ["Title: NIGHT SIGNAL", "Author: Zoë Chen", "", "INT. OBSERVATORY - NIGHT", "", ...Array.from({ length: 65 }, (_, index) => `Action${index + 1}.`)].join("\n");
+  assert.deepEqual(lintScreenplay({ text: source }).suggestions.filter(suggestion => suggestion.rule === "character_cue_caps"), []);
+});
+
 // ---------- envelope shape ----------
 
 test("[format_linter] envelope carries schemaVersion + ruleSetVersion + counts", () => {
@@ -94,6 +110,109 @@ Hello.
 `;
   const r = lintScreenplay({ text });
   assert.ok(!rules(r.suggestions).includes("character_cue_caps"));
+});
+
+test("[character_cue_caps] does not flag short dialogue, action lines or speech continuations", () => {
+  const text = `INT. KITCHEN - NIGHT
+
+MARA stands at the sink.
+She does not turn around.
+
+MARA
+You said you would call.
+I waited up.
+
+FRANK
+I did call.
+Twice.
+
+He waits.
+She does not move.
+
+Rain.
+`;
+  const r = lintScreenplay({ text });
+  assert.deepEqual(
+    r.suggestions.filter((x) => x.rule === "character_cue_caps").map((x) => x.excerpt),
+    [],
+  );
+});
+
+test("[character_cue_caps] still flags a mixed-case cue with an extension in cue position", () => {
+  const text = `INT. ROOM - NIGHT
+
+June (V.O.)
+Hello there.
+
+Frank
+Again.
+
+june
+And again.
+`;
+  const r = lintScreenplay({ text });
+  const hits = r.suggestions.filter((x) => x.rule === "character_cue_caps").map((x) => x.excerpt);
+  assert.deepEqual(hits, ["June (V.O.)", "Frank", "june"]);
+});
+
+test("[character_cue_caps] preserves forced Fountain case and flags unforced Unicode names", () => {
+  const text = `INT. ROOM - NIGHT
+
+@June (V.O.)
+I am still here.
+
+Élodie
+Moi aussi.
+`;
+  const r = lintScreenplay({ text });
+  const hits = r.suggestions.filter((x) => x.rule === "character_cue_caps");
+  assert.deepEqual(hits.map((x) => x.excerpt), ["Élodie"]);
+  assert.deepEqual(hits.map((x) => x.suggestion), ["Try: 'ÉLODIE'"]);
+});
+
+test("[character_cue_caps] accepts uppercase forced, accented, and caseless cues", () => {
+  const text = `INT. ROOM - NIGHT
+
+@JUNE (V.O.)
+I am still here.
+
+ÉLODIE
+Moi aussi.
+
+李明
+我也在。
+`;
+  const r = lintScreenplay({ text });
+  assert.deepEqual(r.suggestions.filter((x) => x.rule === "character_cue_caps"), []);
+});
+
+test("[character_cue_caps] uppercases only the name and preserves a valid extension", () => {
+  const text = `INT. ROOM - NIGHT
+
+Hans (on the radio)
+Can you hear me?
+`;
+  const r = lintScreenplay({ text });
+  const hit = r.suggestions.find((x) => x.rule === "character_cue_caps");
+  assert.equal(hit?.suggestion, "Try: 'HANS (on the radio)'");
+});
+
+test("[character_cue_caps] handles dual-dialogue extensions without promoting action paragraphs", () => {
+  const text = "HANS (on the radio) ^\nCan you hear me?\n\nHans (on the radio) ^\nAgain.\n\nMeanwhile\n\nHe waits.\n";
+  const hits = lintScreenplay({ text }).suggestions.filter((x) => x.rule === "character_cue_caps");
+  assert.deepEqual(hits.map((x) => x.excerpt), ["Hans (on the radio) ^"]);
+  assert.equal(hits[0].suggestion, "Try: 'HANS (on the radio) ^'");
+});
+
+test("[parenthetical_count] recognizes forced and mixed-extension character cues", () => {
+  for (const cue of ["@McCLANE", "HANS (on the radio)", "李明", "E\u0301LODIE"]) {
+    const text = `${cue}\n(quietly)\n(to himself)\nStill here.\n`;
+    const r = lintScreenplay({ text });
+    assert.ok(
+      r.suggestions.some((x) => x.rule === "parenthetical_count"),
+      `expected ${cue} to be recognized as a character cue`,
+    );
+  }
 });
 
 // ---------- parenthetical_density ----------

@@ -110,6 +110,7 @@ struct ScreenplayStudioProjectsSidebar<FeatureSpine: View>: View {
     }
 
     private func createProjectAndDismissKeyboard() {
+        guard !isSaving, !newProjectTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         isProjectTitleFocused = false
         onCreate()
     }

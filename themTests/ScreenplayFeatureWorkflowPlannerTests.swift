@@ -1107,6 +1107,17 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
         XCTAssertTrue(snapshot.comingNextSequence.contains("Act I - Catalyst To Commitment"))
         XCTAssertTrue(snapshot.acceptedBatchDetail.contains("L45-L49"))
         XCTAssertTrue(snapshot.hasAcceptedBatch)
+        let context = ScreenplayFeatureWorkflowSessionContext(requestID: "selected-workflow", submittedPrompt: snapshot.pageWritePrompt, snapshot: snapshot)
+        XCTAssertEqual(context.sceneObjective, "Mara hides the call from her brother while choosing whether to leave.")
+        XCTAssertEqual(context.sceneSummary, "INT. KITCHEN - DAY: The ordinary room becomes a pressure cooker.")
+        XCTAssertEqual(context.currentBeat, "Mara lies to stay free: Mara chooses the mystery over family safety.")
+        XCTAssertEqual(context.nextThreeTurns, [
+            "INT. KITCHEN - DAY: Mara hides the call from her brother while choosing whether to leave.",
+            "Mara lies to stay free: Mara chooses the mystery over family safety."
+        ])
+        XCTAssertFalse(context.nextThreeTurns.contains { $0.contains("Sequence move:") || $0.contains("Sharpen the act turn") })
+        XCTAssertTrue(context.lastSceneOutcome.isEmpty, "A line range is inventory, not an accepted narrative outcome")
+        XCTAssertEqual(context.planFacts?.actSummary, outline.acts.first?.summary)
     }
 
     func testPlannerFallsBackToFeatureSpineWhenOutlineIsEmpty() {
@@ -1150,6 +1161,23 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
         XCTAssertTrue(snapshot.sceneDoctorPrompt.contains("Scene doctor"))
         XCTAssertTrue(snapshot.sceneDoctorPrompt.contains("Sequence page moves:"))
         XCTAssertFalse(snapshot.hasAcceptedBatch)
+        let failedTurn = "Write the next scene: Continue the unfinished page with a concrete emotional turn."
+        XCTAssertEqual(snapshot.nextMoves.first.map { "\($0.title): \($0.detail)" }, failedTurn, "Keep the actual UI suggestion available")
+        let context = ScreenplayFeatureWorkflowSessionContext(requestID: "studio-restore", projectID: "empty-outline", versionID: "v1",
+            submittedPrompt: "Restored project continuity", snapshot: snapshot)
+        XCTAssertNotNil(context.planFacts, "A fresh no-outline snapshot still records its provenance")
+        XCTAssertTrue(context.sceneObjective.isEmpty)
+        XCTAssertTrue(context.currentBeat.isEmpty)
+        XCTAssertTrue(context.featureObligation.isEmpty)
+        XCTAssertTrue(context.nextScenePlan.isEmpty)
+        XCTAssertTrue(context.nextSceneMoves.isEmpty)
+        XCTAssertTrue(context.nextThreeTurns.isEmpty)
+        XCTAssertTrue(context.emotionalContinuity.isEmpty)
+        XCTAssertFalse(snapshot.pageWritePrompt.isEmpty)
+        XCTAssertTrue(context.continuityNotes.contains { $0.contains("craft guidance, not accepted events") })
+        XCTAssertFalse(ScreenplayFeatureWorkflowContextPersistencePolicy.shouldRefreshProjectRestoreContext(
+            current: context, projectID: "empty-outline", versionID: "v1", now: context.createdAt.addingTimeInterval(60)),
+            "A current no-outline projection must not trigger a refresh loop")
     }
 
     func testContinuationPromptElevationOnlyTargetsGenericPageContinuation() {
@@ -1305,7 +1333,10 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
             ],
             pageWritePrompt: "Write the next pages.",
             planningPrompt: "",
-            sceneDoctorPrompt: ""
+            sceneDoctorPrompt: "",
+            planFacts: groundedPlanFacts(sceneTitle: "INT. COURTHOUSE HALLWAY - NIGHT",
+                detail: "Mara must lie in public to protect the person she is starting to trust.",
+                beat: "Turn the midpoint victory into irreversible fallout.")
         )
 
         let context = ScreenplayFeatureWorkflowSessionContext(
@@ -1336,7 +1367,7 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
         XCTAssertEqual(context.sceneObjective, "Mara must lie in public to protect the person she is starting to trust.")
         XCTAssertTrue(context.sceneSummary.contains("INT. COURTHOUSE HALLWAY - NIGHT"))
         XCTAssertEqual(context.currentBeat, "Turn the midpoint victory into irreversible fallout.")
-        XCTAssertEqual(context.featureSequence, "Act II - Scene 7/14; 42 pages drafted")
+        XCTAssertTrue(context.featureSequence.isEmpty, "Estimated sequence guidance is not a project event")
         XCTAssertEqual(context.featureObligation, "Turn the midpoint victory into irreversible fallout.")
         XCTAssertTrue(context.nextScenePlan.contains("Next scene: INT. COURTHOUSE HALLWAY - NIGHT"))
         XCTAssertEqual(context.nextSceneMoves.count, 2)
@@ -1380,7 +1411,9 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
             ],
             pageWritePrompt: "Write the next feature pages.",
             planningPrompt: "",
-            sceneDoctorPrompt: ""
+            sceneDoctorPrompt: "",
+            planFacts: groundedPlanFacts(sceneTitle: "EXT. FLOOD CHANNEL - NIGHT",
+                detail: "Mara follows the signal and realizes the future call came from inside her family.")
         )
         let createdAt = Date(timeIntervalSince1970: 1_000)
         let context = ScreenplayFeatureWorkflowSessionContext(
@@ -1413,8 +1446,11 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
         XCTAssertEqual(restored.projectID, "project-feature")
         XCTAssertEqual(restored.versionID, "version-7")
         XCTAssertEqual(restored.act, "Act II")
-        XCTAssertEqual(restored.featureSequence, "Act II - Scene 8/14; 48 pages drafted")
-        XCTAssertEqual(restored.nextSceneMoves, ["Write the flood-channel discovery: Mara turns the clue into a wound."])
+        XCTAssertTrue(restored.featureSequence.isEmpty)
+        XCTAssertEqual(restored.nextSceneMoves, ["EXT. FLOOD CHANNEL - NIGHT: Mara follows the signal and realizes the future call came from inside her family."])
+        XCTAssertEqual(restored.planFacts, context.planFacts)
+        XCTAssertEqual(restored.nextThreeTurns, context.nextThreeTurns)
+        XCTAssertEqual(restored, context)
         XCTAssertEqual(restored.logline, "A woman receives emergency calls from tomorrow.")
         XCTAssertEqual(restored.themeArgument, "Control fails when love becomes avoidance.")
         XCTAssertEqual(restored.centralQuestion, "Can Mara save tomorrow without abandoning today?")
@@ -1439,6 +1475,40 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
             restored,
             matchesProjectID: "project-other"
         ))
+    }
+
+    func testLegacyWorkflowKeepsFeatureFactsAndOperationWithoutPromotingUnprovenAutoPlans() throws {
+        let original = workflowContext(projectID: "project-feature", versionID: "version-7", createdAt: Date(timeIntervalSince1970: 3_000))
+        var payload = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(original)) as? [String: Any])
+        payload.removeValue(forKey: "planFacts")
+        payload["submittedPrompt"] = "Continue the feature from the writer's chosen scene."
+        payload["logline"] = "Mara hears tomorrow's emergency calls."
+        payload["protagonistWant"] = "Mara wants to save her brother."
+        payload["protagonistNeed"] = "Mara must trust her sister."
+        payload["unresolvedSetups"] = ["The tape hides the caller's identity."]
+        payload["sceneObjective"] = "Continue the unfinished page with a concrete emotional turn."
+        payload["currentBeat"] = "Force the protagonist into a choice that makes Act II unavoidable."
+        payload["nextScenePlan"] = "Next scene: the next scene. Continue the unfinished page with a concrete emotional turn."
+        payload["nextThreeTurns"] = ["Write the next scene: Continue the unfinished page with a concrete emotional turn."]
+        payload["nextSceneMoves"] = ["Sequence move: Make the emotional question visible."]
+        payload["lastSceneOutcome"] = "Latest: L210-L248, 39 lines"
+        let restored = try JSONDecoder().decode(ScreenplayFeatureWorkflowSessionContext.self, from: JSONSerialization.data(withJSONObject: payload))
+        XCTAssertNil(restored.planFacts, "Legacy plans must be rederived from current project records")
+        XCTAssertEqual(restored.projectID, original.projectID)
+        XCTAssertEqual(restored.submittedPrompt, "Continue the feature from the writer's chosen scene.")
+        XCTAssertEqual(restored.logline, "Mara hears tomorrow's emergency calls.")
+        XCTAssertEqual(restored.protagonistWant, "Mara wants to save her brother.")
+        XCTAssertEqual(restored.protagonistNeed, "Mara must trust her sister.")
+        XCTAssertEqual(restored.unresolvedSetups, ["The tape hides the caller's identity."])
+        XCTAssertTrue(restored.sceneObjective.isEmpty)
+        XCTAssertTrue(restored.currentBeat.isEmpty)
+        XCTAssertTrue(restored.nextScenePlan.isEmpty)
+        XCTAssertTrue(restored.nextSceneMoves.isEmpty)
+        XCTAssertTrue(restored.nextThreeTurns.isEmpty)
+        XCTAssertTrue(restored.lastSceneOutcome.isEmpty)
+        XCTAssertTrue(ScreenplayFeatureWorkflowContextPersistencePolicy.shouldRefreshProjectRestoreContext(
+            current: restored, projectID: "project-feature", versionID: "version-7", now: original.createdAt.addingTimeInterval(60)),
+            "Integration requires the approved Bridge planFacts freshness guard")
     }
 
     func testFeatureWorkflowContextPersistenceRejectsExpiredSessionRestore() {
@@ -1556,6 +1626,14 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
         ))
     }
 
+    private func groundedPlanFacts(sceneTitle: String, detail: String, beat: String = "") -> ScreenplayFeatureWorkflowPlanFacts {
+        let scene = BackendScreenplayScene(id: "fact-scene", slugline: sceneTitle, title: sceneTitle,
+            objective: detail, summary: nil, actId: nil, order: 0, status: "open", beatIds: nil, createdAt: nil, updatedAt: nil)
+        let nextBeat = beat.isEmpty ? nil : BackendScreenplayBeat(id: "fact-beat", label: beat, summary: nil,
+            sceneId: scene.id, actId: nil, order: 0, status: "open", createdAt: nil, updatedAt: nil)
+        return .init(scene: scene, beat: nextBeat, act: nil)
+    }
+
     private func workflowContext(
         projectID: String,
         versionID: String,
@@ -1580,7 +1658,8 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
                 nextMoves: [],
                 pageWritePrompt: "Write the next feature pages.",
                 planningPrompt: "",
-                sceneDoctorPrompt: ""
+                sceneDoctorPrompt: "",
+                planFacts: .init(scene: nil, beat: nil, act: nil)
             ),
             createdAt: createdAt,
             pageCount: 48,

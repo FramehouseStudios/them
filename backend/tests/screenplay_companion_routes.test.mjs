@@ -339,6 +339,37 @@ test("[screenplay-companion-routes] POST /paginate rejects empty draft with 400"
   });
 });
 
+test("[screenplay-companion-routes] POST /paginate keeps full-document source lines at the default density", async () => {
+  await withTestServer(defaultDeps(), async (baseURL) => {
+    for (const newline of ["\n", "\r\n", "\r"]) {
+      const draft = ['', '', 'INT. ROOM - DAY', '', 'Mara waits.', ''].join(newline);
+      const r = await postJson(baseURL, "/screenplay/paginate", { draft });
+      assert.equal(r.status, 200);
+      assert.equal(r.body.lines_per_page, 54);
+      assert.equal(r.body.line_count, 3);
+      assert.equal(r.body.engine, 'element-aware');
+      assert.deepEqual(r.body.pages.map(p => [p.start_line, p.end_line]), [[3, 5]]);
+    }
+  });
+});
+
+test("[screenplay-companion-routes] title-only has zero pages; title+body returns original document ranges", async () => {
+  await withTestServer(defaultDeps(), async (baseURL) => {
+    const titleOnly = await postJson(baseURL, "/screenplay/paginate", { draft: "Title: ASHES\nAuthor: Zoë Chen\n\n" });
+    assert.equal(titleOnly.status, 200);
+    assert.equal(titleOnly.body.page_count, 0);
+    assert.deepEqual(titleOnly.body.pages, []);
+    for (const nl of ["\n", "\r\n", "\r"]) {
+      const draft = ["Title: ASHES", "Author: Zoë Chen", "    ", "INT. CAFÉ - DAY", "", "Zoë waits. 👩🏽‍🚀"].join(nl);
+      const result = await postJson(baseURL, "/screenplay/paginate", { draft });
+      assert.equal(result.status, 200);
+      assert.equal(result.body.page_count, 1);
+      assert.deepEqual(result.body.pages.map(page => [page.start_line, page.end_line]), [[4, 6]]);
+      assert.ok(!JSON.stringify(result.body.pages).includes("ASHES"));
+    }
+  });
+});
+
 test("[screenplay-companion-routes] POST /paginate clamps lines_per_page to [24, 120]", async () => {
   await withTestServer(defaultDeps(), async (baseURL) => {
     const r = await postJson(baseURL, "/screenplay/paginate", {
@@ -402,5 +433,22 @@ test("[screenplay-companion-routes] POST /revision-colors rejects empty draft wi
     const r = await postJson(baseURL, "/screenplay/revision-colors", { draft: "" });
     assert.equal(r.status, 400);
     assert.equal(r.body.error, "draft_required");
+  });
+});
+
+test("[screenplay-companion-routes] POST /coverage returns Clementine's read; empty draft is 400", async () => {
+  await withTestServer(defaultDeps(), async (baseURL) => {
+    const draft = ["INT. KITCHEN - NIGHT", "", "JUNE sets the cup down.", "", "JUNE", "You left the porch light on. Again.", "", "MARCUS", "It's cheaper than a lock."].join("\n");
+    const r = await postJson(baseURL, "/screenplay/coverage", { draft, title: "Porch Light" });
+    assert.equal(r.status, 200);
+    assert.equal(r.body.stage, "screenplay_coverage");
+    assert.equal(r.body.title, "Porch Light");
+    assert.ok(["A", "B", "C", "D", "F"].includes(r.body.grade));
+    assert.ok(["RECOMMEND", "CONSIDER", "PASS"].includes(r.body.verdict));
+    assert.deepEqual(Object.keys(r.body.pillars), ["structure", "pacing", "dialogue", "character", "format"]);
+    assert.match(r.body.spoken, /Here's my read/);
+    const empty = await postJson(baseURL, "/screenplay/coverage", { draft: "" });
+    assert.equal(empty.status, 400);
+    assert.equal(empty.body.error, "draft_required");
   });
 });

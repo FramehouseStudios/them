@@ -630,7 +630,7 @@ struct BackendCharacterTraitCardState: Identifiable, Equatable {
     }
 }
 
-private struct BackendTalkTurnMetaPayload: Decodable {
+nonisolated struct BackendTalkTurnMetaPayload: Codable {
     let turnID: String?
     let sessionID: String?
     let stateVersion: String?
@@ -666,9 +666,22 @@ private struct BackendTalkTurnMetaPayload: Decodable {
         case knowledgeQueryRewrite = "knowledge_query_rewrite"
         case knowledgeContradictionRisk = "knowledge_contradiction_risk"
     }
+
+    static func retainedData(_ data: Data, expectedTurnID: String) throws -> Data {
+        guard data.count <= 2 * 1024 * 1024, !expectedTurnID.isEmpty else { throw BackendMemoryAPIError.invalidResponse }
+        let value = try JSONDecoder().decode(Self.self, from: data)
+        guard value.turnID == expectedTurnID else { throw BackendMemoryAPIError.invalidResponse }
+        // Re-encoding the canonical typed payload drops unknown fields. The
+        // session ID is a credential, not a recoverable conversation artifact.
+        guard var object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(value)) as? [String: Any] else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        object.removeValue(forKey: "session_id")
+        return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+    }
 }
 
-private struct BackendTalkTurnMetaRenderContractPayload: Decodable {
+nonisolated struct BackendTalkTurnMetaRenderContractPayload: Codable {
     let replyRoleRaw: String?
     let authoritativePageTextAvailable: Bool?
     let syncReady: Bool?
@@ -1421,8 +1434,9 @@ struct BackendTalkResult {
     let noteAction: BackendNoteCaptureAction?
     let taskAction: BackendTaskAction?
     let speculativeTrace: BackendTalkSpeculativeTrace
-    let turnMetaRateLimitNotice: BackendTalkTurnMetaRateLimitNotice?
+    var turnMetaRateLimitNotice: BackendTalkTurnMetaRateLimitNotice?
     let commit: BackendTurnCommitSignal?
+    var liveDeliveryReceipt: BackendTalkLiveDeliveryReceipt? = nil
 }
 
 struct BackendTalkRenderContract: Equatable {
@@ -1477,6 +1491,8 @@ struct BackendTalkResponseMetadata {
     let voiceLearn: String?
     let vulnAsk: String?
     let vulnOptions: [String]
+    var studioActions: [BackendStudioAction] = []
+    var liveRequestContext: BackendTalkLiveRequestContext? = nil
 }
 
 struct BackendCollabCursor: Codable, Equatable {
@@ -1898,6 +1914,7 @@ struct BackendRealtimeStudioRenderResult: Equatable, Sendable {
     let memoryApplied: BackendRealtimeStudioMemoryApplied?
     let screenplayQuality: BackendRealtimeStudioScreenplayQuality?
     let structuralQuality: BackendRealtimeStudioStructuralQuality?
+    var delivery: BackendStudioRenderDeliveryReceipt? = nil
 }
 
 private struct BackendRealtimeStudioRenderStreamEvent: Decodable {
@@ -2280,69 +2297,14 @@ nonisolated enum BackendUserFacingErrorMapper {
     }
 }
 
-nonisolated enum BackendAPIResponseValidator {
-    static func hasMatchingOrigin(requestURL: URL?, responseURL: URL?) -> Bool {
-        guard let requestURL,
-              let responseURL,
-              let requestScheme = requestURL.scheme?.lowercased(),
-              let responseScheme = responseURL.scheme?.lowercased(),
-              let requestHost = requestURL.host?.lowercased(),
-              let responseHost = responseURL.host?.lowercased() else {
-            return false
-        }
-        return requestScheme == responseScheme
-            && requestHost == responseHost
-            && effectivePort(for: requestURL) == effectivePort(for: responseURL)
-    }
-
-    static func isJSONResponse(_ response: HTTPURLResponse, data: Data) -> Bool {
-        let mimeType = (response.mimeType ?? "").lowercased()
-        if mimeType == "application/json" || mimeType.hasSuffix("+json") {
-            return true
-        }
-        return (try? JSONSerialization.jsonObject(with: data)) != nil
-    }
-
-    static func isHealthyResponse(
-        requestURL: URL?,
-        response: HTTPURLResponse,
-        data: Data
-    ) -> Bool {
-        guard hasMatchingOrigin(requestURL: requestURL, responseURL: response.url) else {
-            return false
-        }
-        guard response.statusCode == 304 || (200...299).contains(response.statusCode) else {
-            return false
-        }
-        if response.statusCode == 304 {
-            return true
-        }
-        if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           object["ok"] as? Bool == true {
-            return true
-        }
-        let text = String(data: data, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        return text == "ok"
-    }
-
-    private static func effectivePort(for url: URL) -> Int? {
-        if let port = url.port { return port }
-        switch url.scheme?.lowercased() {
-        case "http": return 80
-        case "https": return 443
-        default: return nil
-        }
-    }
-}
-
 final class BackendClient {
     private static let craftSchemaVersion = 1
     private static let sharedBackendBaseURLDefaultsKeyStatic = "backend_base_url"
     private var baseURL: URL
     private let fallbackURL: URL
     private let urlSession: URLSession
+    private let talkOutbox: OfflineTalkOutbox
+    private let talkIdentityProvider: @Sendable (Bool) -> BackendAuthRequestIdentity
     private let shouldPersistBackendBaseURL: Bool
     private let shouldAttachUserIDHeader: Bool
     private let devFallbackAppToken: String? = {
@@ -2358,7 +2320,6 @@ final class BackendClient {
     private let sessionRefreshSkew: TimeInterval = 30
     private let maxTalkAttempts = 2
     private let maxTurnMetaAttempts = 3
-    private let maxAudioValidationRetries = 1
     private let minPlayableSegmentBytes = 900
     private let streamChunkFlushBytes = 4096
     private let retryableHTTPStatus: Set<Int> = [408, 425, 429, 500, 502, 503, 504]
@@ -2404,6 +2365,11 @@ final class BackendClient {
         BackendDefaultBaseURLPolicy.currentFallbackBaseURL
     }
 
+    // No teardown touches UI/actor state. Explicit stateless destruction avoids
+    // the generated executor-hopping deallocator crashing when an old Studio
+    // model releases its client (covered by the obsolete-editor regression).
+    nonisolated deinit {}
+
     init(
         baseURL: URL = BackendClient.resolveURL(
             fromEnv: "BACKEND_URL",
@@ -2417,11 +2383,17 @@ final class BackendClient {
         ),
         urlSession: URLSession = .shared,
         persistBackendBaseURL: Bool = true,
-        attachUserIDHeader: Bool = true
+        attachUserIDHeader: Bool = true,
+        talkOutbox: OfflineTalkOutbox = .shared,
+        talkIdentityProvider: @escaping @Sendable (Bool) -> BackendAuthRequestIdentity = {
+            BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: $0)
+        }
     ) {
         self.baseURL = baseURL
         self.fallbackURL = fallbackURL
         self.urlSession = urlSession
+        self.talkOutbox = talkOutbox
+        self.talkIdentityProvider = talkIdentityProvider
         self.shouldPersistBackendBaseURL = persistBackendBaseURL
         self.shouldAttachUserIDHeader = attachUserIDHeader
     }
@@ -2658,7 +2630,7 @@ final class BackendClient {
         }
         attachAuthorizationHeader(to: &request)
 
-        let (data, response) = try await urlSession.data(for: request)
+        let (data, response) = try await urlSession.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendError.http(-1, "Invalid block-signal response.")
         }
@@ -2701,7 +2673,7 @@ final class BackendClient {
         }
         attachAuthorizationHeader(to: &request)
 
-        let (data, response) = try await urlSession.data(for: request)
+        let (data, response) = try await urlSession.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendError.http(-1, "Invalid block-signal history response.")
         }
@@ -2724,8 +2696,14 @@ final class BackendClient {
     func fetchMemoryCharacterTraits(
         characterName: String? = nil,
         projectID: String? = nil,
-        projectTitle: String? = nil
+        projectTitle: String? = nil,
+        expectedScope: ScreenplayCharacterVoiceMemoryRequestScope? = nil
     ) async throws -> BackendCharacterTraitsResponse {
+        let owner = talkIdentityProvider(false)
+        if let expectedScope {
+            try owner.requireCurrentOwner(talkIdentityProvider(false))
+            guard expectedScope.matches(owner: owner.ownerContext, projectID: projectID ?? "", backendURL: baseURL) else { throw CancellationError() }
+        }
         persistSharedBackendBaseURL(baseURL)
         var url = baseURL
         url.appendPathComponent("memory")
@@ -2733,7 +2711,7 @@ final class BackendClient {
 
         let normalizedName = characterName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let normalizedProjectID = projectID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let normalizedProjectTitle = projectTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let normalizedProjectTitle = expectedScope?.permitsPage == true ? "" : (projectTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
         if !normalizedName.isEmpty || !normalizedProjectID.isEmpty || !normalizedProjectTitle.isEmpty {
             var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
             components?.queryItems = [
@@ -2752,7 +2730,9 @@ final class BackendClient {
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
-        if shouldAttachUserIDHeader {
+        if expectedScope != nil {
+            request.setValue(owner.userID, forHTTPHeaderField: "X-User-Id")
+        } else if shouldAttachUserIDHeader {
             let userID = resolveUserID()
             if !userID.isEmpty {
                 request.setValue(userID, forHTTPHeaderField: "X-User-Id")
@@ -2761,10 +2741,16 @@ final class BackendClient {
         if let token = appToken() {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
         }
-        attachAuthorizationHeader(to: &request)
+        attachAuthorizationHeader(to: &request, capturedIdentity: expectedScope == nil ? nil : owner)
+        if expectedScope != nil { try owner.requireCurrentOwner(talkIdentityProvider(false)) }
 
-        let (data, response) = try await urlSession.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
+        let (data, response) = try await urlSession.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
+        if let expectedScope {
+            try owner.requireCurrentOwner(talkIdentityProvider(false))
+            guard expectedScope.matches(owner: owner.ownerContext, projectID: normalizedProjectID, backendURL: baseURL) else { throw CancellationError() }
+        }
+        guard let http = response as? HTTPURLResponse, let responseURL = http.url,
+              BackendAPIResponseValidator.hasMatchingOrigin(requestURL: url, responseURL: responseURL) else {
             throw BackendError.http(-1, "Invalid character-traits response.")
         }
         guard (200...299).contains(http.statusCode) else {
@@ -2775,7 +2761,16 @@ final class BackendClient {
             throw BackendError.http(http.statusCode, raw)
         }
         do {
-            return try JSONDecoder().decode(BackendCharacterTraitsResponse.self, from: data)
+            let payload = try JSONDecoder().decode(BackendCharacterTraitsResponse.self, from: data)
+            if expectedScope != nil, let responseUserID = payload.userId, !responseUserID.isEmpty,
+               responseUserID != owner.userID { throw BackendMemoryAPIError.server(status: 409, message: "auth_request_superseded") }
+            if let expectedScope, expectedScope.permitsPage {
+                return .init(schemaVersion: payload.schemaVersion, userId: payload.userId,
+                    characters: ScreenplayCharacterVoiceMemoryPersistencePolicy.projectRecords(payload.characters, scope: expectedScope), error: payload.error)
+            }
+            return payload
+        } catch let error as BackendMemoryAPIError {
+            throw error
         } catch {
             let raw = String(data: data, encoding: .utf8) ?? ""
             throw BackendError.http(502, raw.isEmpty ? "Invalid character-traits payload." : raw)
@@ -2805,7 +2800,7 @@ final class BackendClient {
         }
         attachAuthorizationHeader(to: &request)
 
-        let (data, response) = try await urlSession.data(for: request)
+        let (data, response) = try await urlSession.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendError.http(-1, "Invalid character-archetypes response.")
         }
@@ -2927,7 +2922,7 @@ final class BackendClient {
             attachAuthorizationHeader(to: &request)
             request.httpBody = bodyData
 
-            let (data, response) = try await urlSession.data(for: request)
+            let (data, response) = try await urlSession.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
             guard let http = response as? HTTPURLResponse else {
                 throw BackendError.http(-1, "Invalid screenplay prompt response.")
             }
@@ -2996,8 +2991,10 @@ final class BackendClient {
         onTextReady: ((String) -> Void)? = nil,
         onDebugEvent: ((BackendTalkDebugEvent) -> Void)? = nil
     ) async throws -> BackendTalkResult {
+        let owner = talkIdentityProvider(true)
         do {
             let resolvedBaseURL = try await resolveBaseURL()
+            try owner.requireCurrentOwner(talkIdentityProvider(false))
             onDebugEvent?(
                 BackendTalkDebugEvent(
                     stage: "resolve_base_url_ok",
@@ -3009,17 +3006,19 @@ final class BackendClient {
                     errorDescription: nil
                 )
             )
-            let userID = resolveUserID()
+            let userID = owner.userID
             let clientToken = try await resolveTalkClientTokenOrFallback(
                 for: resolvedBaseURL,
                 userID: userID,
                 onDebugEvent: onDebugEvent
             )
+            try owner.requireCurrentOwner(talkIdentityProvider(false))
             let stableIdempotencyKey = normalizedIdempotencyKey(idempotencyKey) ?? "ios-\(UUID().uuidString)"
             return try await performTalk(
                 fileURL: fileURL,
                 fileDataOverride: fileDataOverride,
                 baseURL: resolvedBaseURL,
+                initiatingOwner: owner,
                 userID: userID,
                 clientToken: clientToken,
                 systemPrompt: systemPrompt,
@@ -3046,9 +3045,7 @@ final class BackendClient {
                 onFirstAudioSegmentReady: onFirstAudioSegmentReady,
                 onTextReady: onTextReady,
                 onDebugEvent: onDebugEvent,
-                allowClientTokenRefresh: true,
-                allowAudioValidationRetry: maxAudioValidationRetries > 0,
-                forceNoStreamAudio: false
+                allowClientTokenRefresh: true
             )
         } catch {
             let nsError = error as NSError
@@ -3087,14 +3084,16 @@ final class BackendClient {
             throw BackendError.stage("stt", "Prompt text is empty.")
         }
 
+        let owner = talkIdentityProvider(true)
         let resolvedBaseURL = baseURL
         persistSharedBackendBaseURL(resolvedBaseURL)
-        let userID = resolveUserID()
+        let userID = owner.userID
         let clientToken = try await resolveTalkClientTokenOrFallback(
             for: resolvedBaseURL,
             userID: userID,
             onDebugEvent: nil
         )
+        try owner.requireCurrentOwner(talkIdentityProvider(false))
         let stableIdempotencyKey = normalizedIdempotencyKey(idempotencyKey) ?? "ios-text-\(UUID().uuidString)"
         let silentUploadURL = try makeSilentTalkUploadFile()
         defer { try? FileManager.default.removeItem(at: silentUploadURL) }
@@ -3103,6 +3102,7 @@ final class BackendClient {
             fileURL: silentUploadURL,
             fileDataOverride: nil,
             baseURL: resolvedBaseURL,
+            initiatingOwner: owner,
             userID: userID,
             clientToken: clientToken,
             systemPrompt: systemPrompt,
@@ -3129,9 +3129,7 @@ final class BackendClient {
             onFirstAudioSegmentReady: onFirstAudioSegmentReady,
             onTextReady: onTextReady,
             onDebugEvent: nil,
-            allowClientTokenRefresh: true,
-            allowAudioValidationRetry: maxAudioValidationRetries > 0,
-            forceNoStreamAudio: false
+            allowClientTokenRefresh: true
         )
     }
 
@@ -3206,7 +3204,7 @@ final class BackendClient {
         attachAuthorizationHeader(to: &request)
         request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
 
-        let (data, response) = try await urlSession.data(for: request)
+        let (data, response) = try await urlSession.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendError.stage("page_cancel", "Invalid page-cancel response.")
         }
@@ -3339,7 +3337,7 @@ final class BackendClient {
         body.appendString("--\(boundary)--\r\n")
         request.httpBody = body
 
-        let (data, response) = try await urlSession.data(for: request)
+        let (data, response) = try await urlSession.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendError.http(-1, "Invalid speculative prepare response.")
         }
@@ -3456,7 +3454,7 @@ final class BackendClient {
             options: []
         )
 
-        let (data, response) = try await urlSession.data(for: request)
+        let (data, response) = try await urlSession.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendError.http(-1, "Invalid realtime grounding response.")
         }
@@ -3547,7 +3545,7 @@ final class BackendClient {
         )
         request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
 
-        let (data, response) = try await urlSession.data(for: request)
+        let (data, response) = try await urlSession.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendError.http(-1, "Invalid realtime session response.")
         }
@@ -3659,6 +3657,7 @@ final class BackendClient {
         screenplayTarget: String? = nil,
         studioMetadata: BackendStudioThreadCommitMetadata? = nil
     ) async throws -> BackendRealtimeStudioRenderResult {
+        let owner = talkIdentityProvider(true)
         let cleanTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanTranscript.isEmpty else {
             throw BackendError.stage("studio_render", "Studio render transcript was empty.")
@@ -3668,7 +3667,8 @@ final class BackendClient {
             .lowercased() == "page"
 
         let resolvedBaseURL = try await resolveBaseURL()
-        let userID = resolveStudioRenderUserID()
+        try owner.requireCurrentOwner(talkIdentityProvider(false))
+        let userID = owner.userID
         let requestBody = try realtimeStudioRequestBody(
             transcript: cleanTranscript,
             systemPrompt: systemPrompt,
@@ -3676,11 +3676,15 @@ final class BackendClient {
             studioMetadata: studioMetadata
         )
 
+        let requestKey = "studio-\(UUID().uuidString.lowercased())"
+        var admission: OfflineTalkLiveAdmission?
         func performRequest(
             clientToken: String,
             allowClientTokenRefresh: Bool
         ) async throws -> BackendRealtimeStudioRenderResult {
-            var request = URLRequest(url: resolvedBaseURL.appendingPathComponent("realtime/studio_render"))
+            try owner.requireCurrentOwner(talkIdentityProvider(false))
+            let attemptOwner = talkIdentityProvider(false)
+            var request = URLRequest(url: resolvedBaseURL.appendingPathComponent(StudioRenderEndpoint.oneShotPath))
             request.httpMethod = "POST"
             request.timeoutInterval = 20
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -3692,10 +3696,25 @@ final class BackendClient {
             if let token = appToken() {
                 request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
             }
-            attachAuthorizationHeader(to: &request)
+            request.setValue(attemptOwner.accessToken.isEmpty ? nil : "Bearer \(attemptOwner.accessToken)", forHTTPHeaderField: "Authorization")
+            request.setValue(requestKey, forHTTPHeaderField: "X-Idempotency-Key")
             request.httpBody = requestBody
-
-            let (data, response) = try await urlSession.data(for: request)
+            if admission == nil {
+                admission = try await talkOutbox.admitLiveStudioRender(request: request, body: requestBody, owner: attemptOwner, backendURL: resolvedBaseURL)
+            }
+            guard let admission else { throw BackendMemoryAPIError.invalidResponse }
+            let custody = BackendStudioRenderCustody(admission: admission, outbox: talkOutbox)
+            try owner.requireCurrentOwner(talkIdentityProvider(false))
+            let data: Data
+            let response: URLResponse
+            do {
+                (data, response) = try await BackendTalkStreamingTransport.data(for: request, configuration: urlSession.configuration,
+                    retainAcceptedResponse: { data, http in try await custody.retain(data, response: http, complete: true) },
+                    retainInterruptedResponse: { data, http in try await custody.retain(data, response: http, complete: false) })
+            } catch {
+                if error is BackendTalkCustodyError { throw error }
+                throw BackendStudioRenderUnconfirmedError(underlyingError: error)
+            }
             guard let http = response as? HTTPURLResponse else {
                 throw BackendError.http(-1, "Invalid Studio render response.")
             }
@@ -3735,6 +3754,8 @@ final class BackendClient {
                 throw BackendError.http(http.statusCode, raw)
             }
 
+            do {
+            try owner.requireCurrentOwner(talkIdentityProvider(false))
             let payload: BackendRealtimeStudioRenderPayload
             do {
                 payload = try JSONDecoder().decode(BackendRealtimeStudioRenderPayload.self, from: data)
@@ -3759,12 +3780,16 @@ final class BackendClient {
                     "Studio render response ended without screenplay quality confirmation."
                 )
             }
-            return BackendRealtimeStudioRenderResult(
+            var result = BackendRealtimeStudioRenderResult(
                 reply: reply,
                 memoryApplied: payload.memoryApplied?.hasSignal == true ? payload.memoryApplied : nil,
                 screenplayQuality: payload.screenplayQuality,
                 structuralQuality: payload.structuralQuality
             )
+            result.delivery = try await custody.delivery(owner: talkIdentityProvider(false), backendURL: resolvedBaseURL)
+            try owner.requireCurrentOwner(talkIdentityProvider(false))
+            return result
+            } catch { throw BackendTalkAcceptedReplyError(entryID: custody.admission.entryID, underlyingError: error) }
         }
 
         let clientToken = try await resolveStudioRenderClientToken(for: resolvedBaseURL, userID: userID)
@@ -3798,6 +3823,7 @@ final class BackendClient {
         onPartial: (@Sendable (String) async -> Void)? = nil,
         onTrace: (@Sendable (BackendRealtimeStudioRenderStreamTrace) async -> Void)? = nil
     ) async throws -> BackendRealtimeStudioRenderResult {
+        let owner = talkIdentityProvider(true)
         let cleanTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanTranscript.isEmpty else {
             throw BackendError.stage("studio_render", "Studio render transcript was empty.")
@@ -3807,7 +3833,8 @@ final class BackendClient {
             .lowercased() == "page"
 
         let resolvedBaseURL = try await resolveBaseURL()
-        let userID = resolveStudioRenderUserID()
+        try owner.requireCurrentOwner(talkIdentityProvider(false))
+        let userID = owner.userID
         let requestBody = try realtimeStudioRequestBody(
             transcript: cleanTranscript,
             systemPrompt: systemPrompt,
@@ -3815,11 +3842,15 @@ final class BackendClient {
             studioMetadata: studioMetadata
         )
 
+        let requestKey = "studio-stream-\(UUID().uuidString.lowercased())"
+        var admission: OfflineTalkLiveAdmission?
         func performRequest(
             clientToken: String,
             allowClientTokenRefresh: Bool
         ) async throws -> BackendRealtimeStudioRenderResult {
-            var request = URLRequest(url: resolvedBaseURL.appendingPathComponent("realtime/studio_render_stream"))
+            try owner.requireCurrentOwner(talkIdentityProvider(false))
+            let attemptOwner = talkIdentityProvider(false)
+            var request = URLRequest(url: resolvedBaseURL.appendingPathComponent(StudioRenderEndpoint.streamPath))
             request.httpMethod = "POST"
             request.timeoutInterval = 30
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -3832,10 +3863,19 @@ final class BackendClient {
             if let token = appToken() {
                 request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
             }
-            attachAuthorizationHeader(to: &request)
+            request.setValue(attemptOwner.accessToken.isEmpty ? nil : "Bearer \(attemptOwner.accessToken)", forHTTPHeaderField: "Authorization")
+            request.setValue(requestKey, forHTTPHeaderField: "X-Idempotency-Key")
             request.httpBody = requestBody
-
-            let (bytes, response) = try await urlSession.bytes(for: request)
+            if admission == nil {
+                admission = try await talkOutbox.admitLiveStudioRender(request: request, body: requestBody, owner: attemptOwner, backendURL: resolvedBaseURL)
+            }
+            guard let admission else { throw BackendMemoryAPIError.invalidResponse }
+            let custody = BackendStudioRenderCustody(admission: admission, outbox: talkOutbox)
+            try owner.requireCurrentOwner(talkIdentityProvider(false))
+            let bytes: URLSession.AsyncBytes
+            let response: URLResponse
+            do { (bytes, response) = try await urlSession.bytes(for: request, delegate: BackendHTTPRedirectGuard.shared) }
+            catch { throw BackendStudioRenderUnconfirmedError(underlyingError: error) }
             guard let http = response as? HTTPURLResponse else {
                 throw BackendError.http(-1, "Invalid Studio render stream response.")
             }
@@ -3876,6 +3916,14 @@ final class BackendClient {
                 throw BackendError.http(http.statusCode, raw)
             }
 
+            var retainedFrames = Data()
+            var finishedRetention = false
+            do {
+            try await custody.retain(retainedFrames, response: http, complete: false)
+            func mayPublish() -> Bool {
+                !Task.isCancelled && ScreenplayStudioAuthContextPolicy.matches(expected: owner.ownerContext,
+                    current: talkIdentityProvider(false).ownerContext)
+            }
             var eventName = "message"
             var dataLines: [String] = []
             var accumulated = ""
@@ -3890,7 +3938,8 @@ final class BackendClient {
             func validatedResult(
                 reply rawReply: String,
                 quality eventQuality: BackendRealtimeStudioScreenplayQuality?
-            ) throws -> BackendRealtimeStudioRenderResult {
+            ) async throws -> BackendRealtimeStudioRenderResult {
+                try owner.requireCurrentOwner(talkIdentityProvider(false))
                 let reply = rawReply.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !reply.isEmpty else {
                     throw BackendError.stage("studio_render", "Studio render stream response was empty.")
@@ -3908,12 +3957,15 @@ final class BackendClient {
                         "Studio render stream ended without screenplay quality confirmation."
                     )
                 }
-                return BackendRealtimeStudioRenderResult(
+                var result = BackendRealtimeStudioRenderResult(
                     reply: reply,
                     memoryApplied: latestMemoryApplied,
                     screenplayQuality: quality,
                     structuralQuality: latestStructuralQuality
                 )
+                result.delivery = try await custody.delivery(owner: talkIdentityProvider(false), backendURL: resolvedBaseURL)
+                try owner.requireCurrentOwner(talkIdentityProvider(false))
+                return result
             }
 
             func trace(
@@ -3967,6 +4019,7 @@ final class BackendClient {
 
             func dispatchEvent() async throws {
                 guard !dataLines.isEmpty else { return }
+                try await custody.retain(retainedFrames, response: http, complete: false)
                 let payloadText = dataLines.joined(separator: "\n")
                 defer {
                     dataLines.removeAll(keepingCapacity: true)
@@ -3979,12 +4032,12 @@ final class BackendClient {
                 switch eventName {
                 case "meta":
                     let eventTrace = trace(from: payload, fallbackKind: "meta")
-                    if let onTrace, let eventTrace {
+                    if mayPublish(), let onTrace, let eventTrace {
                         await onTrace(eventTrace)
                     }
                 case "trace":
                     let eventTrace = trace(from: payload, fallbackKind: "trace")
-                    if let onTrace, let eventTrace {
+                    if mayPublish(), let onTrace, let eventTrace {
                         await onTrace(eventTrace)
                     }
                 case "delta":
@@ -3994,7 +4047,7 @@ final class BackendClient {
                         delta: delta,
                         to: accumulated
                     )
-                    if let onPartial {
+                    if mayPublish(), let onPartial {
                         let now = Date()
                         let characterDelta = accumulated.count - lastPartialCallbackCharacterCount
                         if lastPartialCallbackCharacterCount == 0 ||
@@ -4006,14 +4059,15 @@ final class BackendClient {
                         }
                     }
                 case "done":
+                    guard payload != nil else { throw BackendMemoryAPIError.invalidResponse }
                     let eventTrace = trace(from: payload, fallbackKind: "done")
-                    if let onTrace, let eventTrace {
+                    if mayPublish(), let onTrace, let eventTrace {
                         await onTrace(eventTrace)
                     }
                     let reply = (payload?.reply ?? accumulated).trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !reply.isEmpty else { return }
                     finalReply = reply
-                    if let onPartial, reply.count != lastPartialCallbackCharacterCount {
+                    if mayPublish(), let onPartial, reply.count != lastPartialCallbackCharacterCount {
                         lastPartialCallbackAt = Date()
                         lastPartialCallbackCharacterCount = reply.count
                         await onPartial(reply)
@@ -4036,12 +4090,19 @@ final class BackendClient {
             }
 
             for try await rawLine in bytes.lines {
+                BackendStudioRenderCustody.appendStreamLine(rawLine, to: &retainedFrames)
+                guard retainedFrames.count <= OfflineTalkStoredResponse.maxBodyBytes else {
+                    throw BackendTalkCustodyError(underlyingError: BackendMemoryAPIError.invalidResponse)
+                }
                 let line = rawLine.replacingOccurrences(of: "\r", with: "")
                 if line.isEmpty {
                     try await dispatchEvent()
                     if didReceiveDone {
+                        try await custody.retain(retainedFrames, response: http, complete: true)
+                        finishedRetention = true
+                        try owner.requireCurrentOwner(talkIdentityProvider(false))
                         let resolvedReply = finalReply.isEmpty ? accumulated.trimmingCharacters(in: .whitespacesAndNewlines) : finalReply
-                        return try validatedResult(
+                        return try await validatedResult(
                             reply: resolvedReply,
                             quality: latestScreenplayQuality
                         )
@@ -4058,24 +4119,29 @@ final class BackendClient {
                 if line.hasPrefix("data:") {
                     let payloadText = line.dropFirst("data:".count).trimmingCharacters(in: .whitespacesAndNewlines)
                     if eventName == "done" {
+                        try await custody.retain(retainedFrames, response: http, complete: true)
+                        finishedRetention = true
+                        try owner.requireCurrentOwner(talkIdentityProvider(false))
                         let payloadData = Data(payloadText.utf8)
-                        let payload = try? JSONDecoder().decode(BackendRealtimeStudioRenderStreamEvent.self, from: payloadData)
+                        let payload = try JSONDecoder().decode(BackendRealtimeStudioRenderStreamEvent.self, from: payloadData)
                         let eventTrace = trace(from: payload, fallbackKind: "done")
-                        if let onTrace, let eventTrace {
+                        if mayPublish(), let onTrace, let eventTrace {
                             await onTrace(eventTrace)
                         }
-                        let reply = (payload?.reply ?? accumulated).trimmingCharacters(in: .whitespacesAndNewlines)
-                        if let onPartial, reply.count != lastPartialCallbackCharacterCount {
+                        let reply = (payload.reply ?? accumulated).trimmingCharacters(in: .whitespacesAndNewlines)
+                        if mayPublish(), let onPartial, reply.count != lastPartialCallbackCharacterCount {
                             lastPartialCallbackAt = Date()
                             lastPartialCallbackCharacterCount = reply.count
                             await onPartial(reply)
                         }
-                        return try validatedResult(
+                        return try await validatedResult(
                             reply: reply,
-                            quality: payload?.screenplayQuality
+                            quality: payload.screenplayQuality
                         )
                     }
                     if eventName == "error" {
+                        try await custody.retain(retainedFrames, response: http, complete: false)
+                        try owner.requireCurrentOwner(talkIdentityProvider(false))
                         let payloadData = Data(payloadText.utf8)
                         let payload = try? JSONDecoder().decode(BackendRealtimeStudioRenderStreamEvent.self, from: payloadData)
                         let stage = (payload?.stage ?? "studio_render").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -4093,6 +4159,9 @@ final class BackendClient {
                 }
             }
             try await dispatchEvent()
+            try await custody.retain(retainedFrames, response: http, complete: didReceiveDone)
+            finishedRetention = didReceiveDone
+            try owner.requireCurrentOwner(talkIdentityProvider(false))
 
             if requiresAuthoritativeDone, !didReceiveDone {
                 throw BackendError.stage(
@@ -4102,10 +4171,15 @@ final class BackendClient {
             }
 
             let resolvedReply = finalReply.isEmpty ? accumulated.trimmingCharacters(in: .whitespacesAndNewlines) : finalReply
-            return try validatedResult(
+            return try await validatedResult(
                 reply: resolvedReply,
                 quality: latestScreenplayQuality
             )
+            } catch {
+                if error is BackendTalkCustodyError { throw error }
+                if !finishedRetention { try await custody.retain(retainedFrames, response: http, complete: false) }
+                throw BackendTalkAcceptedReplyError(entryID: custody.admission.entryID, underlyingError: error)
+            }
         }
 
         let clientToken = try await resolveStudioRenderClientToken(for: resolvedBaseURL, userID: userID)
@@ -4186,7 +4260,7 @@ final class BackendClient {
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await URLSession.shared.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendError.http(-1, "Invalid visual context response.")
         }
@@ -4257,6 +4331,7 @@ final class BackendClient {
         fileURL: URL,
         fileDataOverride: Data?,
         baseURL: URL,
+        initiatingOwner owner: BackendAuthRequestIdentity,
         userID: String,
         clientToken: String,
         systemPrompt: String?,
@@ -4283,9 +4358,7 @@ final class BackendClient {
         onFirstAudioSegmentReady: ((URL) -> Void)?,
         onTextReady: ((String) -> Void)? = nil,
         onDebugEvent: ((BackendTalkDebugEvent) -> Void)?,
-        allowClientTokenRefresh: Bool,
-        allowAudioValidationRetry: Bool,
-        forceNoStreamAudio: Bool
+        allowClientTokenRefresh: Bool
     ) async throws -> BackendTalkResult {
         defer {
             onPageTalkInFlightChanged?(false)
@@ -4309,10 +4382,8 @@ final class BackendClient {
         request.httpMethod = "POST"
         request.timeoutInterval = requestTimeout
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-        if preferStreamedTalkAudio && !forceNoStreamAudio {
+        if preferStreamedTalkAudio {
             request.setValue("audio", forHTTPHeaderField: "X-Talk-Stream")
-        } else if forceNoStreamAudio {
-            request.setValue("off", forHTTPHeaderField: "X-Talk-Stream")
         }
         if !userID.isEmpty {
             request.setValue(userID, forHTTPHeaderField: "X-User-Id")
@@ -4325,7 +4396,11 @@ final class BackendClient {
         if let token = appToken {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
         }
-        attachAuthorizationHeader(to: &request)
+        let requestIdentity = talkIdentityProvider(false)
+        try owner.requireCurrentOwner(requestIdentity)
+        if !requestIdentity.accessToken.isEmpty {
+            request.setValue("Bearer \(requestIdentity.accessToken)", forHTTPHeaderField: "Authorization")
+        }
         attachCompanionTtsByokHeaders(to: &request)
         if let key = normalizedIdempotencyKey(idempotencyKey) {
             request.setValue(key, forHTTPHeaderField: "X-Idempotency-Key")
@@ -4521,6 +4596,13 @@ final class BackendClient {
                 body.appendString(String(projectId.prefix(96)))
                 body.appendString("\r\n")
             }
+            let studioCapabilities = studioMetadata.studioCapabilitiesJSON.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !studioCapabilities.isEmpty {
+                body.appendString("--\(boundary)\r\n")
+                body.appendString("Content-Disposition: form-data; name=\"studio_capabilities\"\r\n\r\n")
+                body.appendString(String(studioCapabilities.prefix(6000)))
+                body.appendString("\r\n")
+            }
             let documentRevisionId = studioMetadata.screenplayDocumentRevisionId.trimmingCharacters(in: .whitespacesAndNewlines)
             if !documentRevisionId.isEmpty {
                 body.appendString("--\(boundary)\r\n")
@@ -4694,6 +4776,8 @@ final class BackendClient {
         body.appendString("--\(boundary)--\r\n")
         request.httpBody = body
 
+        let admission = try await talkOutbox.admitLiveTalk(request: request, body: body,
+            owner: requestIdentity, backendURL: baseURL)
         HerLog.talk.info("TALK request start")
         HerLog.talk.info(
             "TALK upload file=\(uploadMeta.filename, privacy: .public) mime=\(uploadMeta.mimeType, privacy: .public) bytes=\(audioData.count)"
@@ -4705,8 +4789,9 @@ final class BackendClient {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await dataForTalkRequest(
-                request,
+            (data, response) = try await sendAdmittedTalkRequest(
+                request, admission: admission, owner: owner, backendURL: baseURL,
+                clientToken: clientToken, allowClientTokenRefresh: allowClientTokenRefresh,
                 onResponse: { [self] http in
                 responseFirstSegmentBytesHint = self.parseHeaderInt(
                     http,
@@ -4764,7 +4849,9 @@ final class BackendClient {
                     presenceBargeReason: clem.presenceBargeReason,
                     voiceLearn: clem.voiceLearn,
                     vulnAsk: clem.vulnAsk,
-                    vulnOptions: clem.vulnOptions
+                    vulnOptions: clem.vulnOptions,
+                    studioActions: StudioActionParser.parse(headerValue: http.value(forHTTPHeaderField: "x-studio-actions")),
+                    liveRequestContext: .init(admission: admission, owner: owner.ownerContext, backendURL: baseURL)
                 )
                 if let onResponseMetadataReady, http.statusCode == 200 {
                     DispatchQueue.main.async {
@@ -4811,7 +4898,13 @@ final class BackendClient {
                 }
                 }
             )
+            try BackendTalkStreamingTransport.checkCancellation()
         } catch {
+            if error is BackendTalkCustodyError || error is BackendTalkQueuedError { throw error }
+            if Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled {
+                _ = try? await talkOutbox.endLiveTalkWithoutAcceptedResponse(admission)
+                throw CancellationError()
+            }
             let nsError = error as NSError
             onDebugEvent?(
                 BackendTalkDebugEvent(
@@ -4829,209 +4922,200 @@ final class BackendClient {
             }
             throw error
         }
-        let http = response as? HTTPURLResponse
-        let statusCode = http?.statusCode ?? -1
-        let contentType = http?.value(forHTTPHeaderField: "Content-Type") ?? "-"
-        let requestID = http?.value(forHTTPHeaderField: "X-Request-Id") ?? "-"
+        guard let http = response as? HTTPURLResponse else { throw BackendMemoryAPIError.invalidResponse }
+        if http.statusCode != 200 {
+            if shouldQueueTalkStatus(http.statusCode, data: data) {
+                if let queued = await enqueueOfflineTalkRequest(request, body: body,
+                    reason: "HTTP \(http.statusCode)") { throw queued }
+            } else { _ = try await talkOutbox.endLiveTalkWithoutAcceptedResponse(admission) }
+            if http.statusCode == 204 {
+                let status = http.value(forHTTPHeaderField: "x-turn-status")?.lowercased() ?? ""
+                let listening = http.value(forHTTPHeaderField: "x-continue-listening")?.lowercased() ?? ""
+                if status == "continue_listening" || ["1", "true"].contains(listening) { throw BackendError.continueListening }
+            }
+            if let stage = parseStageError(from: data) { throw BackendError.stage(stage.stage, stage.message) }
+            throw BackendError.http(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+        }
+        let contentType = http.value(forHTTPHeaderField: "Content-Type") ?? "-"
         let latencyMs = Int(Date().timeIntervalSince(startedAt) * 1000)
-
-        HerLog.talk.info("TALK response status=\(statusCode)")
-        HerLog.talk.info("TALK bytes=\(data.count)")
-        HerLog.talk.info("TALK status=\(statusCode) contentType=\(contentType, privacy: .public)")
-        HerLog.talk.info("bytes=\(data.count)")
-        print("POST /talk -> id=\(requestID) status=\(statusCode) type=\(contentType) bytes=\(data.count) latency=\(latencyMs)ms")
-        func retryAudioValidationIfAllowed(_ reason: String) async throws -> BackendTalkResult? {
-            guard allowAudioValidationRetry else { return nil }
-            print("POST /talk -> \(reason), retrying once with stream off")
-            return try await performTalk(
-                fileURL: fileURL,
-                fileDataOverride: fileDataOverride,
-                baseURL: baseURL,
-                userID: userID,
-                clientToken: clientToken,
-                systemPrompt: systemPrompt,
-                stage: stage,
-                depthScore: depthScore,
-                romanceTension: romanceTension,
-                sessionCount: sessionCount,
-                personaPreset: personaPreset,
-                memoryCue: memoryCue,
-                idempotencyKey: idempotencyKey,
-                tailSilenceMs: tailSilenceMs,
-                vadThreshold: vadThreshold,
-                speechMs: speechMs,
-                noiseFloorRms: noiseFloorRms,
-                speechRms: speechRms,
-                userName: userName,
-                partialTranscriptHint: partialTranscriptHint,
-                speculativeReuseKey: speculativeReuseKey,
-                speculativePromptHash: speculativePromptHash,
-                studioMetadata: studioMetadata,
-                clientTranscriptOverride: clientTranscriptOverride,
-                screenplayGenerationTranscriptOverride: screenplayGenerationTranscriptOverride,
-                onResponseMetadataReady: onResponseMetadataReady,
-                onFirstAudioSegmentReady: onFirstAudioSegmentReady,
-                onTextReady: onTextReady,
-                onDebugEvent: onDebugEvent,
-                allowClientTokenRefresh: allowClientTokenRefresh,
-                allowAudioValidationRetry: false,
-                forceNoStreamAudio: true
-            )
+        HerLog.talk.info("TALK accepted bytes=\(data.count) latency=\(latencyMs)ms")
+        do {
+            try owner.requireCurrentOwner(talkIdentityProvider(false))
+            var packet = try await talkOutbox.receivedReply(admission.entryID,
+                initiatingIdentity: owner, backendURL: baseURL)
+            var metadataRateLimitNotice: BackendTalkTurnMetaRateLimitNotice?
+            do {
+                packet = try await talkOutbox.captureReceivedTurnMetadata(admission.entryID,
+                    initiatingIdentity: owner, backendURL: baseURL, client: self)
+            } catch {
+                try owner.requireCurrentOwner(talkIdentityProvider(false))
+                metadataRateLimitNotice = (error as? BackendTalkTurnMetaRateLimitError)?.notice
+                // Audio/header custody remains valid. Missing required page
+                // metadata is rejected below; it never triggers another POST.
+            }
+            try owner.requireCurrentOwner(talkIdentityProvider(false))
+            let retained = try packet.response.turnMetadata.map {
+                try JSONDecoder().decode(BackendTalkTurnMetaPayload.self, from: $0)
+            }
+            try requireRetainedTalkPageMetadata(http: http, retained: retained)
+            let bootstrapOwner = talkIdentityProvider(false)
+            try owner.requireCurrentOwner(bootstrapOwner)
+            var result = try await decodeTalkSuccess(data: data, http: http, contentType: contentType,
+                baseURL: baseURL, userID: userID, clientToken: clientToken, emittedFirstSegment: emittedFirstSegment,
+                bootstrapOwner: bootstrapOwner, retainedTurnMeta: retained)
+            do { try owner.requireCurrentOwner(talkIdentityProvider(false)) }
+            catch {
+                try? FileManager.default.removeItem(at: result.audioURL)
+                if let url = result.streamedRemainderURL { try? FileManager.default.removeItem(at: url) }
+                throw error
+            }
+            result.liveDeliveryReceipt = .init(receipt: .init(entryID: packet.entry.id,
+                responseID: packet.response.id, bodyOmitted: packet.response.bodyOmitted),
+                request: .init(admission: admission, owner: owner.ownerContext, backendURL: baseURL),
+                requiresPageSave: result.screenplayOutput?.writesToPage == true)
+            result.turnMetaRateLimitNotice = metadataRateLimitNotice
+            return result
+        } catch {
+            try BackendTalkStreamingTransport.checkCancellation(error)
+            throw BackendTalkAcceptedReplyError(entryID: admission.entryID, underlyingError: error)
         }
+    }
 
-        guard statusCode == 200 else {
-            let parsedStageError = parseStageError(from: data)
-            if statusCode == 401,
-               allowClientTokenRefresh,
-               let stageError = parsedStageError,
-               isUserAuthStage(stageError.stage),
-               await refreshUserAuthForRetryIfPossible() {
-                print("POST /talk -> auth_user received, refreshed auth token and retrying once")
-                return try await performTalk(
-                    fileURL: fileURL,
-                    fileDataOverride: fileDataOverride,
-                    baseURL: baseURL,
-                    userID: userID,
-                    clientToken: clientToken,
-                    systemPrompt: systemPrompt,
-                    stage: stage,
-                    depthScore: depthScore,
-                    romanceTension: romanceTension,
-                    sessionCount: sessionCount,
-                    personaPreset: personaPreset,
-                    memoryCue: memoryCue,
-                    idempotencyKey: idempotencyKey,
-                    tailSilenceMs: tailSilenceMs,
-                    vadThreshold: vadThreshold,
-                    speechMs: speechMs,
-                    noiseFloorRms: noiseFloorRms,
-                    speechRms: speechRms,
-                    userName: userName,
-                    partialTranscriptHint: partialTranscriptHint,
-                    speculativeReuseKey: speculativeReuseKey,
-                    speculativePromptHash: speculativePromptHash,
-                    studioMetadata: studioMetadata,
-                    clientTranscriptOverride: clientTranscriptOverride,
-                    screenplayGenerationTranscriptOverride: screenplayGenerationTranscriptOverride,
-                    onResponseMetadataReady: onResponseMetadataReady,
-                    onFirstAudioSegmentReady: onFirstAudioSegmentReady,
-                    onTextReady: onTextReady,
-                    onDebugEvent: onDebugEvent,
-                    allowClientTokenRefresh: false,
-                    allowAudioValidationRetry: allowAudioValidationRetry,
-                    forceNoStreamAudio: forceNoStreamAudio
-                )
-            }
-            if statusCode == 401,
-               allowClientTokenRefresh,
-               !isUserAuthStage(parsedStageError?.stage ?? "") {
-                print("POST /talk -> 401 unauthorized, refreshing session token and retrying once")
-                clearSessionToken()
-                let refreshed = try await refreshClientToken(for: baseURL, userID: userID)
-                return try await performTalk(
-                    fileURL: fileURL,
-                    fileDataOverride: fileDataOverride,
-                    baseURL: baseURL,
-                    userID: userID,
-                    clientToken: refreshed,
-                    systemPrompt: systemPrompt,
-                    stage: stage,
-                    depthScore: depthScore,
-                    romanceTension: romanceTension,
-                    sessionCount: sessionCount,
-                    personaPreset: personaPreset,
-                    memoryCue: memoryCue,
-                    idempotencyKey: idempotencyKey,
-                    tailSilenceMs: tailSilenceMs,
-                    vadThreshold: vadThreshold,
-                    speechMs: speechMs,
-                    noiseFloorRms: noiseFloorRms,
-                    speechRms: speechRms,
-                    userName: userName,
-                    partialTranscriptHint: partialTranscriptHint,
-                    speculativeReuseKey: speculativeReuseKey,
-                    speculativePromptHash: speculativePromptHash,
-                    studioMetadata: studioMetadata,
-                    clientTranscriptOverride: clientTranscriptOverride,
-                    screenplayGenerationTranscriptOverride: screenplayGenerationTranscriptOverride,
-                    onResponseMetadataReady: onResponseMetadataReady,
-                    onFirstAudioSegmentReady: onFirstAudioSegmentReady,
-                    onTextReady: onTextReady,
-                    onDebugEvent: onDebugEvent,
-                    allowClientTokenRefresh: false,
-                    allowAudioValidationRetry: allowAudioValidationRetry,
-                    forceNoStreamAudio: forceNoStreamAudio
-                )
-            }
-            if statusCode == 204 {
-                let turnStatus = http?.value(forHTTPHeaderField: "x-turn-status")?
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                    .lowercased() ?? ""
-                let continueListening = http?.value(forHTTPHeaderField: "x-continue-listening")?
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                    .lowercased() ?? ""
-                if turnStatus == "continue_listening" || continueListening == "1" || continueListening == "true" {
-                    HerLog.talk.info("TALK continue_listening status=204")
-                    throw BackendError.continueListening
-                }
-            }
-            if shouldQueueTalkStatus(statusCode, data: data) {
-                if let queued = await enqueueOfflineTalkRequest(
-                    request,
-                    body: body,
-                    reason: "HTTP \(statusCode)"
-                ) {
-                    throw queued
-                }
-            }
-
-            if let stageError = parsedStageError {
-                if allowClientTokenRefresh, stageError.stage.lowercased() == "auth_client" {
-                    print("POST /talk -> auth_client received, refreshing session token and retrying once")
+    /// One prepared multipart body and one admission survive unaccepted auth
+    /// retries. Refreshing credentials cannot rebuild a different paid request.
+    private func sendAdmittedTalkRequest(
+        _ prepared: URLRequest, admission: OfflineTalkLiveAdmission, owner: BackendAuthRequestIdentity,
+        backendURL: URL, clientToken: String, allowClientTokenRefresh: Bool,
+        onResponse: ((HTTPURLResponse) -> Void)?, onChunk: ((Data, HTTPURLResponse) -> Void)?
+    ) async throws -> (Data, URLResponse) {
+        var token = clientToken, mayRefresh = allowClientTokenRefresh
+        let box = talkOutbox
+        while true {
+            let current = talkIdentityProvider(false)
+            try owner.requireCurrentOwner(current)
+            var request = prepared
+            request.setValue(current.accessToken.isEmpty ? nil : "Bearer \(current.accessToken)", forHTTPHeaderField: "Authorization")
+            request.setValue(token.isEmpty ? nil : token, forHTTPHeaderField: "X-Client-Token")
+            let (data, response) = try await dataForTalkRequest(request,
+                onResponse: onResponse, onChunk: onChunk, retainAcceptedResponse: { data, http in
+                    let headers = http.allHeaderFields.reduce(into: [String: String]()) { out, pair in
+                        if let key = pair.key as? String, let value = pair.value as? String { out[key] = value }
+                    }
+                    guard let url = http.url else { throw BackendMemoryAPIError.invalidResponse }
+                    _ = try await box.completeLiveTalk(admission,
+                        response: .init(statusCode: http.statusCode, headers: headers, body: data), responseURL: url)
+                })
+            guard let http = response as? HTTPURLResponse else { throw BackendMemoryAPIError.invalidResponse }
+            if http.statusCode == 200 { return (data, http) }
+            try owner.requireCurrentOwner(talkIdentityProvider(false))
+            let stageError = parseStageError(from: data)
+            if mayRefresh, http.statusCode == 401 || stageError?.stage.lowercased() == "auth_client" {
+                mayRefresh = false
+                if isUserAuthStage(stageError?.stage ?? "") {
+                    if await refreshUserAuthForRetryIfPossible(expectedOwner: owner.ownerContext) {
+                        try owner.requireCurrentOwner(talkIdentityProvider(false))
+                        continue
+                    }
+                } else {
                     clearSessionToken()
-                    let refreshed = try await refreshClientToken(for: baseURL, userID: userID)
-                    return try await performTalk(
-                        fileURL: fileURL,
-                        fileDataOverride: fileDataOverride,
-                        baseURL: baseURL,
-                        userID: userID,
-                        clientToken: refreshed,
-                        systemPrompt: systemPrompt,
-                        stage: stage,
-                        depthScore: depthScore,
-                        romanceTension: romanceTension,
-                        sessionCount: sessionCount,
-                        personaPreset: personaPreset,
-                        memoryCue: memoryCue,
-                        idempotencyKey: idempotencyKey,
-                        tailSilenceMs: tailSilenceMs,
-                        vadThreshold: vadThreshold,
-                        speechMs: speechMs,
-                        noiseFloorRms: noiseFloorRms,
-                        speechRms: speechRms,
-                        userName: userName,
-                        partialTranscriptHint: partialTranscriptHint,
-                        speculativeReuseKey: speculativeReuseKey,
-                        speculativePromptHash: speculativePromptHash,
-                        studioMetadata: studioMetadata,
-                        clientTranscriptOverride: clientTranscriptOverride,
-                        screenplayGenerationTranscriptOverride: screenplayGenerationTranscriptOverride,
-                        onResponseMetadataReady: onResponseMetadataReady,
-                        onFirstAudioSegmentReady: onFirstAudioSegmentReady,
-                        onTextReady: onTextReady,
-                        onDebugEvent: onDebugEvent,
-                        allowClientTokenRefresh: false,
-                        allowAudioValidationRetry: allowAudioValidationRetry,
-                        forceNoStreamAudio: forceNoStreamAudio
-                    )
+                    token = try await refreshClientToken(for: backendURL, userID: owner.userID)
+                    try owner.requireCurrentOwner(talkIdentityProvider(false))
+                    continue
                 }
-                throw BackendError.stage(stageError.stage, stageError.message)
             }
-
-            let raw = String(data: data, encoding: .utf8) ?? ""
-            throw BackendError.http(statusCode, raw)
+            return (data, http)
         }
+    }
 
+    func captureReceivedTurnMetadata(
+        _ packet: OfflineTalkReceivedReply, initiatingIdentity owner: BackendAuthRequestIdentity,
+        backendURL: URL, currentScopeProvider: @escaping () -> OfflineTalkRecoveryScope = { .current() }
+    ) async throws -> Data {
+        try requireReceivedTalkScope(packet, owner: owner, backendURL: backendURL, currentScopeProvider: currentScopeProvider)
+        try packet.response.validate()
+        let turnID = packet.response.headers["x-turn-id"] ?? ""
+        guard !turnID.isEmpty else { throw BackendMemoryAPIError.invalidResponse }
+        let payload = try await fetchTurnMeta(baseURL: backendURL, userID: owner.userID,
+            clientToken: owner.clientToken, turnID: turnID, authorizationIdentity: owner,
+            verifyOwner: { try self.requireReceivedTalkScope(packet, owner: owner,
+                backendURL: backendURL, currentScopeProvider: currentScopeProvider) })
+        try requireReceivedTalkScope(packet, owner: owner, backendURL: backendURL, currentScopeProvider: currentScopeProvider)
+        return try BackendTalkTurnMetaPayload.retainedData(JSONEncoder().encode(payload), expectedTurnID: turnID)
+    }
+
+    private func requireReceivedTalkScope(_ packet: OfflineTalkReceivedReply, owner: BackendAuthRequestIdentity,
+        backendURL: URL, currentScopeProvider: () -> OfflineTalkRecoveryScope) throws {
+        try Task.checkCancellation()
+        guard !owner.userID.isEmpty, packet.entry.receivedReply == true,
+              currentScopeProvider().matches(identity: owner, backendURL: backendURL),
+              packet.entry.endpoint == "/talk", packet.entry.method == "POST",
+              let url = URL(string: packet.entry.urlString), url.path == "/talk",
+              OfflineTalkRecoveryScope.sameBackend(url, backendURL),
+              packet.entry.headers.first(where: { $0.key.lowercased() == "x-user-id" })?.value == owner.userID else {
+            throw OfflineTalkPreviousOwnerError()
+        }
+    }
+
+    /// Decode already-paid transport evidence, never send it again or adopt a
+    /// persisted session token. The outbox remains the durable owner until the
+    /// writer's delivery is acknowledged separately.
+    func decodeReceivedTalkReply(
+        _ packet: OfflineTalkReceivedReply, initiatingIdentity owner: BackendAuthRequestIdentity,
+        backendURL: URL, currentScopeProvider: () -> OfflineTalkRecoveryScope = { .current() }
+    ) async throws -> BackendTalkResult {
+        func requireScope() throws {
+            try requireReceivedTalkScope(packet, owner: owner, backendURL: backendURL, currentScopeProvider: currentScopeProvider)
+        }
+        try requireScope()
+        try packet.response.validate()
+        guard !packet.response.bodyOmitted else {
+            throw BackendError.stage("offline_outbox", "The saved reply's audio exceeded the recovery limit. Its retained metadata is available to export.")
+        }
+        guard packet.response.statusCode == 200,
+              let url = URL(string: packet.entry.urlString),
+              let http = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: packet.response.headers) else {
+            throw BackendError.stage("offline_outbox", "This saved turn has no playable response. It remains kept on this device.")
+        }
+        let retained = try packet.response.turnMetadata.map { try JSONDecoder().decode(BackendTalkTurnMetaPayload.self, from: $0) }
+        try requireRetainedTalkPageMetadata(http: http, retained: retained)
+        let result = try await decodeTalkSuccess(data: packet.response.body, http: http,
+            contentType: http.value(forHTTPHeaderField: "content-type") ?? "", baseURL: backendURL,
+            userID: owner.userID, clientToken: "", emittedFirstSegment: false,
+            retainedTurnMeta: retained)
+        do { try requireScope() }
+        catch { try? FileManager.default.removeItem(at: result.audioURL); throw error }
+        return result
+    }
+
+    /// Live delivery and recovery share the same page-completeness boundary.
+    private func requireRetainedTalkPageMetadata(http: HTTPURLResponse, retained: BackendTalkTurnMetaPayload?) throws {
+        let headerReply = (http.value(forHTTPHeaderField: "x-reply")?.removingPercentEncoding ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if retained == nil, parseHeaderBool(http, field: "x-turn-meta-available", default: false),
+           headerReply.isEmpty, parseScreenplayOutput(from: http) == nil {
+            throw BackendError.stage("offline_outbox", "The received reply still needs its turn metadata. Its audio and request remain kept; no generation will be repeated.")
+        }
+        // Metadata lookups are volatile and can require a different session
+        // after relaunch. Recovery must be self-contained, not silently turn a
+        // partial page into a completed delivery or trigger another generation.
+        if parseHeaderBool(http, field: "x-screenplay-output-available", default: false),
+           parseScreenplayOutput(from: http) == nil, retained?.screenplayOutput == nil {
+            throw BackendError.stage("offline_outbox", "The saved reply references page text that was not included. Its files remain kept; delivery is not acknowledged.")
+        }
+        if parseHeaderBool(http, field: "x-screenplay-authoritative", default: false),
+           parseScreenplayOutput(from: http)?.writesToPage != true, retained?.screenplayOutput?.writesToPage != true {
+            throw BackendError.stage("offline_outbox", "The saved reply's authoritative page text is unavailable. Its files remain kept; delivery is not acknowledged.")
+        }
+    }
+
+    /// One successful-response decoder for live and retained turns. Recovery
+    /// callers disable networking/bootstrap; a decoding failure is not a new turn.
+    private func decodeTalkSuccess(
+        data: Data, http: HTTPURLResponse?, contentType: String, baseURL: URL,
+        userID: String, clientToken: String, emittedFirstSegment: Bool,
+        bootstrapOwner: BackendAuthRequestIdentity? = nil,
+        retainedTurnMeta: BackendTalkTurnMetaPayload? = nil
+    ) async throws -> BackendTalkResult {
         let normalizedType = contentType.lowercased()
         let mimeType = normalizedType
             .split(separator: ";", maxSplits: 1)
@@ -5043,9 +5127,6 @@ final class BackendClient {
         let isWAV = mimeType == "audio/wav" || mimeType == "audio/x-wav"
 
         guard isMP3 || isWAV else {
-            if let retried = try await retryAudioValidationIfAllowed("non-audio content-type on 200") {
-                return retried
-            }
             if let stageError = parseStageError(from: data) {
                 throw BackendError.stage(stageError.stage, stageError.message)
             }
@@ -5053,7 +5134,7 @@ final class BackendClient {
         }
 
         let commitSignal = parseCommitSignal(from: http)
-        if let commitSignal,
+        if let bootstrapOwner, let commitSignal,
            clientToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
            !commitSignal.sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let bootstrapExpiresIn = parseHeaderInt(
@@ -5064,7 +5145,10 @@ final class BackendClient {
                 max: 7 * 24 * 60 * 60
             )
             let expiry = Date().addingTimeInterval(TimeInterval(bootstrapExpiresIn))
-            persistResolvedClientToken(commitSignal.sessionId, expiry: expiry)
+            guard persistResolvedClientToken(commitSignal.sessionId, expiry: expiry,
+                expectedSessionEpoch: bootstrapOwner.sessionEpoch) else {
+                throw BackendMemoryAPIError.server(status: 409, message: "auth_request_superseded")
+            }
         }
         var audioDurationMs = parseHeaderInt(
             http,
@@ -5117,81 +5201,51 @@ final class BackendClient {
         let confidenceClass = (http?.value(forHTTPHeaderField: "x-confidence-class") ?? "UNKNOWN")
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .uppercased()
-        let turnMetaAvailable = parseHeaderBool(http, field: "x-turn-meta-available", default: false)
-        let screenplayOutputAvailable = parseHeaderBool(
-            http,
-            field: "x-screenplay-output-available",
-            default: false
-        )
-        let shouldFetchTurnMeta = turnMetaAvailable && (
-            (transcript?.isEmpty ?? true) ||
-            (reply?.isEmpty ?? true) ||
-            (timingSource?.isEmpty ?? true) && screenplayOutputAvailable ||
-            screenplayOutput == nil && screenplayOutputAvailable ||
-            screenplayCues.isEmpty && screenplayOutputAvailable ||
-            (dialogueTimeline == nil && screenplayOutputAvailable) ||
-            (screenplayOutput?.writesToPage == true && !renderContract.previewReplyOnly) ||
-            (knowledgeTopics.isEmpty && knowledgeCitations.isEmpty)
-        )
-        var turnMetaRateLimitNotice: BackendTalkTurnMetaRateLimitNotice?
-        if shouldFetchTurnMeta, let commitSignal {
-            do {
-                let payload = try await fetchTurnMeta(
-                    baseURL: baseURL,
-                    userID: userID,
-                    clientToken: clientToken,
-                    turnID: commitSignal.turnId
-                )
-                if transcript?.isEmpty ?? true {
-                    transcript = payload.transcript?
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                }
-                if reply?.isEmpty ?? true {
-                    reply = payload.reply?
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                }
-                if audioDurationMs <= 0 {
-                    audioDurationMs = max(0, payload.audioDurationMs ?? 0)
-                }
-                if timingSource?.isEmpty ?? true {
-                    timingSource = payload.timingSource?
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                }
-                if screenplayOutput == nil {
-                    screenplayOutput = payload.screenplayOutput
-                }
-                if screenplayQuality == nil {
-                    screenplayQuality = screenplayOutput?.quality ?? payload.screenplayOutput?.quality
-                }
-                if screenplayCues.isEmpty {
-                    screenplayCues = payload.screenplayCues ?? []
-                }
-                if dialogueTimeline == nil {
-                    dialogueTimeline = payload.dialogueTimeline
-                }
-                renderContract = renderContract.merged(with: payload.renderContract?.renderContract)
-                if knowledgeTopics.isEmpty {
-                    knowledgeTopics = payload.knowledgeTopics ?? []
-                }
-                if knowledgeCitations.isEmpty {
-                    knowledgeCitations = payload.knowledgeCitations ?? []
-                }
-                if knowledgeRawQuery?.isEmpty ?? true {
-                    knowledgeRawQuery = payload.knowledgeQueryRaw?
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                }
-                if knowledgeRewrittenQuery?.isEmpty ?? true {
-                    knowledgeRewrittenQuery = payload.knowledgeQueryRewrite?
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                }
-                if knowledgeContradictionRisk <= 0 {
-                    knowledgeContradictionRisk = min(max(payload.knowledgeContradictionRisk ?? 0, 0), 1)
-                }
-            } catch let error as BackendTalkTurnMetaRateLimitError {
-                turnMetaRateLimitNotice = error.notice
-                print("GET /talk/turn/\(commitSignal.turnId) rate limited: \(error.localizedDescription)")
-            } catch {
-                print("GET /talk/turn/\(commitSignal.turnId) failed: \(error.localizedDescription)")
+        if let payload = retainedTurnMeta {
+            if transcript?.isEmpty ?? true {
+                transcript = payload.transcript?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            if reply?.isEmpty ?? true {
+                reply = payload.reply?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            if audioDurationMs <= 0 {
+                audioDurationMs = max(0, payload.audioDurationMs ?? 0)
+            }
+            if timingSource?.isEmpty ?? true {
+                timingSource = payload.timingSource?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            if screenplayOutput == nil {
+                screenplayOutput = payload.screenplayOutput
+            }
+            if screenplayQuality == nil {
+                screenplayQuality = screenplayOutput?.quality ?? payload.screenplayOutput?.quality
+            }
+            if screenplayCues.isEmpty {
+                screenplayCues = payload.screenplayCues ?? []
+            }
+            if dialogueTimeline == nil {
+                dialogueTimeline = payload.dialogueTimeline
+            }
+            renderContract = renderContract.merged(with: payload.renderContract?.renderContract)
+            if knowledgeTopics.isEmpty {
+                knowledgeTopics = payload.knowledgeTopics ?? []
+            }
+            if knowledgeCitations.isEmpty {
+                knowledgeCitations = payload.knowledgeCitations ?? []
+            }
+            if knowledgeRawQuery?.isEmpty ?? true {
+                knowledgeRawQuery = payload.knowledgeQueryRaw?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            if knowledgeRewrittenQuery?.isEmpty ?? true {
+                knowledgeRewrittenQuery = payload.knowledgeQueryRewrite?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            if knowledgeContradictionRisk <= 0 {
+                knowledgeContradictionRisk = min(max(payload.knowledgeContradictionRisk ?? 0, 0), 1)
             }
         }
         if let screenplayOutput, screenplayOutput.writesToPage {
@@ -5283,22 +5337,13 @@ final class BackendClient {
         )
 
         guard !data.isEmpty else {
-            if let retried = try await retryAudioValidationIfAllowed("empty audio payload") {
-                return retried
-            }
             throw BackendError.emptyAudio
         }
 
         if isMP3, !looksLikeMP3(data) {
-            if let retried = try await retryAudioValidationIfAllowed("invalid mp3 signature") {
-                return retried
-            }
             throw BackendError.invalidAudioType(contentType)
         }
         if isWAV, !looksLikeWav(data) {
-            if let retried = try await retryAudioValidationIfAllowed("invalid wav signature") {
-                return retried
-            }
             throw BackendError.invalidAudioType(contentType)
         }
 
@@ -5360,7 +5405,7 @@ final class BackendClient {
             noteAction: noteAction,
             taskAction: taskAction,
             speculativeTrace: speculativeTrace,
-            turnMetaRateLimitNotice: turnMetaRateLimitNotice,
+            turnMetaRateLimitNotice: nil,
             commit: commitSignal
         )
     }
@@ -5369,7 +5414,9 @@ final class BackendClient {
         baseURL: URL,
         userID: String,
         clientToken: String,
-        turnID: String
+        turnID: String,
+        authorizationIdentity: BackendAuthRequestIdentity? = nil,
+        verifyOwner: (() throws -> Void)? = nil
     ) async throws -> BackendTalkTurnMetaPayload {
         let normalizedTurnID = turnID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedTurnID.isEmpty else {
@@ -5391,13 +5438,16 @@ final class BackendClient {
         if let token = appToken() {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
         }
-        attachAuthorizationHeader(to: &request)
+        if let identity = authorizationIdentity {
+            if !identity.accessToken.isEmpty { request.setValue("Bearer \(identity.accessToken)", forHTTPHeaderField: "Authorization") }
+        } else { attachAuthorizationHeader(to: &request) }
 
         var attempt = 0
         while true {
+            try verifyOwner?()
             let result: (Data, URLResponse)
             do {
-                result = try await urlSession.data(for: request)
+                result = try await urlSession.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
             } catch {
                 guard shouldRetryTalk(for: error), attempt + 1 < maxTurnMetaAttempts else {
                     throw error
@@ -5409,6 +5459,7 @@ final class BackendClient {
                 continue
             }
 
+            try verifyOwner?()
             let (data, response) = result
             guard let http = response as? HTTPURLResponse else {
                 throw BackendError.http(-1, "Invalid turn metadata response")
@@ -5565,10 +5616,6 @@ final class BackendClient {
         )
     }
 
-    private func resolveStudioRenderUserID() -> String {
-        resolveAtomicRequestUserID()
-    }
-
     private func refreshClientToken(
         for baseURL: URL,
         userID: String,
@@ -5602,7 +5649,7 @@ final class BackendClient {
         request.httpBody = Data("{}".utf8)
 
         print("POST /session -> url=\(request.url?.absoluteString ?? "-") has_app_token=\(appToken != nil)")
-        let (data, response) = try await urlSession.data(for: request)
+        let (data, response) = try await urlSession.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         let http = response as? HTTPURLResponse
         let status = http?.statusCode ?? -1
         let requestID = http?.value(forHTTPHeaderField: "X-Request-Id") ?? "-"
@@ -5751,7 +5798,7 @@ final class BackendClient {
         )
         request.httpBody = bodyData
 
-        let (data, response) = try await urlSession.data(for: request)
+        let (data, response) = try await urlSession.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendError.http(-1, "Invalid craft response.")
         }
@@ -5815,6 +5862,7 @@ final class BackendClient {
         if let token = appToken() {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
         }
+        attachAuthorizationHeader(to: &request)
         return request
     }
 
@@ -5909,21 +5957,25 @@ final class BackendClient {
     private func dataForTalkRequest(
         _ request: URLRequest,
         onResponse: ((HTTPURLResponse) -> Void)? = nil,
-        onChunk: ((Data, HTTPURLResponse) -> Void)? = nil
+        onChunk: ((Data, HTTPURLResponse) -> Void)? = nil,
+        retainAcceptedResponse: BackendTalkStreamingTransport.AcceptedResponseRetention? = nil
     ) async throws -> (Data, URLResponse) {
         var attempt = 0
         while true {
+            try BackendTalkStreamingTransport.checkCancellation()
             do {
                 let result: (Data, URLResponse)
-                if onResponse != nil || onChunk != nil {
+                if onResponse != nil || onChunk != nil || retainAcceptedResponse != nil {
                     result = try await dataForTalkRequestStreaming(
                         request,
                         onResponse: onResponse,
-                        onChunk: onChunk
+                        onChunk: onChunk,
+                        retainAcceptedResponse: retainAcceptedResponse
                     )
                 } else {
-                    result = try await URLSession.shared.data(for: request)
+                    result = try await urlSession.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
                 }
+                try BackendTalkStreamingTransport.checkCancellation()
                 if let http = result.1 as? HTTPURLResponse,
                    BackendProviderFailurePolicy.shouldRetryHTTP(
                        statusCode: http.statusCode,
@@ -5939,13 +5991,15 @@ final class BackendClient {
                 }
                 return result
             } catch {
-                if (onResponse != nil || onChunk != nil),
+                try BackendTalkStreamingTransport.checkCancellation(error)
+                if (onResponse != nil || onChunk != nil || retainAcceptedResponse != nil),
                    shouldFallbackToPlainTalkTransport(for: error) {
                     print("POST /talk -> streaming transport fell back to shared data: \(error.localizedDescription)")
                     return try await dataForTalkRequestViaSharedData(
                         request,
                         onResponse: onResponse,
-                        onChunk: onChunk
+                        onChunk: onChunk,
+                        retainAcceptedResponse: retainAcceptedResponse
                     )
                 }
                 if shouldRetryTalk(for: error), attempt + 1 < maxTalkAttempts {
@@ -5960,81 +6014,29 @@ final class BackendClient {
         }
     }
 
-    private final class TalkStreamingDelegate: NSObject, URLSessionDataDelegate {
-        private let onResponse: ((HTTPURLResponse) -> Void)?
-        private let onChunk: ((Data, HTTPURLResponse) -> Void)?
-        private var continuation: CheckedContinuation<(Data, URLResponse), Error>?
-        private var response: URLResponse?
-        private var accumulatedData = Data()
-        private var finished = false
-
-        init(
-            onResponse: ((HTTPURLResponse) -> Void)?,
-            onChunk: ((Data, HTTPURLResponse) -> Void)?,
-            streamChunkFlushBytes: Int
-        ) {
-            self.onResponse = onResponse
-            self.onChunk = onChunk
-        }
-
-        func attach(_ continuation: CheckedContinuation<(Data, URLResponse), Error>) {
-            self.continuation = continuation
-        }
-
-        func urlSession(
-            _ session: URLSession,
-            dataTask: URLSessionDataTask,
-            didReceive response: URLResponse,
-            completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
-        ) {
-            self.response = response
-            if let http = response as? HTTPURLResponse {
-                onResponse?(http)
-            }
-            completionHandler(.allow)
-        }
-
-        func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-            accumulatedData.append(data)
-            guard let http = response as? HTTPURLResponse else { return }
-            onChunk?(data, http)
-        }
-
-        func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-            guard !finished else { return }
-            finished = true
-            defer { continuation = nil }
-            if let error {
-                continuation?.resume(throwing: error)
-                return
-            }
-            guard let response else {
-                continuation?.resume(throwing: BackendError.http(-1, "Missing talk response."))
-                return
-            }
-            continuation?.resume(returning: (accumulatedData, response))
-        }
-    }
-
     private func dataForTalkRequestStreaming(
         _ request: URLRequest,
         onResponse: ((HTTPURLResponse) -> Void)? = nil,
-        onChunk: ((Data, HTTPURLResponse) -> Void)? = nil
+        onChunk: ((Data, HTTPURLResponse) -> Void)? = nil,
+        retainAcceptedResponse: BackendTalkStreamingTransport.AcceptedResponseRetention? = nil
     ) async throws -> (Data, URLResponse) {
         do {
             return try await dataForTalkRequestStreamingViaDelegate(
                 request,
                 onResponse: onResponse,
-                onChunk: onChunk
+                onChunk: onChunk,
+                retainAcceptedResponse: retainAcceptedResponse
             )
         } catch {
+            try BackendTalkStreamingTransport.checkCancellation(error)
             let nsError = error as NSError
             if nsError.domain == NSPOSIXErrorDomain && nsError.code == 1 {
                 print("POST /talk -> delegate streaming transport fell back to shared async bytes: \(error.localizedDescription)")
                 return try await dataForTalkRequestStreamingViaAsyncBytes(
                     request,
                     onResponse: onResponse,
-                    onChunk: onChunk
+                    onChunk: onChunk,
+                    retainAcceptedResponse: retainAcceptedResponse
                 )
             }
             throw error
@@ -6044,52 +6046,51 @@ final class BackendClient {
     private func dataForTalkRequestStreamingViaDelegate(
         _ request: URLRequest,
         onResponse: ((HTTPURLResponse) -> Void)? = nil,
-        onChunk: ((Data, HTTPURLResponse) -> Void)? = nil
+        onChunk: ((Data, HTTPURLResponse) -> Void)? = nil,
+        retainAcceptedResponse: BackendTalkStreamingTransport.AcceptedResponseRetention? = nil
     ) async throws -> (Data, URLResponse) {
-        let delegate = TalkStreamingDelegate(
-            onResponse: onResponse,
-            onChunk: onChunk,
-            streamChunkFlushBytes: streamChunkFlushBytes
-        )
         let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = urlSession.configuration.protocolClasses
         configuration.waitsForConnectivity = false
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.timeoutIntervalForRequest = requestTimeout
         configuration.timeoutIntervalForResource = requestTimeout
-        let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
-        defer {
-            session.finishTasksAndInvalidate()
-        }
-        return try await withCheckedThrowingContinuation { continuation in
-            delegate.attach(continuation)
-            session.dataTask(with: request).resume()
-        }
+        return try await BackendTalkStreamingTransport.data(for: request, configuration: configuration,
+            onResponse: onResponse, onChunk: onChunk, retainAcceptedResponse: retainAcceptedResponse)
     }
 
     private func dataForTalkRequestViaSharedData(
         _ request: URLRequest,
         onResponse: ((HTTPURLResponse) -> Void)? = nil,
-        onChunk: ((Data, HTTPURLResponse) -> Void)? = nil
+        onChunk: ((Data, HTTPURLResponse) -> Void)? = nil,
+        retainAcceptedResponse: BackendTalkStreamingTransport.AcceptedResponseRetention? = nil
     ) async throws -> (Data, URLResponse) {
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await urlSession.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
+        try await BackendTalkStreamingTransport.retainIfAccepted(data, response: response, using: retainAcceptedResponse)
+        try BackendTalkStreamingTransport.checkCancellation()
         if let http = response as? HTTPURLResponse {
             onResponse?(http)
+            try BackendTalkStreamingTransport.checkCancellation()
             if !data.isEmpty {
                 onChunk?(data, http)
             }
         }
+        try BackendTalkStreamingTransport.checkCancellation()
         return (data, response)
     }
 
     private func dataForTalkRequestStreamingViaAsyncBytes(
         _ request: URLRequest,
         onResponse: ((HTTPURLResponse) -> Void)? = nil,
-        onChunk: ((Data, HTTPURLResponse) -> Void)? = nil
+        onChunk: ((Data, HTTPURLResponse) -> Void)? = nil,
+        retainAcceptedResponse: BackendTalkStreamingTransport.AcceptedResponseRetention? = nil
     ) async throws -> (Data, URLResponse) {
-        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+        let (bytes, response) = try await urlSession.bytes(for: request, delegate: BackendHTTPRedirectGuard.shared)
+        try BackendTalkStreamingTransport.checkCancellation()
         if let http = response as? HTTPURLResponse {
             onResponse?(http)
         }
+        try BackendTalkStreamingTransport.checkCancellation()
         guard let http = response as? HTTPURLResponse else {
             let data = try await collectAsyncBytes(bytes)
             return (data, response)
@@ -6098,9 +6099,12 @@ final class BackendClient {
         let chunkSize = max(512, min(1_024, streamChunkFlushBytes))
         var accumulated = Data()
         for try await chunk in bytes.allChunks(ofSize: chunkSize) {
+            try BackendTalkStreamingTransport.checkCancellation()
             accumulated.append(chunk)
             onChunk?(chunk, http)
         }
+        try await BackendTalkStreamingTransport.retainIfAccepted(accumulated, response: response, using: retainAcceptedResponse)
+        try BackendTalkStreamingTransport.checkCancellation()
         return (accumulated, response)
     }
 
@@ -6157,9 +6161,9 @@ final class BackendClient {
         _ request: URLRequest,
         body: Data,
         reason: String
-    ) async -> BackendTalkQueuedError? {
+    ) async -> Error? {
         do {
-            let result = try await OfflineTalkOutbox.shared.enqueue(
+            let result = try await talkOutbox.enqueue(
                 request: request,
                 body: body,
                 reason: reason
@@ -6171,6 +6175,7 @@ final class BackendClient {
                 reason: reason
             )
         } catch {
+            if error is OfflineTalkPayloadConflictError || error is OfflineTalkPreviousOwnerError { return error }
             print("POST /talk -> offline outbox enqueue failed: \(error.localizedDescription)")
             return nil
         }
@@ -6230,7 +6235,7 @@ final class BackendClient {
             request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
             request.setValue("no-cache", forHTTPHeaderField: "Pragma")
 
-            let (data, response) = try await urlSession.data(for: request)
+            let (data, response) = try await urlSession.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
             guard let http = response as? HTTPURLResponse else { return false }
             return BackendAPIResponseValidator.isHealthyResponse(
                 requestURL: healthURL,
@@ -6304,7 +6309,7 @@ final class BackendClient {
             options: []
         )
 
-        let (data, response) = try await urlSession.data(for: request)
+        let (data, response) = try await urlSession.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendError.stage("iap_credit", "Invalid IAP credit response.")
         }
@@ -6349,7 +6354,11 @@ final class BackendClient {
         }
     }
 
-    private func attachAuthorizationHeader(to request: inout URLRequest) {
+    private func attachAuthorizationHeader(to request: inout URLRequest, capturedIdentity: BackendAuthRequestIdentity? = nil) {
+        if let capturedIdentity {
+            request.setValue(capturedIdentity.accessToken.isEmpty ? nil : "Bearer \(capturedIdentity.accessToken)", forHTTPHeaderField: "Authorization")
+            return
+        }
         guard let value = BackendAuthClient.authorizationHeaderValue(), !value.isEmpty else { return }
         request.setValue(value, forHTTPHeaderField: "Authorization")
     }
@@ -6358,11 +6367,11 @@ final class BackendClient {
         stage.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "auth_user"
     }
 
-    private func refreshUserAuthForRetryIfPossible() async -> Bool {
+    private func refreshUserAuthForRetryIfPossible(expectedOwner: ScreenplayStudioAuthContext? = nil) async -> Bool {
         let current = BackendAuthClient.currentAuthSessionState()
         guard current.refreshTokenPresent else { return false }
         do {
-            let refreshed = try await BackendAuthClient.refreshAuthSession(force: true)
+            let refreshed = try await BackendAuthClient.refreshAuthSession(force: true, expectedOwner: expectedOwner)
             return refreshed.isAuthenticated
         } catch {
             return false

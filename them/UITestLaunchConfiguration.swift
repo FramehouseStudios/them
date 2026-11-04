@@ -23,8 +23,22 @@ nonisolated enum UITestLaunchConfiguration {
             // signed out) would otherwise carry the previous test's page into
             // this launch's supposedly empty Studio.
             ScreenplayLiveDraftFileStore.removeAllForUITesting()
+            ScreenplayRecoveryOverflowStore.removeAllForUITesting()
             ScreenplayDraftSaveOutbox.resetStoredQueueForUITesting()
+            OfflineTalkOutbox.resetStoredQueueForUITesting()
             ScreenplayOutlineMutationOutbox.resetStoredQueueForUITesting()
+        }
+
+        // Synthetic drafts exercise the production recovery store only in UI tests.
+        if arguments.contains("--ui-draft-recovery-two-slot-fixture"),
+           arguments.contains("--ui-reset-state"), !arguments.contains("--ui-preserve-state") {
+            let store = ScreenplayLocalDraftRecoveryStore(defaults: defaults)
+            store.save(ownerUserId: "", projectId: "debug-structural",
+                       draft: "INT. ROOM - DAY\n\nORDINARY RECOVERY COPY.",
+                       baseVersionId: "recovery-base-a", dirty: true, savedAt: 100)
+            store.savePreservedConflict(ownerUserId: "", projectId: "debug-structural",
+                                        draft: "INT. ROOM - DAY\n\nPRESERVED RECOVERY COPY.",
+                                        baseVersionId: "recovery-base-b", savedAt: 200)
         }
 
         if arguments.contains("--ui-seed-remembered-login"),
@@ -73,13 +87,31 @@ nonisolated enum UITestLaunchConfiguration {
         copyLaunchArgumentInt("studio_debug_load_project_ack_token", from: arguments, to: defaults)
 
         copyEnvironmentValue("THEM_UITEST_BACKEND_BASE_URL", from: environment, to: "backend_base_url", defaults: defaults)
-        seedCredentialEnvironmentValues(from: environment, defaults: defaults)
+        let storedAuth = BackendAuthDebugSessionPolicy.usesStoredCredentials(arguments: arguments, environment: environment)
+        let session = storedAuth ? BackendAuthClient.currentAuthSessionState() : .signedOut
+        let preserveAuth = storedAuth && session.isAuthenticated && session.user?.userId == environment["THEM_UITEST_USER_ID"]
+        if !preserveAuth { seedCredentialEnvironmentValues(from: environment, defaults: defaults) }
+        // Use typed storage for multiline restore fixtures: NSArgumentDomain's
+        // property-list parsing can truncate an unquoted title page at a newline.
+        if let ownerID = nonEmptyEnvironmentValue("THEM_UITEST_USER_ID", in: environment),
+           let encoded = nonEmptyEnvironmentValue("THEM_UITEST_RESTORE_UNBOUND_DRAFT_BASE64", in: environment),
+           let bytes = Data(base64Encoded: encoded), let draft = String(data: bytes, encoding: .utf8) {
+            defaults.set(draft, forKey: ScreenplayOwnerScopedStoragePolicy.storageKey(
+                baseKey: "studio_live_draft_text_v1", ownerUserID: ownerID))
+        }
         copyEnvironmentValue("THEM_UITEST_CLIENT_TOKEN_BASE_URL", from: environment, to: "client_token_base_url", defaults: defaults)
         copyEnvironmentDouble("THEM_UITEST_CLIENT_TOKEN_CACHED_AT", from: environment, to: "client_token_cached_at", defaults: defaults)
-        copyEnvironmentValue("THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN", from: environment, to: "auth_debug_access_token", defaults: defaults)
-        copyEnvironmentBool("THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN_ENABLED", from: environment, to: "auth_debug_access_token_enabled", defaults: defaults)
-        copyEnvironmentValue("THEM_UITEST_AUTH_DEBUG_REFRESH_TOKEN", from: environment, to: "auth_debug_refresh_token", defaults: defaults)
-        copyEnvironmentBool("THEM_UITEST_AUTH_SIGNED_IN", from: environment, to: "auth_signed_in", defaults: defaults)
+        if !preserveAuth {
+            copyEnvironmentValue("THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN", from: environment, to: "auth_debug_access_token", defaults: defaults)
+            copyEnvironmentBool("THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN_ENABLED", from: environment, to: "auth_debug_access_token_enabled", defaults: defaults)
+            copyEnvironmentValue("THEM_UITEST_AUTH_DEBUG_REFRESH_TOKEN", from: environment, to: "auth_debug_refresh_token", defaults: defaults)
+            copyEnvironmentBool("THEM_UITEST_AUTH_SIGNED_IN", from: environment, to: "auth_signed_in", defaults: defaults)
+            if storedAuth, defaults === UserDefaults.standard, let user = BackendAuthDebugSessionPolicy.syntheticUser(signedIn: true,
+                accessToken: environment["THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN"] ?? "",
+                userID: environment["THEM_UITEST_USER_ID"] ?? "", email: "") {
+                assert(BackendAuthClient.seedStoredAuthUserForUITesting(user))
+            }
+        }
         copyEnvironmentValue("THEM_UITEST_STUDIO_FULL_THREAD_STATE_JSON", from: environment, to: "studio.full.thread.state.v1", defaults: defaults)
         copyEnvironmentValue("THEM_UITEST_STUDIO_ASK_NOTE_HISTORY_JSON", from: environment, to: "studio.ask.note.history.v2", defaults: defaults)
         copyEnvironmentValue("THEM_UITEST_STUDIO_DIFF_ACKNOWLEDGED_JSON", from: environment, to: "studio.diff.keep-current.v1", defaults: defaults)
@@ -130,6 +162,7 @@ nonisolated enum UITestLaunchConfiguration {
     ) -> Bool {
         guard arguments.contains("--ui-testing") else { return false }
         return arguments.contains("--ui-show-draft-conflict")
+            || arguments.contains("--ui-held-draft-recovery-fixture")
             || arguments.contains("--ui-show-pending-screenplay-question")
             || arguments.contains("--ui-seed-companion-signal")
             || hasStructuralStudioFixture(arguments: arguments)

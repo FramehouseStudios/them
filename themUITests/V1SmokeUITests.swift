@@ -2,6 +2,7 @@ import Foundation
 import XCTest
 
 final class V1SmokeUITests: XCTestCase {
+    private var structuralSeedToken = 0
     override func setUpWithError() throws {
         continueAfterFailure = false
     }
@@ -34,6 +35,8 @@ final class V1SmokeUITests: XCTestCase {
 
         let sentence = "She counts seven red lights before the motel sign finally goes dark."
         editor.tap()
+        XCTAssertFalse(app.buttons["studio.prompt.keyboard-send"].exists,
+                       "The command bar cannot expose a floating Send while the screenplay editor owns focus")
         // Checkpoint each exact prefix to locate the first lost character.
         // The separate uninterrupted case sends the same sentence in one call.
         // Native tracing proved all keys arrived before a stale model render
@@ -146,6 +149,193 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertEqual(accessibleDraftText(in: app), sentence)
 #else
         throw XCTSkip("Native uninterrupted typing specifically covers iPhone.")
+#endif
+    }
+
+    @MainActor
+    func test_pages_navigator_controls_jump_and_preserve_source() async throws {
+#if os(iOS)
+        continueAfterFailure = false
+        guard let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? ""), (1...65_535).contains(port) else {
+            throw XCTSkip("Dedicated Pages HTTP producer required; strict local runner rejects skips.")
+        }
+        let base = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)"))
+        let probe = try await requestJSON(baseURL: base, path: "/__test/page-navigator-stats", method: "GET", headers: ["X-APP-TOKEN": "them-dev"], body: nil)
+        guard probe.status == 200 else { throw XCTSkip("Pages observation fixture is not configured; strict producer requires a real route pass.") }
+        let fixture = try await createWriterLoopAuthenticationFixture(baseURL: base)
+        let projectID = "pages-ui-\(UUID().uuidString.lowercased())"
+        let created = try await requestJSON(baseURL: base, path: "/screenplay/projects", method: "POST", headers: fixture.authorizedHeaders, body: ["project_id": projectID, "title": "Pages navigator proof", "activate": true])
+        try assertHTTP(created, context: "Pages project")
+        let draft = (["Title: NIGHT SIGNAL", "Author: Zoë Chen", "", "INT. OBSERVATORY - NIGHT", ""] + (1...65).map { "Action\($0)." }).joined(separator: "\n")
+        let lint = try await requestJSON(baseURL: base, path: "/craft/format/lint", method: "POST", headers: fixture.authorizedHeaders, body: ["text": draft])
+        try assertHTTP(lint, context: "Pages source format lint")
+        let lintSuggestions = lint.payload["suggestions"] as? [[String: Any]] ?? []
+        XCTAssertFalse(lintSuggestions.contains { stringValue($0["rule"]) == "character_cue_caps" }, "Title metadata and complete short action lines cannot become character-cue errors")
+        let saved = try await requestJSON(baseURL: base, path: "/screenplay/projects/\(projectID)/version", method: "POST", headers: fixture.authorizedHeaders, body: ["draft": draft, "phase": "scene_draft", "base_version_id": ""])
+        try assertHTTP(saved, context: "Pages saved source")
+        let versionID = try firstNonEmptyString(saved.payload["version_id"], saved.payload["server_version_id"], message: "Pages version missing")
+        let app = launchApp(openStudio: true, restoreProjectID: projectID, restoreVersionID: versionID, restoreLoadToken: Int(Date().timeIntervalSince1970), launchEnvironment: fixture.appLaunchEnvironment)
+        defer { app.terminate() }
+        guard waitForDraft(in: app, containing: "Action65.", timeout: 20) else {
+            XCTFail("Restored Pages source must be readable before opening the inspector.")
+            return
+        }
+        guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
+        XCTAssertEqual(Array(accessibleDraftText(in: app).utf8), Array(draft.utf8), "Restored source must be exact before any page action")
+        let inspectorToggle = app.buttons["studio.sidebar.right.toggle"]
+        XCTAssertTrue(waitForHittability(of: inspectorToggle, timeout: 5), "Pages inspector toggle must be reachable")
+        inspectorToggle.tap()
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        XCTAssertTrue(drawer.waitForExistence(timeout: 8))
+        let draftTab = app.buttons["studio.right-panel.draft"]
+        XCTAssertTrue(waitForHittability(of: draftTab, timeout: 5), "Select the actual Draft inspector")
+        draftTab.tap()
+        let pagesTab = app.buttons["studio.draft.tools.pages"]
+        XCTAssertTrue(revealInStudioDrawer(pagesTab, drawer: drawer, scrollingUp: true, maxSwipes: 8, fullyVisible: true), "Draft must reveal the Pages tab")
+        pagesTab.tap()
+        let summary = app.staticTexts["studio.draft.pages.summary"]
+        XCTAssertTrue(revealInStudioDrawer(summary, drawer: drawer, scrollingUp: true, maxSwipes: 8, fullyVisible: true), "Pages summary must be visible after Draft → Pages")
+        XCTAssertTrue(app.staticTexts["studio.draft.pages.runtime"].label.contains("Estimated screenplay time"))
+        let previous = app.buttons["studio.draft.pages.previous"]
+        let next = app.buttons["studio.draft.pages.next"]
+        if previous.isEnabled {
+            XCTAssertTrue(revealInStudioDrawer(previous, drawer: drawer, scrollingUp: true, maxSwipes: 4, fullyVisible: true), "Initial previous control")
+            previous.tap()
+            guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
+        }
+        XCTAssertEqual(summary.label, "Page 1 of 2")
+        let summaryImage = XCTAttachment(screenshot: app.screenshot())
+        summaryImage.name = "Pages summary and navigation"
+        summaryImage.lifetime = .keepAlways
+        add(summaryImage)
+        XCTAssertFalse(previous.isEnabled)
+        XCTAssertTrue(revealInStudioDrawer(next, drawer: drawer, scrollingUp: true, maxSwipes: 4, fullyVisible: true))
+        next.tap()
+        guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
+        XCTAssertEqual(summary.label, "Page 2 of 2")
+        XCTAssertFalse(next.isEnabled)
+        XCTAssertTrue(revealInStudioDrawer(previous, drawer: drawer, scrollingUp: false, maxSwipes: 4, fullyVisible: true))
+        previous.tap()
+        guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
+        XCTAssertEqual(summary.label, "Page 1 of 2")
+        let decrease = app.buttons["studio.draft.pages.density.decrease"]
+        let increase = app.buttons["studio.draft.pages.density.increase"]
+        let standard = app.buttons["studio.draft.pages.density.standard"]
+        let density = app.staticTexts["studio.draft.pages.density.value"]
+        XCTAssertTrue(revealInStudioDrawer(decrease, drawer: drawer, scrollingUp: true, maxSwipes: 5, fullyVisible: true))
+        decrease.tap()
+        XCTAssertEqual(density.label, "53 lines per page")
+        XCTAssertTrue(revealInStudioDrawer(increase, drawer: drawer, scrollingUp: true, maxSwipes: 3, fullyVisible: true))
+        increase.tap()
+        XCTAssertEqual(density.label, "54 lines per page")
+        decrease.tap()
+        XCTAssertTrue(revealInStudioDrawer(standard, drawer: drawer, scrollingUp: true, maxSwipes: 3, fullyVisible: true))
+        standard.tap()
+        XCTAssertEqual(density.label, "54 lines per page")
+        let controlsImage = XCTAttachment(screenshot: app.screenshot())
+        controlsImage.name = "Pages readable controls"
+        controlsImage.lifetime = .keepAlways
+        add(controlsImage)
+        let recalculate = app.buttons["studio.draft.pages.recalculate"]
+        XCTAssertTrue(revealInStudioDrawer(recalculate, drawer: drawer, scrollingUp: true, maxSwipes: 4, fullyVisible: true))
+        var before = try await requestJSON(baseURL: base, path: "/__test/page-navigator-stats", method: "GET", headers: fixture.authorizedHeaders, body: nil)
+        for _ in 0..<10 {
+            try await Task.sleep(for: .milliseconds(200))
+            let stable = try await requestJSON(baseURL: base, path: "/__test/page-navigator-stats", method: "GET", headers: fixture.authorizedHeaders, body: nil)
+            if intValue(stable.payload["requests"]) == intValue(before.payload["requests"]) { before = stable; break }
+            before = stable
+        }
+        recalculate.tap()
+        var after = before
+        let deadline = Date().addingTimeInterval(8)
+        while Date() < deadline {
+            after = try await requestJSON(baseURL: base, path: "/__test/page-navigator-stats", method: "GET", headers: fixture.authorizedHeaders, body: nil)
+            if intValue(after.payload["successes"]) > intValue(before.payload["successes"]) { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTAssertEqual(intValue(after.payload["requests"]), intValue(before.payload["requests"]) + 1, "One press must deliver one actual pagination request")
+        XCTAssertEqual(intValue(after.payload["successes"]), intValue(before.payload["successes"]) + 1, "Real pagination must return200")
+        XCTAssertFalse(element(identifier: "studio.draft.pages.error", in: app).exists)
+        let second = app.buttons["studio.draft.page.2"]
+        XCTAssertTrue(revealInStudioDrawer(second, drawer: drawer, scrollingUp: true, maxSwipes: 10, fullyVisible: true))
+        XCTAssertGreaterThan(second.frame.width, 180)
+        let cardImage = XCTAttachment(screenshot: app.screenshot())
+        cardImage.name = "Pages full-width cards"
+        cardImage.lifetime = .keepAlways
+        add(cardImage)
+        second.tap()
+        guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
+        XCTAssertTrue(second.isSelected)
+        XCTAssertTrue(revealInStudioDrawer(summary, drawer: drawer, scrollingUp: false, maxSwipes: 10, fullyVisible: true))
+        XCTAssertEqual(summary.label, "Page 2 of 2")
+        app.buttons["studio.sidebar.right.toggle"].tap()
+        XCTAssertEqual(Array(accessibleDraftText(in: app).utf8), Array(draft.utf8), "Navigation/density/recalculate cannot alter writer text")
+        let restored = try await requestJSON(baseURL: base, path: "/screenplay/projects/\(projectID)", method: "GET", headers: fixture.authorizedHeaders, body: nil, queryItems: [URLQueryItem(name: "include_drafts", value: "1")])
+        try assertHTTP(restored, context: "Pages retained source")
+        let project = restored.payload["project"] as? [String: Any] ?? [:]
+        let versions = project["versions"] as? [[String: Any]] ?? []
+        XCTAssertEqual(versions.count, 1, "Read-only page controls must not save another version")
+        XCTAssertEqual(stringValue(versions.first?["draft"]), draft)
+#else
+        throw XCTSkip("Dedicated narrow iPhone navigator proof")
+#endif
+    }
+
+    func test_studio_home_counts_printed_pages_and_opens_numbered_page_overview() throws {
+#if os(iOS)
+        let app = launchApp(openStudio: true)
+        defer { app.terminate() }
+        let editor = app.textViews["studio.draft.editor"]
+        XCTAssertTrue(
+            editor.waitForExistence(timeout: 10),
+            "The screenplay page did not expose its editable text surface.\n\(app.debugDescription)"
+        )
+        let chip = app.buttons["studio.draft.page.pages"]
+        XCTAssertTrue(chip.waitForExistence(timeout: 6), "Studio home did not show the printed-page chip.")
+        XCTAssertTrue(chip.label.contains("No pages yet"), "Empty draft should read 'No pages yet', got: \(chip.label)")
+
+        let slugline = "INT. KITCHEN - NIGHT"
+        editor.tap()
+        editor.typeText(slugline)
+        XCTAssertTrue(
+            waitForDraft(in: app, containing: slugline, timeout: 8),
+            "The slugline did not land on the page. Draft: \(accessibleDraftText(in: app))"
+        )
+        let onePage = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label CONTAINS %@", "1 page"),
+            object: chip
+        )
+        XCTAssertEqual(
+            XCTWaiter().wait(for: [onePage], timeout: 6),
+            .completed,
+            "The page chip did not count the typed draft as one printed page: \(chip.label)"
+        )
+
+        XCTAssertTrue(waitForHittability(of: chip, timeout: 4))
+        chip.tap()
+        let overview = element(identifier: "studio.pages.overview", in: app)
+        XCTAssertTrue(overview.waitForExistence(timeout: 6), "Tapping the page chip did not open the page overview.")
+        let summary = element(identifier: "studio.pages.overview.summary", in: app)
+        XCTAssertTrue(summary.waitForExistence(timeout: 4))
+        XCTAssertTrue(summary.label.contains("1 page"), "Overview summary should count one page, got: \(summary.label)")
+        XCTAssertTrue(summary.label.contains("54 lines per printed page"), summary.label)
+        let pageOne = app.buttons["studio.pages.overview.page.1"]
+        XCTAssertTrue(pageOne.waitForExistence(timeout: 4), "Page 1 card was not rendered.")
+        XCTAssertTrue(pageOne.label.contains("Page 1 of 1"), pageOne.label)
+
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "studio-pages-overview.png"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+
+        pageOne.tap()
+        XCTAssertTrue(
+            waitForDisappearance(of: overview, timeout: 6),
+            "Tapping a page card should jump to it and dismiss the overview."
+        )
+        XCTAssertTrue(editor.waitForExistence(timeout: 4))
+#else
+        throw XCTSkip("The printed-page overview covers the iPhone Studio home.")
 #endif
     }
 
@@ -272,6 +462,161 @@ final class V1SmokeUITests: XCTestCase {
         startButton.tap()
 
         XCTAssertTrue(waitForDraft(in: app, containing: "INT. KITCHEN - DAY", timeout: 10))
+    }
+
+    @MainActor
+    func test_confirmed_home_voice_turn_opens_studio_writes_and_restores() async throws {
+        try await assertHomeVoiceHandoff(rawAudio: false)
+    }
+
+    @MainActor
+    func test_home_raw_audio_uses_current_server_transcript_writes_and_restores() async throws {
+        try await assertHomeVoiceHandoff(rawAudio: true)
+    }
+
+    @MainActor
+    func test_home_raw_audio_studio_stop_ends_capture_and_cancels_page() async throws {
+        try await assertHomeVoiceHandoff(rawAudio: true, stopAfterFirstChunk: true)
+    }
+
+    @MainActor
+    func test_studio_refused_write_preserves_saved_page_despite_page_selection() async throws {
+#if os(iOS)
+        guard let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? ""),
+              (1...65_535).contains(port) else {
+            throw XCTSkip("Dedicated authenticated backend required; a skip is not refusal proof")
+        }
+        let baseURL = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)"))
+        let fixture = try await createWriterLoopAuthenticationFixture(baseURL: baseURL)
+        let id = "refusal-ui-\(UUID().uuidString.lowercased())"
+        let created = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects", method: "POST",
+            headers: fixture.authorizedHeaders, body: ["project_id": id, "title": "Keep my words", "activate": true])
+        try assertHTTP(created, context: "refusal UI project")
+        let draft = "INT. OBSERVATORY - NIGHT\n\nMARA\nKeep every word on this page.\n"
+        let saved = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects/\(id)/version", method: "POST",
+            headers: fixture.authorizedHeaders, body: ["draft": draft, "phase": "scene_draft", "base_version_id": ""])
+        try assertHTTP(saved, context: "refusal UI baseline")
+        let versionID = try firstNonEmptyString(saved.payload["version_id"], saved.payload["server_version_id"], message: "Saved baseline needs a version")
+        let before = try await writerLoopProject(id: id, fixture: fixture)
+        let app = launchApp(openStudio: true, openCommandBar: true, routePage: true,
+            restoreProjectID: id, restoreVersionID: versionID, restoreLoadToken: Int(Date().timeIntervalSince1970),
+            submitTransportMode: "live-backend", launchEnvironment: fixture.appLaunchEnvironment)
+        defer { app.terminate() }
+        XCTAssertTrue(waitForExactWriterLoopDraft(draft.trimmingCharacters(in: .whitespacesAndNewlines), in: app, timeout: 25))
+        try submitStudioWriterBlockPrompt("Do not rewrite this scene. Just discuss the ending.", in: app)
+        // The transport fixture deliberately returns screenplay-shaped text.
+        // Even a bad model answer must stay in the pin, never the saved page.
+        XCTAssertTrue(waitForAccessibilityText(identifier: "studio.voice-pin.latest.output", containing: "HOME VOICE HANDOFF", in: app, timeout: 30))
+        XCTAssertTrue(waitForExactWriterLoopDraft(draft.trimmingCharacters(in: .whitespacesAndNewlines), in: app, timeout: 5))
+        let after = try await writerLoopProject(id: id, fixture: fixture)
+        XCTAssertEqual(stringValue(after["latest_version_id"]), stringValue(before["latest_version_id"]))
+        let beforeVersions = before["versions"] as? [[String: Any]] ?? []
+        let afterVersions = after["versions"] as? [[String: Any]] ?? []
+        XCTAssertFalse(beforeVersions.isEmpty)
+        XCTAssertTrue(NSArray(array: beforeVersions).isEqual(to: afterVersions), "Discussion changed saved versions")
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Refused Page write stays in Voice Pin"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+#else
+        throw XCTSkip("iPhone-only refusal routing proof")
+#endif
+    }
+
+    @MainActor
+    private func assertHomeVoiceHandoff(rawAudio: Bool, stopAfterFirstChunk: Bool = false) async throws {
+#if os(iOS)
+        // Fresh simulators can show this setup banner during the timed Stop tap.
+        // Dismiss only the observed OS notice; do not wait out the active write.
+        addUIInterruptionMonitor(withDescription: "Dismiss Apple Intelligence setup banner") { interruption in
+            guard interruption.identifier == "NotificationShortLookView",
+                  interruption.label.contains("Ready for Apple Intelligence") else { return false }
+            interruption.swipeUp()
+            return true
+        }
+        let rawPort = ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? ""
+        guard let port = Int(rawPort), (1...65_535).contains(port) else {
+            throw XCTSkip("A task-owned writer-loop backend is required; a skipped fixture is not proof")
+        }
+        let baseURL = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)"))
+        let fixture = try await createWriterLoopAuthenticationFixture(baseURL: baseURL)
+        let marker = "HOME VOICE HANDOFF"
+        var environment = fixture.appLaunchEnvironment
+        environment["THEM_UITEST_HOME_VOICE_PROMPT"] = "Write a story about two astronauts who discover the observatory sky is a painted set. Put HOME VOICE HANDOFF on the panel."
+        if rawAudio { environment["THEM_UITEST_HOME_VOICE_RAW_AUDIO"] = "1" }
+        var app = launchApp(submitTransportMode: "live", launchEnvironment: environment)
+        defer { app.terminate() }
+        XCTAssertTrue(element(identifier: "home.surface", in: app).waitForExistence(timeout: 15))
+        XCTAssertFalse(element(identifier: "studio.surface", in: app).exists, "The harness must not pre-open Studio")
+        let talk = app.buttons["home.talk.button"]
+        XCTAssertTrue(waitForHittability(of: talk, timeout: 15))
+        talk.tap()
+        XCTAssertTrue(element(identifier: "studio.surface", in: app).waitForExistence(timeout: 20))
+        XCTAssertTrue(waitForDraft(in: app, containing: marker, timeout: 45), "Confirmed Home speech did not reach the real page path")
+        let editor = textInput("studio.draft.editor", in: app)
+        if stopAfterFirstChunk {
+            let stop = app.buttons["studio.compact.talk"]
+            XCTAssertTrue(waitForHittability(of: stop, timeout: 10))
+            XCTAssertEqual(stop.label, "Stop talking")
+            stop.tap()
+            let stopped = NSPredicate { object, _ in
+                (object as? XCUIElement)?.label == "Start talking"
+            }
+            XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: stopped, object: stop)], timeout: 5), .completed, "Stop resumed microphone capture instead of ending the session")
+            let baselineRestored = NSPredicate { object, _ in
+                ((object as? XCUIElement)?.value as? String) == ""
+            }
+            XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: baselineRestored, object: editor)], timeout: 5), .completed, "Stop failed to cancel the generated page and restore the empty baseline")
+            try await Task.sleep(nanoseconds: 2_000_000_000)
+            XCTAssertTrue(editor.exists)
+            XCTAssertEqual(editor.value as? String, "", "Cancelled write emitted more text after Stop")
+            XCTAssertEqual(stop.label, "Start talking", "Voice rearmed after Stop")
+            return
+        }
+        XCTAssertTrue(waitForTextInputValue(in: editor, containing: "Someone on the other side pulls back.", timeout: 45), "The complete generated scene must reach the native editor, not a truncated preview")
+        let draft = (editor.value as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertEqual(occurrenceCount(of: marker, in: draft), 1)
+        var snapshot: [String: Any] = [:]
+        let selected = waitForRestoreSnapshot(in: app, timeout: 20) { value in
+            snapshot = value
+            return !stringValue(value["selected_project_id"]).isEmpty
+        }
+        guard selected else {
+            XCTFail("First project missing: " + String(describing: snapshot.filter { ["autosave_status_text", "error_text", "draft_character_count"].contains($0.key) }) + "; " + app.staticTexts["studio.promotion.state"].label)
+            return
+        }
+        let projectID = try XCTUnwrap(snapshot["selected_project_id"] as? String)
+        _ = try await waitForWriterLoopSavedVersion(projectID: projectID, draft: draft, fixture: fixture, app: app, timeout: 30)
+        let listed = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects", method: "GET", headers: fixture.authorizedHeaders, body: nil)
+        try assertHTTP(listed, context: "Home voice promoted projects")
+        let projects = listed.payload["screenplay_projects"] as? [[String: Any]] ?? []
+        XCTAssertEqual(projects.count, 1, "Commit and binding publications must not create duplicate projects.")
+        XCTAssertEqual(stringValue(projects.first?["id"]), projectID)
+        // Read the real kept-reply controller after it has loaded its current
+        // scope. Save alone/first audio alone must not manufacture completion.
+        let deliveryDrawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        if !deliveryDrawer.exists { app.buttons["studio.sidebar.right.toggle"].tap() }
+        XCTAssertTrue(deliveryDrawer.waitForExistence(timeout: 8))
+        let draftTab = app.buttons["studio.right-panel.draft"]
+        XCTAssertTrue(waitForHittability(of: draftTab, timeout: 5)); draftTab.tap()
+        let receiptCount = app.staticTexts["studio.recovery.received-count"]
+        XCTAssertTrue(revealInStudioDrawer(receiptCount, drawer: deliveryDrawer, scrollingUp: true, maxSwipes: 10))
+        XCTAssertTrue(receiptCount.waitForExistence(timeout: 10))
+        let delivered = NSPredicate(format: "label == %@", "0")
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: delivered, object: receiptCount)], timeout: 20), .completed,
+            "A fully played and saved page remained held: \(receiptCount.label)")
+        app.terminate()
+        environment.removeValue(forKey: "THEM_UITEST_HOME_VOICE_PROMPT")
+        environment.removeValue(forKey: "THEM_UITEST_HOME_VOICE_RAW_AUDIO")
+        app = launchApp(openStudio: true, resetState: false, launchEnvironment: environment)
+        let restoredEditor = textInput("studio.draft.editor", in: app)
+        let exact = NSPredicate { object, _ in
+            ((object as? XCUIElement)?.value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) == draft
+        }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: exact, object: restoredEditor)], timeout: 30), .completed)
+#else
+        throw XCTSkip("iPhone-only Home voice handoff")
+#endif
     }
 
     func test_record_voice_turn_round_trips_to_screenplay() {
@@ -443,30 +788,468 @@ final class V1SmokeUITests: XCTestCase {
 #endif
     }
 
-    func test_screenplay_export_returns_a_file() {
-        let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true)
-        XCTAssertTrue(waitForDraft(in: app, containing: "INT. DINER - NIGHT", timeout: 10))
-
-        let exportMenu = app.buttons["studio.export.menu"]
-        if !exportMenu.waitForExistence(timeout: 4) {
-            app.swipeUp()
+    @MainActor
+    func test_screenplay_export_returns_a_file() async throws {
+#if os(iOS)
+        guard let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? ""),
+              let baseURL = URL(string: "http://127.0.0.1:\(port)") else {
+            throw XCTSkip("A dedicated authenticated backend is required; no fake export.")
         }
-        XCTAssertTrue(exportMenu.waitForExistence(timeout: 6))
-        exportMenu.tap()
-
-        let markdownItem = app.buttons["studio.export.md"]
-        if markdownItem.waitForExistence(timeout: 3) {
-            markdownItem.tap()
-        } else {
-            app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "Markdown")).firstMatch.tap()
+        let fixture = try await createWriterLoopAuthenticationFixture(baseURL: baseURL)
+        let projectID = "export-ui-\(UUID().uuidString.lowercased())"
+        let title = "Native export proof"
+        let draft = "INT. OBSERVATORY - NIGHT\n\nÉlodie holds the key & map. 👩🏽‍🚀\n\nJOHN\nKeep my last line.\n"
+        let created = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects", method: "POST",
+            headers: fixture.authorizedHeaders, body: ["project_id": projectID, "title": title, "activate": true])
+        try assertHTTP(created, context: "Export project")
+        let saved = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects/\(projectID)/version", method: "POST",
+            headers: fixture.authorizedHeaders, body: ["draft": draft, "phase": "scene_draft", "base_version_id": ""])
+        try assertHTTP(saved, context: "Export saved version")
+        let versionID = try firstNonEmptyString(saved.payload["version_id"], saved.payload["server_version_id"], message: "Export needs a saved version")
+        let app = launchApp(openStudio: true, openExportTools: true, restoreProjectID: projectID,
+            restoreVersionID: versionID, restoreLoadToken: Int(Date().timeIntervalSince1970),
+            launchEnvironment: fixture.appLaunchEnvironment)
+        defer { app.terminate() }
+        XCTAssertTrue(waitForDraft(in: app, containing: "Keep my last line.", timeout: 20))
+        guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
+        let before = accessibleDraftText(in: app)
+        let menu = app.buttons["studio.export.menu"]
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        XCTAssertTrue(revealInStudioDrawer(menu, drawer: drawer, scrollingUp: false, maxSwipes: 8))
+        menu.tap()
+        let markdown = app.buttons["studio.export.md"]
+        XCTAssertTrue(markdown.waitForExistence(timeout: 5))
+        guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
+        XCTAssertTrue(waitForDisappearance(of: app.keyboards.firstMatch, timeout: 5), "Export choices must end editor focus without a test keyboard-dismiss action")
+        XCTAssertTrue(revealInStudioDrawer(markdown, drawer: drawer, scrollingUp: true, maxSwipes: 8))
+        markdown.tap()
+        guard waitForNativeFilesExporter(in: app, presented: true, timeout: 10) else {
+            XCTFail("The real export did not open Files.\n\(app.debugDescription)"); return
         }
+        guard dismissNativeFilesExporter(in: app) else {
+            XCTFail("The native Files picker did not cancel.\n\(app.debugDescription)"); return
+        }
+        XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(before.utf8))
+        XCTAssertFalse(staticText(containing: "Saved Native-export-proof.md", in: app).exists)
+        XCTAssertTrue(revealInStudioDrawer(menu, drawer: drawer, scrollingUp: false, maxSwipes: 8))
+        menu.tap()
+        XCTAssertTrue(revealInStudioDrawer(markdown, drawer: drawer, scrollingUp: true, maxSwipes: 8))
+        markdown.tap()
+        guard waitForNativeFilesExporter(in: app, presented: true, timeout: 10) else {
+            XCTFail("Retry did not open Files.\n\(app.debugDescription)"); return
+        }
+        var save = app.buttons["Save"]
+        if !waitForHittability(of: save, timeout: 2) {
+            let local = element(identifier: "DOC.sidebar.item.On My iPhone", in: app)
+            XCTAssertTrue(waitForHittability(of: local, timeout: 5), app.debugDescription)
+            local.tap()
+            save = app.buttons["Save"]
+        }
+        XCTAssertTrue(waitForHittability(of: save, timeout: 5), app.debugDescription)
+        save.tap()
+        XCTAssertTrue(waitForNativeFilesExporter(in: app, presented: false, timeout: 8))
+        XCTAssertTrue(staticText(containing: "Saved Native-export-proof.md", in: app).waitForExistence(timeout: 8), app.debugDescription)
+        XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(before.utf8))
+        let savedImage = XCTAttachment(screenshot: app.screenshot())
+        savedImage.name = "Native screenplay Files save acknowledged"
+        savedImage.lifetime = .keepAlways
+        add(savedImage)
+#else
+        throw XCTSkip("Native iPhone export workflow")
+#endif
+    }
 
-        XCTAssertTrue(staticText(containing: ".md", in: app).waitForExistence(timeout: 6),
-            "Export must report its Markdown artifact, not match an earlier saved status.")
+    @MainActor
+    func test_craft_restored_report_selection_and_override_use_real_backend() async throws {
+#if os(iOS)
+        guard let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? ""),
+              (1...65_535).contains(port) else {
+            throw XCTSkip("Dedicated authenticated Craft backend not configured; strict local producer requires one pass, zero skips.")
+        }
+        let baseURL = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)"))
+        let fixture = try await createWriterLoopAuthenticationFixture(baseURL: baseURL)
+        let projectID = "craft-ui-\(UUID().uuidString.lowercased())"
+        let project = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects", method: "POST",
+            headers: fixture.authorizedHeaders, body: ["project_id": projectID, "title": "Craft report recovery", "activate": true])
+        try assertHTTP(project, context: "craft UI project")
+        let draft = "INT. FERRY OFFICE - NIGHT\n\nMara sets a key on the desk.\n"
+        let version = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects/\(projectID)/version", method: "POST",
+            headers: fixture.authorizedHeaders, body: ["draft": draft, "phase": "scene_draft", "base_version_id": ""])
+        try assertHTTP(version, context: "craft UI saved version")
+        let versionID = try firstNonEmptyString(version.payload["version_id"], version.payload["server_version_id"],
+            message: "Craft fixture did not return a saved version")
+        let analysisBody: [String: Any] = ["projectId": projectID, "versionId": versionID,
+            "frameworkId": "save-the-cat", "screenplay": ["title": "Craft report recovery", "text": draft, "pageCount": 120]]
+        let analysis = try await requestJSON(baseURL: baseURL, path: "/craft/analyze", method: "POST",
+            headers: fixture.authorizedHeaders, body: analysisBody)
+        try assertHTTP(analysis, context: "craft UI stored report")
+        XCTAssertEqual((analysis.payload["framework"] as? [String: Any])?["id"] as? String, "save-the-cat")
+        let app = launchApp(openStudio: true, restoreProjectID: projectID, restoreVersionID: versionID,
+            restoreLoadToken: Int(Date().timeIntervalSince1970), launchEnvironment: fixture.appLaunchEnvironment)
+        defer { app.terminate() }
+        XCTAssertTrue(waitForDraft(in: app, containing: "Mara sets a key", timeout: 20))
+        let toggle = app.buttons["studio.sidebar.right.toggle"]
+        XCTAssertTrue(waitForHittability(of: toggle, timeout: 8))
+        toggle.tap()
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        XCTAssertTrue(drawer.waitForExistence(timeout: 5))
+        app.buttons["studio.right-panel.craft"].tap()
+        let selected = app.buttons["studio.craft.framework.save-the-cat"]
+        XCTAssertTrue(revealInStudioDrawer(selected, drawer: drawer, scrollingUp: false, maxSwipes: 5))
+        guard waitForSelection(of: selected, timeout: 12) else {
+            XCTFail("Stored report must replace automatic Three-Act")
+            return
+        }
+        let restoredImage = XCTAttachment(screenshot: app.screenshot())
+        restoredImage.name = "Stored report selects Save the Cat"
+        restoredImage.lifetime = .keepAlways
+        add(restoredImage)
+        let override = app.buttons["studio.craft.override.catalyst"]
+        guard revealInStudioDrawer(override, drawer: drawer, scrollingUp: true, maxSwipes: 14) else {
+            XCTFail("Catalyst override was not reachable in the inspector")
+            return
+        }
+        override.tap()
+        let page = app.textFields["studio.craft.override.page"]
+        guard revealInStudioDrawer(page, drawer: drawer, scrollingUp: true, maxSwipes: 5) else {
+            XCTFail("Expanded override Page field was not reachable")
+            return
+        }
+        page.tap()
+        page.typeText("12")
+        let done = app.keyboards.buttons["Done"]
+        guard waitForHittability(of: done, timeout: 4) else {
+            XCTFail("Override Page must offer a reachable Done action")
+            return
+        }
+        done.tap()
+        XCTAssertTrue(waitForDisappearance(of: app.keyboards.firstMatch, timeout: 4))
+        XCTAssertEqual(page.value as? String, "12", "Dismissing the keyboard must retain the override page")
+        let save = app.buttons["studio.craft.override.save"]
+        guard revealInStudioDrawer(save, drawer: drawer, scrollingUp: true, maxSwipes: 4) else {
+            XCTFail("Save Override was not reachable above the keyboard")
+            return
+        }
+        save.tap()
+        XCTAssertTrue(waitForDisappearance(of: app.buttons["studio.craft.override.save"], timeout: 10))
+        let acknowledgement = app.staticTexts["studio.craft.status"]
+        guard revealInStudioDrawer(acknowledgement, drawer: drawer, scrollingUp: false, maxSwipes: 14) else {
+            XCTFail("Save Override must receive the backend acknowledgement before checking persistence")
+            return
+        }
+        XCTAssertTrue(acknowledgement.label.contains("Override saved for"))
+        let persisted = try await requestJSON(baseURL: baseURL, path: "/craft/analyze", method: "POST",
+            headers: fixture.authorizedHeaders, body: analysisBody)
+        try assertHTTP(persisted, context: "craft UI persisted override")
+        let turns = persisted.payload["majorTurns"] as? [[String: Any]] ?? []
+        let catalyst = try XCTUnwrap(turns.first { self.stringValue($0["turnId"]) == "catalyst" })
+        XCTAssertEqual(catalyst["status"] as? String, "manually_present")
+        let storedOverride = try XCTUnwrap(catalyst["override"] as? [String: Any])
+        XCTAssertEqual(storedOverride["frameworkId"] as? String, "save-the-cat")
+        XCTAssertEqual(storedOverride["projectId"] as? String, projectID)
+        XCTAssertEqual(storedOverride["versionId"] as? String, versionID)
+        let savedImage = XCTAttachment(screenshot: app.screenshot())
+        savedImage.name = "Craft override acknowledged and persisted"
+        savedImage.lifetime = .keepAlways
+        add(savedImage)
+        let explicit = app.buttons["studio.craft.framework.three-act"]
+        XCTAssertTrue(revealInStudioDrawer(explicit, drawer: drawer, scrollingUp: false, maxSwipes: 14))
+        explicit.tap()
+        XCTAssertTrue(explicit.isSelected)
+        let refresh = app.buttons["studio.craft.refresh"]
+        XCTAssertTrue(revealInStudioDrawer(refresh, drawer: drawer, scrollingUp: false, maxSwipes: 3))
+        refresh.tap()
+        XCTAssertTrue(waitForHittability(of: explicit, timeout: 10))
+        XCTAssertTrue(waitForSelection(of: explicit, timeout: 10))
+        XCTAssertTrue(staticText(containing: "Analyze with the selected framework", in: app).exists)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Craft explicit choice survives stored report refresh"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+#else
+        throw XCTSkip("iPhone Craft workflow")
+#endif
     }
 
     @MainActor
     func test_integrated_iphone_writer_loop_creates_saves_exports_and_restores() async throws {
+        try await runIntegratedWriterLoop(coverageFreshnessOnly: false)
+    }
+
+    @MainActor
+    func test_coverage_read_labels_earlier_snapshot_and_refreshes_current_draft() async throws {
+        try await runIntegratedWriterLoop(coverageFreshnessOnly: true)
+    }
+
+    @MainActor
+    func test_restored_unbound_draft_keeps_title_and_exact_bytes_after_promotion_and_relaunch() async throws {
+#if os(iOS)
+        guard let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? ""),
+              let baseURL = URL(string: "http://127.0.0.1:\(port)"),
+              await backendRestoreContractIsAvailable(baseURL: baseURL) else {
+            throw XCTSkip("A dedicated authenticated local backend is required.")
+        }
+        let fixture = try await createWriterLoopAuthenticationFixture(baseURL: baseURL)
+        let marker = UUID().uuidString
+        let draft = "Title:\r\n    WALL_E\r\n    After Midnight\r\nAuthor: A Writer\r\n\r\nINT. OBSERVATORY - NIGHT\r\n\r\nA cafe\u{0301} closes. \(marker)\r\n\r\nOn screen:\r\nTitle: NOT THE PROJECT NAME\r\n \t "
+        let expectedTitle = "WALL_E After Midnight"
+        var app = launchApp(openStudio: true, restoreUnboundDraft: draft, launchEnvironment: fixture.appLaunchEnvironment)
+        defer { app.terminate() }
+        let projectID = try await waitForWriterLoopProject(titled: expectedTitle, fixture: fixture, timeout: writerLoopWait(30))
+        let project = try await waitForWriterLoopSavedVersion(projectID: projectID, draft: draft,
+            fixture: fixture, app: app, timeout: writerLoopWait(30))
+        let versions = project["versions"] as? [[String: Any]] ?? []
+        XCTAssertEqual(versions.count, 1, "Promotion should produce one authoritative version, not fragments.")
+        XCTAssertEqual(Data(((versions.first?["draft"] as? String) ?? "").utf8), Data(draft.utf8))
+        XCTAssertEqual(stringValue(versions.first?["source"]), "studio_first_turn_auto_create",
+                       "This must exercise Root's actual promotion path, not a test-issued save.")
+        XCTAssertEqual(stringValue(project["title"]), expectedTitle)
+        XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(draft.utf8))
+        let image = XCTAttachment(screenshot: app.screenshot())
+        image.name = "Restored draft promoted with writer title and raw bytes"
+        image.lifetime = .keepAlways
+        add(image)
+        app.terminate()
+        // No draft launch override on reopening: actual owner-scoped state and
+        // the saved server version must carry the same bytes and binding.
+        app = launchApp(openStudio: true, resetState: false, launchEnvironment: fixture.appLaunchEnvironment)
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: writerLoopWait(30)) { snapshot in
+            stringValue(snapshot["selected_project_id"]).lowercased() == projectID.lowercased()
+                && !stringValue(snapshot["latest_version_id"]).isEmpty
+        })
+        XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(draft.utf8))
+        let reopened = try await writerLoopProject(id: projectID, fixture: fixture)
+        let reopenedVersions = reopened["versions"] as? [[String: Any]] ?? []
+        XCTAssertEqual(reopenedVersions.count, 1)
+        XCTAssertEqual(Data(((reopenedVersions.first?["draft"] as? String) ?? "").utf8), Data(draft.utf8))
+        let listed = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects", method: "GET",
+            headers: fixture.authorizedHeaders, body: nil)
+        try assertHTTP(listed, context: "reopened promoted projects")
+        let projects = listed.payload["screenplay_projects"] as? [[String: Any]] ?? []
+        XCTAssertEqual(projects.filter { stringValue($0["title"]) == expectedTitle }.count, 1)
+#else
+        throw XCTSkip("The restored-draft workflow specifically covers iPhone.")
+#endif
+    }
+
+    @MainActor
+    func test_delayed_project_creation_cannot_save_or_bind_a_changed_page() async throws {
+#if os(iOS)
+        guard let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? ""),
+              let baseURL = URL(string: "http://127.0.0.1:\(port)") else {
+            throw XCTSkip("A dedicated held-response local backend is required.")
+        }
+        let fixture = try await createWriterLoopAuthenticationFixture(baseURL: baseURL)
+        let original = "INT. ROOM - NIGHT\n\nA writer waits."
+        let app = launchApp(openStudio: true, restoreUnboundDraft: original, launchEnvironment: fixture.appLaunchEnvironment)
+        defer { app.terminate() }
+        let phase = app.staticTexts["studio.promotion.phase"]
+        XCTAssertTrue(phase.waitForExistence(timeout: 10))
+        let deadline = Date().addingTimeInterval(15)
+        var pending = 0
+        var heldProjectID = ""
+        repeat {
+            let response = try await requestJSON(baseURL: baseURL, path: "/__them-proof/promotion", method: "GET", headers: [:], body: nil)
+            try assertHTTP(response, context: "held project response")
+            pending = intValue(response.payload["pending_creates"])
+            heldProjectID = stringValue(response.payload["held_project_id"])
+            if pending == 1 { break }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        } while Date() < deadline
+        XCTAssertEqual(pending, 1, "The real backend must commit a project before its reply is held.")
+        XCTAssertFalse(heldProjectID.isEmpty)
+        XCTAssertEqual(phase.label, "creating")
+        let editor = app.textViews["studio.draft.editor"]
+        XCTAssertTrue(waitForHittability(of: editor, timeout: 5))
+        editor.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.05)).tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["studio.draft.keyboard-save"].waitForExistence(timeout: 5))
+        app.typeText("CHANGED ")
+        let changed = accessibleDraftText(in: app)
+        XCTAssertNotEqual(Data(changed.utf8), Data(original.utf8))
+        let inspector = app.buttons["studio.sidebar.right.toggle"]
+        inspector.tap()
+        XCTAssertTrue(waitForDisappearance(of: app.keyboards.firstMatch, timeout: 5))
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 5) { snapshot in boolValue(snapshot["has_unsaved_draft_changes"]) })
+        let released = try await requestJSON(baseURL: baseURL, path: "/__them-proof/promotion/release", method: "POST", headers: [:], body: nil)
+        try assertHTTP(released, context: "release actual project reply")
+        let completion = XCTNSPredicateExpectation(predicate: NSPredicate { object, _ in
+            (object as? XCUIElement)?.label == "idle"
+        }, object: phase)
+        await fulfillment(of: [completion], timeout: 15)
+        let settled = try await requestJSON(baseURL: baseURL, path: "/__them-proof/promotion", method: "GET", headers: [:], body: nil)
+        try assertHTTP(settled, context: "settled project reply")
+        XCTAssertGreaterThanOrEqual(intValue(settled.payload["delivered_creates"]), 1)
+        XCTAssertEqual(intValue(settled.payload["stale_root_version_requests"]), 0, "A stale create reply must not save its earlier page.")
+        XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(changed.utf8))
+        // The existing manual autosave may legitimately bind/save the edited
+        // page while the Root reply is held. Judge its actual saved bytes, not
+        // an assumption that the page must remain unbound after an edit.
+        var selectedProjectID = ""
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 5) { snapshot in
+            selectedProjectID = stringValue(snapshot["selected_project_id"])
+            return true
+        })
+        if !selectedProjectID.isEmpty {
+            _ = try await waitForWriterLoopSavedVersion(projectID: selectedProjectID, draft: changed,
+                fixture: fixture, app: app, timeout: 15)
+        }
+#else
+        throw XCTSkip("The held-response workflow specifically covers iPhone.")
+#endif
+    }
+
+    @MainActor
+    func test_initial_project_relaunch_blank_replays_one_creation() async throws {
+#if os(iOS)
+        guard let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? ""),
+              let baseURL = URL(string: "http://127.0.0.1:\(port)") else {
+            throw XCTSkip("A dedicated held-response local backend is required.")
+        }
+        let fixture = try await createWriterLoopAuthenticationFixture(baseURL: baseURL)
+        var app = launchApp(openStudio: true, launchEnvironment: fixture.appLaunchEnvironment)
+        defer { app.terminate() }
+        let drawer = app.buttons["studio.sidebar.left.toggle"]
+        XCTAssertTrue(waitForHittability(of: drawer, timeout: 10)); drawer.tap()
+        let title = "Blank recovery \(UUID().uuidString.prefix(8))"
+        let field = app.textFields["New project title"]
+        XCTAssertTrue(waitForHittability(of: field, timeout: 8)); field.tap(); field.typeText(title)
+        let create = app.buttons["Create"]
+        XCTAssertTrue(waitForHittability(of: create, timeout: 5)); create.tap()
+        let deadline = Date().addingTimeInterval(20)
+        var projectID = ""
+        repeat {
+            let state = try await requestJSON(baseURL: baseURL, path: "/__them-proof/promotion", method: "GET", headers: [:], body: nil)
+            if intValue(state.payload["pending_creates"]) == 1 { projectID = stringValue(state.payload["held_project_id"]); break }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        } while Date() < deadline
+        XCTAssertFalse(projectID.isEmpty, "Blank project must commit before its response is withheld.")
+        let first = try await writerLoopProject(id: projectID, fixture: fixture)
+        XCTAssertEqual((first["versions"] as? [[String: Any]] ?? []).count, 0)
+        app.terminate()
+        let release = try await requestJSON(baseURL: baseURL, path: "/__them-proof/promotion/release", method: "POST", headers: [:], body: nil)
+        try assertHTTP(release, context: "release blank creation response")
+        app = launchApp(openStudio: true, resetState: false, launchEnvironment: fixture.appLaunchEnvironment)
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 25) { stringValue($0["selected_project_id"]) == projectID },
+            "Relaunch must replay the durable creation identity and bind the same project.")
+        let listed = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects", method: "GET", headers: fixture.authorizedHeaders, body: nil)
+        try assertHTTP(listed, context: "blank projects after relaunch")
+        let projects = listed.payload["screenplay_projects"] as? [[String: Any]] ?? []
+        XCTAssertEqual(projects.filter { stringValue($0["title"]) == title }.count, 1)
+        let restored = try await writerLoopProject(id: projectID, fixture: fixture)
+        XCTAssertEqual((restored["versions"] as? [[String: Any]] ?? []).count, 0,
+            "Blank creation must not manufacture a screenplay version.")
+#else
+        throw XCTSkip("This workflow specifically covers iPhone.")
+#endif
+    }
+
+    @MainActor
+    func test_initial_project_relaunch_replays_saved_identity_and_preserves_newer_edits() async throws {
+#if os(iOS)
+        guard let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? ""),
+              let baseURL = URL(string: "http://127.0.0.1:\(port)") else {
+            throw XCTSkip("A dedicated held-response local backend is required.")
+        }
+        let fixture = try await createWriterLoopAuthenticationFixture(baseURL: baseURL)
+        let original = "INT. ROOM - NIGHT\n\nA writer keeps every word."
+        var app = launchApp(openStudio: true, restoreUnboundDraft: original, launchEnvironment: fixture.appLaunchEnvironment)
+        defer { app.terminate() }
+        let deadline = Date().addingTimeInterval(15)
+        var projectID = ""
+        repeat {
+            let state = try await requestJSON(baseURL: baseURL, path: "/__them-proof/promotion", method: "GET", headers: [:], body: nil)
+            if intValue(state.payload["pending_creates"]) == 1 { projectID = stringValue(state.payload["held_project_id"]); break }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        } while Date() < deadline
+        XCTAssertFalse(projectID.isEmpty, "The first draft must really commit before its receipt is withheld.")
+        let savedBeforeKill = try await writerLoopProject(id: projectID, fixture: fixture)
+        let firstVersions = savedBeforeKill["versions"] as? [[String: Any]] ?? []
+        XCTAssertEqual(firstVersions.count, 1)
+        XCTAssertEqual(Data(stringValue(firstVersions.first?["draft"]).utf8), Data(original.utf8))
+        let editor = app.textViews["studio.draft.editor"]
+        XCTAssertTrue(waitForHittability(of: editor, timeout: 5))
+        editor.tap(); editor.typeText("NEW LOCAL WORDS ")
+        let newer = accessibleDraftText(in: app)
+        XCTAssertNotEqual(Data(newer.utf8), Data(original.utf8))
+        app.terminate()
+        // Do not seed the draft again: restore actual disk state and original IDs.
+        app = launchApp(openStudio: true, resetState: false, launchEnvironment: fixture.appLaunchEnvironment)
+        XCTAssertTrue(waitForExactWriterLoopDraft(newer, in: app, timeout: 10), "Relaunch lost newer manual text.")
+        XCTAssertTrue(app.buttons["studio.draft.page.save"].waitForExistence(timeout: 5), "Interrupted setup needs a real recovery action on the page.")
+        let released = try await requestJSON(baseURL: baseURL, path: "/__them-proof/promotion/release", method: "POST", headers: [:], body: nil)
+        try assertHTTP(released, context: "release resumed creation receipt")
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 15) { snapshot in
+            stringValue(snapshot["selected_project_id"]) == projectID && boolValue(snapshot["has_unsaved_draft_changes"])
+        }, "The saved first version must bind without acknowledging newer text as saved.")
+        XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(newer.utf8))
+        let listed = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects", method: "GET", headers: fixture.authorizedHeaders, body: nil)
+        try assertHTTP(listed, context: "projects after creation retry")
+        XCTAssertEqual((listed.payload["screenplay_projects"] as? [[String: Any]])?.count, 1, "Lost receipt created a duplicate project.")
+        let recovered = try await writerLoopProject(id: projectID, fixture: fixture)
+        XCTAssertEqual((recovered["versions"] as? [[String: Any]])?.count, 1)
+        let save = app.buttons["studio.draft.page.save"]
+        XCTAssertTrue(waitForHittability(of: save, timeout: 5))
+        save.tap()
+        _ = try await waitForWriterLoopSavedVersion(projectID: projectID, draft: newer, fixture: fixture, app: app, timeout: 15)
+        app.terminate()
+        app = launchApp(openStudio: true, resetState: false, launchEnvironment: fixture.appLaunchEnvironment)
+        XCTAssertTrue(waitForExactWriterLoopDraft(newer, in: app, timeout: 10))
+        let final = try await writerLoopProject(id: projectID, fixture: fixture)
+        let versions = final["versions"] as? [[String: Any]] ?? []
+        XCTAssertEqual(versions.count, 2, "The original and explicitly saved edit must each be stored once.")
+        XCTAssertEqual(versions.filter { Data((($0["draft"] as? String) ?? "").utf8) == Data(newer.utf8) }.count, 1)
+#else
+        throw XCTSkip("This is an iPhone crash/relaunch workflow.")
+#endif
+    }
+
+    @MainActor
+    func test_explicit_project_creation_preserves_existing_page_bytes() async throws {
+#if os(iOS)
+        guard let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? ""),
+              let baseURL = URL(string: "http://127.0.0.1:\(port)") else {
+            throw XCTSkip("An authenticated local backend is required.")
+        }
+        let fixture = try await createWriterLoopAuthenticationFixture(baseURL: baseURL)
+        let sourceID = "project-\(UUID().uuidString.lowercased())"
+        let draft = "\r\nINT. CAFE - NIGHT\r\n\r\nCafe\u{0301}.\r\n \t "
+        let seed = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects/initialize", method: "POST",
+            headers: fixture.authorizedHeaders, body: ["project_id": sourceID, "title": "Original page",
+                "initial_draft": ["draft": draft, "client_request_id": UUID().uuidString]])
+        try assertHTTP(seed, context: "source project")
+        let sourceVersion = stringValue(seed.payload["version_id"])
+        var app = launchApp(openStudio: true, launchEnvironment: fixture.appLaunchEnvironment)
+        defer { app.terminate() }
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 15) { stringValue($0["selected_project_id"]) == sourceID })
+        XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(draft.utf8))
+        let drawer = app.buttons["studio.sidebar.left.toggle"]
+        XCTAssertTrue(waitForHittability(of: drawer, timeout: 5)); drawer.tap()
+        let title = "Exact page \(UUID().uuidString.prefix(8))"
+        let field = app.textFields["New project title"]
+        XCTAssertTrue(waitForHittability(of: field, timeout: 5)); field.tap(); field.typeText(title)
+        let create = app.buttons["Create"]
+        XCTAssertTrue(waitForHittability(of: create, timeout: 5)); create.tap()
+        let createdID = try await waitForWriterLoopProject(titled: title, fixture: fixture, timeout: 15)
+        XCTAssertNotEqual(createdID, sourceID)
+        let created = try await writerLoopProject(id: createdID, fixture: fixture)
+        let versions = created["versions"] as? [[String: Any]] ?? []
+        XCTAssertEqual(versions.count, 1)
+        XCTAssertEqual(Data((versions.first?["draft"] as? String ?? "").utf8), Data(draft.utf8))
+        let source = try await writerLoopProject(id: sourceID, fixture: fixture)
+        XCTAssertEqual((source["versions"] as? [[String: Any]])?.count, 1)
+        XCTAssertEqual(stringValue(source["active_version_id"]), sourceVersion)
+        app.terminate()
+        app = launchApp(openStudio: true, resetState: false, launchEnvironment: fixture.appLaunchEnvironment)
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 15) { stringValue($0["selected_project_id"]) == createdID })
+        XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(draft.utf8))
+#else
+        throw XCTSkip("This is an iPhone project-creation workflow.")
+#endif
+    }
+
+    @MainActor
+    private func runIntegratedWriterLoop(coverageFreshnessOnly: Bool) async throws {
 #if os(iOS)
         let portRaw = (ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -519,8 +1302,8 @@ final class V1SmokeUITests: XCTestCase {
             timeout: writerLoopWait(20)
         )
 
-        guard dismissWriterLoopProjectKeyboard(in: app) else {
-            XCTFail("The project-title keyboard blocked the Studio inspector controls.")
+        guard waitForDisappearance(of: app.keyboards.firstMatch, timeout: writerLoopWait(3)) else {
+            XCTFail("Create must dismiss the project-title keyboard without an extra test tap before Studio navigation.")
             app.terminate()
             return
         }
@@ -555,8 +1338,15 @@ final class V1SmokeUITests: XCTestCase {
             waitForHittability(of: editor, timeout: writerLoopWait(8)),
             "The UI-created project did not expose its screenplay editor."
         )
-        editor.tap()
-        editor.typeText(marker)
+        // This text view extends below the viewport. Target its visible first
+        // lines, not its geometric centre, and avoid XCUI's element typeText
+        // visibility scroll dismissing the keyboard before event synthesis.
+        editor.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.05)).tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: writerLoopWait(5)),
+                      "Tapping the visible page did not open the editor keyboard.")
+        XCTAssertTrue(app.buttons["studio.draft.keyboard-save"].waitForExistence(timeout: writerLoopWait(5)),
+                      "The screenplay editor did not own its Save draft keyboard accessory.")
+        app.typeText(marker)
         XCTAssertTrue(
             waitForExactWriterLoopDraft(marker, in: app, timeout: writerLoopWait(8)),
             "The unique writer-loop marker was not entered exactly once. Draft: \(accessibleDraftText(in: app))"
@@ -653,6 +1443,62 @@ final class V1SmokeUITests: XCTestCase {
         )
 
         XCTAssertTrue(rightDrawer.waitForExistence(timeout: writerLoopWait(5)))
+        let craftTab = app.buttons["studio.right-panel.craft"]
+        XCTAssertTrue(waitForHittability(of: craftTab, timeout: writerLoopWait(5)), "The pinned Craft tab must be reachable")
+        craftTab.tap()
+        XCTAssertTrue(waitForSelection(of: craftTab, timeout: writerLoopWait(5)))
+        let readPages = app.buttons["studio.craft.coverage.refresh"]
+        XCTAssertTrue(revealInStudioDrawer(readPages, drawer: rightDrawer, scrollingUp: true, maxSwipes: 8),
+                      "Craft must expose its connected Read it action.")
+        readPages.tap()
+        let grade = app.staticTexts["studio.craft.coverage.grade"]
+        XCTAssertTrue(grade.waitForExistence(timeout: writerLoopWait(15)),
+                      "Read it did not return a coverage card from the authenticated backend.")
+        let coverage = try await requestJSON(baseURL: baseURL, path: "/screenplay/coverage", method: "POST",
+            headers: fixture.authorizedHeaders, body: ["draft": marker, "title": projectTitle])
+        try assertHTTP(coverage, context: "writer's deterministic coverage read")
+        XCTAssertEqual(grade.label, stringValue(coverage.payload["grade"]))
+        let verdict = stringValue(coverage.payload["verdict"]).capitalized
+        XCTAssertTrue(staticText(containing: "\(grade.label) · \(verdict) · 1 page, 0 scenes", in: app).exists,
+                      "The card must describe this writer's saved one-page draft, not another script.")
+        if coverageFreshnessOnly {
+            // Preserve the separate one-copy/export/relaunch gate. Exercise a
+            // real same-page edit without assuming the caret's insertion point.
+            rightDrawerToggle.tap()
+            guard waitForHittability(of: editor, timeout: writerLoopWait(5)) else {
+                XCTFail("The saved screenplay editor was not reachable.")
+                return
+            }
+            editor.tap()
+            let revision = "REVISION "
+            editor.typeText(revision)
+            let editedDraft = accessibleDraftText(in: app)
+            XCTAssertEqual(editedDraft.replacingOccurrences(of: revision, with: ""), marker,
+                           "Read the actual insertion position instead of assuming the caret moved to the end.")
+            XCTAssertNotEqual(editedDraft, marker)
+            // The existing inspector opener explicitly ends compact editing.
+            // The command-bar toggle opens another input; it is not dismissal.
+            rightDrawerToggle.tap()
+            guard waitForDisappearance(of: app.keyboards.firstMatch, timeout: writerLoopWait(5)),
+                  revealInStudioDrawer(readPages, drawer: rightDrawer, scrollingUp: true, maxSwipes: 8) else {
+                XCTFail("Opening the Craft inspector did not end editing and expose Read again.")
+                return
+            }
+            let earlierRead = app.staticTexts["studio.craft.coverage.earlier-snapshot"]
+            XCTAssertTrue(earlierRead.waitForExistence(timeout: writerLoopWait(5)),
+                          "A completed earlier read must not masquerade as the edited draft.")
+            XCTAssertTrue(app.buttons["studio.craft.coverage.speak"].label.contains("earlier"))
+            let earlierImage = XCTAttachment(screenshot: app.screenshot())
+            earlierImage.name = "Craft read clearly marks earlier snapshot"
+            earlierImage.lifetime = .keepAlways
+            add(earlierImage)
+            readPages.tap()
+            XCTAssertTrue(grade.waitForExistence(timeout: writerLoopWait(15)))
+            XCTAssertTrue(waitForDisappearance(of: earlierRead, timeout: writerLoopWait(5)))
+            XCTAssertEqual(app.buttons["studio.craft.coverage.speak"].label, "Hear her read")
+            return
+        }
+        XCTAssertTrue(waitForHittability(of: draftInspector, timeout: writerLoopWait(5)), "The pinned Draft tab must be reachable")
         if !draftInspector.isSelected {
             draftInspector.tap()
         }
@@ -664,10 +1510,54 @@ final class V1SmokeUITests: XCTestCase {
         exportMenu.tap()
         let markdownExport = app.buttons["studio.export.md"]
         XCTAssertTrue(markdownExport.waitForExistence(timeout: writerLoopWait(5)), "Export Copy did not offer Markdown.")
+        XCTAssertTrue(revealInStudioDrawer(markdownExport, drawer: rightDrawer, scrollingUp: true, maxSwipes: 8))
         markdownExport.tap()
+        guard waitForNativeFilesExporter(in: app, presented: true, timeout: writerLoopWait(10)) else {
+            XCTFail("Real export did not present the native Files picker.\n\(app.debugDescription)")
+            return
+        }
+        let firstPicker = XCTAttachment(screenshot: app.screenshot())
+        firstPicker.name = "writer-loop-files-before-cancel.png"
+        firstPicker.lifetime = .keepAlways
+        add(firstPicker)
+
+        guard dismissNativeFilesExporter(in: app) else {
+            XCTFail("Cancel did not dismiss the native Files picker.\n\(app.debugDescription)")
+            return
+        }
+        XCTAssertTrue(waitForExactWriterLoopDraft(marker, in: app, timeout: writerLoopWait(5)))
+
+        XCTAssertTrue(revealInStudioDrawer(exportMenu, drawer: rightDrawer, scrollingUp: false, maxSwipes: 8))
+        exportMenu.tap()
+        XCTAssertTrue(markdownExport.waitForExistence(timeout: writerLoopWait(5)))
+        XCTAssertTrue(revealInStudioDrawer(markdownExport, drawer: rightDrawer, scrollingUp: true, maxSwipes: 8))
+        markdownExport.tap()
+        guard waitForNativeFilesExporter(in: app, presented: true, timeout: writerLoopWait(10)) else {
+            XCTFail("The second export did not present the native Files picker.\n\(app.debugDescription)")
+            return
+        }
+        let saveExport = element(identifier: "Save", in: app)
+        if !waitForHittability(of: saveExport, timeout: writerLoopWait(2)) {
+            let onMyIPhone = element(identifier: "DOC.sidebar.item.On My iPhone", in: app)
+            XCTAssertTrue(
+                waitForHittability(of: onMyIPhone, timeout: writerLoopWait(5)),
+                "Files exposed neither Save nor the On My iPhone destination.\n\(app.debugDescription)"
+            )
+            onMyIPhone.tap()
+        }
         XCTAssertTrue(
-            staticText(containing: expectedMarkdownFilename, in: app).waitForExistence(timeout: writerLoopWait(10)),
-            "Markdown export did not report its .md artifact."
+            waitForHittability(of: saveExport, timeout: writerLoopWait(10)),
+            "The second export did not offer native Save.\n\(app.debugDescription)"
+        )
+        let savePicker = XCTAttachment(screenshot: app.screenshot())
+        savePicker.name = "writer-loop-files-before-save.png"
+        savePicker.lifetime = .keepAlways
+        add(savePicker)
+        saveExport.tap()
+        XCTAssertTrue(
+            staticText(containing: "Saved " + expectedMarkdownFilename, in: app)
+                .waitForExistence(timeout: writerLoopWait(10)),
+            "Markdown export did not confirm the native Files save.\n\(app.debugDescription)"
         )
         app.terminate()
 
@@ -735,19 +1625,31 @@ final class V1SmokeUITests: XCTestCase {
         let pagesTab = app.buttons["studio.draft.tools.pages"]
         let revisionsTab = app.buttons["studio.draft.tools.revisions"]
         let snapshotsTab = app.buttons["studio.draft.tools.snapshots"]
+        let rightDrawer = element(identifier: "studio.sidebar.right.drawer", in: app)
         XCTAssertTrue(pagesTab.waitForExistence(timeout: 8))
         XCTAssertTrue(revisionsTab.exists)
         XCTAssertTrue(snapshotsTab.exists)
+        XCTAssertTrue(rightDrawer.exists)
+        for tab in [pagesTab, revisionsTab, snapshotsTab] {
+            XCTAssertTrue(revealFullyInStudioDrawer(tab, drawer: rightDrawer, maxSwipes: 8))
+            guard tab.frame.height >= 44 else {
+                XCTFail("The entire \(tab.label) tile must be an accessible touch target, not just its icon/text: \(tab.frame).")
+                return
+            }
+        }
         XCTAssertTrue(app.descendants(matching: .any)["studio.draft.page-tools"].waitForExistence(timeout: 4))
 
-        revisionsTab.tap()
+        // Plain buttons must also accept a single tap in the label's padding.
+        // The hosted failure tapped the clear gap between Snapshots' icon and
+        // text, leaving Revisions selected despite the visually larger tile.
+        revisionsTab.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.1)).tap()
+        XCTAssertTrue(waitForSelection(of: revisionsTab, timeout: 3))
         XCTAssertTrue(app.descendants(matching: .any)["studio.draft.revision-tools"].waitForExistence(timeout: 4))
 
-        snapshotsTab.tap()
+        snapshotsTab.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.1)).tap()
+        XCTAssertTrue(waitForSelection(of: snapshotsTab, timeout: 3))
         XCTAssertTrue(app.descendants(matching: .any)["studio.draft.snapshot-tools"].waitForExistence(timeout: 4))
-        let rightDrawer = element(identifier: "studio.sidebar.right.drawer", in: app)
         let snapshotNote = element(identifier: "studio.draft.snapshot.note", in: app)
-        XCTAssertTrue(rightDrawer.exists)
         XCTAssertTrue(
             revealInStudioDrawer(snapshotNote, drawer: rightDrawer, scrollingUp: true, maxSwipes: 8),
             "The Snapshots panel did not reveal its optional note field."
@@ -759,7 +1661,9 @@ final class V1SmokeUITests: XCTestCase {
         )
         XCTAssertTrue(createSnapshotButton.label.localizedCaseInsensitiveContains("Create Snapshot"))
 
-        pagesTab.tap()
+        XCTAssertTrue(revealFullyInStudioDrawer(pagesTab, drawer: rightDrawer, maxSwipes: 8))
+        pagesTab.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.1)).tap()
+        XCTAssertTrue(waitForSelection(of: pagesTab, timeout: 3))
         XCTAssertTrue(app.descendants(matching: .any)["studio.draft.page-tools"].waitForExistence(timeout: 4))
     }
 
@@ -1417,6 +2321,20 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(staticText(containing: "Mara", in: app).waitForExistence(timeout: 8))
     }
 
+    func test_device_recovery_entry_opens_and_closes() {
+        let app = launchApp(openDataControls: true)
+        defer { app.terminate() }
+        XCTAssertTrue(app.otherElements["data.controls.screen"].waitForExistence(timeout: 8))
+        let entry = app.buttons["Open device recovery"]
+        for _ in 0..<8 where !entry.isHittable { app.swipeUp() }
+        XCTAssertTrue(entry.waitForExistence(timeout: 5))
+        XCTAssertTrue(entry.isHittable, "Device recovery must remain available while background refresh runs.")
+        entry.tap()
+        XCTAssertTrue(app.buttons["Unlock device copies"].waitForExistence(timeout: 5))
+        app.buttons["data.controls.device.recovery.done"].tap()
+        XCTAssertTrue(app.otherElements["data.controls.screen"].waitForExistence(timeout: 5))
+    }
+
     func test_realtime_fallback_does_not_crash_companion() {
         let app = launchApp(openDataControls: true, realtimeStub: true)
 
@@ -1424,6 +2342,533 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(staticText(containing: "Realtime Provider", in: app).waitForExistence(timeout: 5))
         XCTAssertTrue(staticText(containing: "Stub", in: app).waitForExistence(timeout: 5))
         XCTAssertTrue(staticText(containing: "deterministic stub path", in: app).waitForExistence(timeout: 5))
+    }
+
+    @MainActor
+    func test_talk_recovery_exports_current_owner_and_confirms_exact_deletion() async throws {
+#if os(iOS)
+        guard let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? ""),
+              let baseURL = URL(string: "http://127.0.0.1:\(port)"),
+              await backendRestoreContractIsAvailable(baseURL: baseURL) else {
+            throw XCTSkip("A dedicated authenticated local backend is required.")
+        }
+        let fixture = try await createWriterLoopAuthenticationFixture(baseURL: baseURL)
+        let app = launchApp(openDataControls: true, showTalkRecovery: true, interruptTalkEnqueue: true,
+            launchEnvironment: fixture.appLaunchEnvironment)
+        defer { app.terminate() }
+        XCTAssertTrue(app.otherElements["data.controls.screen"].waitForExistence(timeout: 8))
+        let export = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "data.controls.talk.export.")).firstMatch
+        for _ in 0..<8 where !export.isHittable { app.swipeUp() }
+        XCTAssertTrue(export.waitForExistence(timeout: 5))
+        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "data.controls.talk.export.")).count, 1)
+        XCTAssertFalse(staticText(containing: "UI recovery fixture: ui-foreign-talk", in: app).exists)
+        XCTAssertTrue(staticText(containing: "Older unassigned queued work", in: app).exists)
+        let review = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "data.controls.talk.resume.")).firstMatch
+        XCTAssertTrue(review.exists)
+        review.tap()
+        XCTAssertTrue(app.alerts.firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.alerts.firstMatch.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "may use Clementine credits")).firstMatch.exists)
+        app.alerts.firstMatch.buttons["Cancel"].tap()
+        XCTAssertTrue(review.exists, "Cancelling review must leave the recovered request held.")
+        export.tap()
+        XCTAssertTrue(waitForNativeFilesExporter(in: app, presented: true, timeout: 5), "Recovery export did not open the native file exporter.")
+        XCTAssertTrue(dismissNativeFilesExporter(in: app))
+        let delete = app.buttons["data.controls.talk.delete-parked"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 5))
+        delete.tap()
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        XCTAssertTrue(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "1 confirmed parked turn")).firstMatch.exists)
+        alert.buttons["Cancel"].tap()
+        XCTAssertTrue(export.exists, "Cancel deleted the queued turn.")
+        export.tap()
+        XCTAssertTrue(waitForNativeFilesExporter(in: app, presented: true, timeout: 5))
+        app.buttons["Save"].tap()
+        XCTAssertTrue(waitForNativeFilesExporter(in: app, presented: false, timeout: 8))
+        XCTAssertTrue(staticText(containing: "Queued turn recovery export saved", in: app).waitForExistence(timeout: 5))
+        let saved = XCTAttachment(screenshot: app.screenshot())
+        saved.name = "talk-recovery-after-real-files-save.png"
+        saved.lifetime = .keepAlways
+        add(saved)
+        delete.tap()
+        app.alerts.firstMatch.buttons["Delete Parked Turns"].tap()
+        XCTAssertTrue(staticText(containing: "Deleted 1 confirmed parked", in: app).waitForExistence(timeout: 5))
+        XCTAssertFalse(export.exists)
+        XCTAssertTrue(staticText(containing: "Older unassigned queued work", in: app).exists)
+#else
+        throw XCTSkip("iPhone queued recovery workflow")
+#endif
+    }
+
+    @MainActor
+    func test_interrupted_talk_recovery_requires_confirmation_and_keeps_original_queue_on_relaunch() throws {
+#if os(iOS)
+        var app = launchApp(openDataControls: true, showTalkRecovery: true, interruptTalkEnqueue: true,
+            launchEnvironment: interruptedTalkRecoveryEnvironment)
+        defer { app.terminate() }
+        XCTAssertTrue(app.otherElements["data.controls.screen"].waitForExistence(timeout: 8))
+        let reviews = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "data.controls.talk.resume."))
+        for _ in 0..<8 where !reviews.firstMatch.isHittable { app.swipeUp() }
+        XCTAssertEqual(reviews.count, 1)
+        reviews.firstMatch.tap()
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        let confirmQueue = alert.buttons["Queue Request"]
+        XCTAssertTrue(confirmQueue.waitForExistence(timeout: 5))
+        XCTAssertTrue(confirmQueue.isHittable)
+        confirmQueue.press(forDuration: 0.1)
+        XCTAssertTrue(alert.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(staticText(containing: "Recovered request queued with its original ID", in: app).waitForExistence(timeout: 5))
+        XCTAssertEqual(reviews.count, 0)
+        app.terminate()
+        app = launchApp(openDataControls: true, resetState: false, launchEnvironment: interruptedTalkRecoveryEnvironment)
+        let exports = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "data.controls.talk.export."))
+        for _ in 0..<8 where !exports.firstMatch.isHittable { app.swipeUp() }
+        XCTAssertEqual(exports.count, 1)
+        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "data.controls.talk.resume.")).count, 0)
+        XCTAssertTrue(staticText(containing: "Queued - will send when online", in: app).exists)
+#else
+        throw XCTSkip("iPhone interrupted queued request workflow")
+#endif
+    }
+
+    @MainActor
+    func test_received_talk_reply_is_reviewed_and_exported_without_resend_after_relaunch() async throws {
+#if os(iOS)
+        guard let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? ""),
+              let baseURL = URL(string: "http://127.0.0.1:\(port)"),
+              await backendRestoreContractIsAvailable(baseURL: baseURL) else {
+            throw XCTSkip("A dedicated authenticated local backend is required.")
+        }
+        let fixture = try await createWriterLoopAuthenticationFixture(baseURL: baseURL)
+        var app = launchApp(openDataControls: true, showTalkRecovery: true, receiveTalkReply: true,
+            launchEnvironment: fixture.appLaunchEnvironment)
+        defer { app.terminate() }
+        let readID = NSPredicate(format: "identifier BEGINSWITH %@", "data.controls.talk.read.")
+        let exportID = NSPredicate(format: "identifier BEGINSWITH %@", "data.controls.talk.export.")
+        var read = app.buttons.matching(readID).firstMatch
+        for _ in 0..<8 where !read.isHittable { app.swipeUp() }
+        XCTAssertEqual(app.buttons.matching(readID).count, 1)
+        XCTAssertTrue(staticText(containing: "Reply received", in: app).waitForExistence(timeout: 5))
+        read.tap()
+        XCTAssertTrue(app.staticTexts["talk.recovery.reply.text"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["talk.recovery.reply.text"].label, "A held fixture reply")
+        XCTAssertTrue(staticText(containing: "does not add it to your screenplay", in: app).exists)
+        app.buttons["Close"].tap()
+        XCTAssertTrue(read.waitForExistence(timeout: 5), "Reading is not confirmed page delivery.")
+        XCTAssertFalse(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "data.controls.talk.resume.")).firstMatch.exists)
+        app.terminate()
+        app = launchApp(openDataControls: true, resetState: false, launchEnvironment: fixture.appLaunchEnvironment)
+        read = app.buttons.matching(readID).firstMatch
+        for _ in 0..<8 where !read.isHittable { app.swipeUp() }
+        XCTAssertTrue(read.waitForExistence(timeout: 5))
+        let export = app.buttons.matching(exportID).firstMatch
+        XCTAssertEqual(export.label, "Export received reply")
+        export.tap()
+        XCTAssertTrue(waitForNativeFilesExporter(in: app, presented: true, timeout: 5))
+        XCTAssertTrue(dismissNativeFilesExporter(in: app))
+        XCTAssertTrue(read.waitForExistence(timeout: 5), "Cancelling export discarded a reply.")
+        export.tap()
+        XCTAssertTrue(waitForNativeFilesExporter(in: app, presented: true, timeout: 5))
+        app.buttons["Save"].tap()
+        XCTAssertTrue(waitForNativeFilesExporter(in: app, presented: false, timeout: 8))
+        XCTAssertTrue(staticText(containing: "Queued turn recovery export saved", in: app).waitForExistence(timeout: 5))
+        XCTAssertTrue(read.exists, "Export must not acknowledge or discard a reply.")
+#else
+        throw XCTSkip("iPhone accepted reply recovery workflow")
+#endif
+    }
+
+    @MainActor
+    func test_queued_talk_reply_plays_appends_saves_and_restores_once() async throws {
+        try await assertKeptTalkPageRecovery(liveReplacement: false)
+    }
+
+    @MainActor
+    func test_live_talk_replacement_recovers_saves_and_restores_once() async throws {
+        try await assertKeptTalkPageRecovery(liveReplacement: true)
+    }
+
+    @MainActor
+    func test_render_response_is_reviewed_without_audio_or_page_mutation_after_relaunch() async throws {
+        guard let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? "") else {
+            throw XCTSkip("Task-owned authenticated backend required")
+        }
+        let base = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)"))
+        let fixture = try await createWriterLoopAuthenticationFixture(baseURL: base)
+        let projectID = "render-review-\(UUID().uuidString.lowercased())"
+        let created = try await requestJSON(baseURL: base, path: "/screenplay/projects", method: "POST",
+            headers: fixture.authorizedHeaders, body: ["project_id":projectID,"title":"Original page stays","activate":true])
+        try assertHTTP(created, context: "Render review project")
+        let before = "INT. ROOM - NIGHT\r\n\r\nKeep this cafe\u{0301}.  \r\n"
+        let saved = try await requestJSON(baseURL: base, path: "/screenplay/projects/\(projectID)/version", method: "POST",
+            headers: fixture.authorizedHeaders, body: ["draft":before,"phase":"scene_draft","base_version_id":""])
+        try assertHTTP(saved, context: "Render review original")
+        let version = try firstNonEmptyString(saved.payload["version_id"], saved.payload["server_version_id"], message: "Original version missing")
+        var app = launchApp(openStudio: true, receiveStudioRender: true, restoreProjectID: projectID,
+            restoreVersionID: version, restoreLoadToken: Int(Date().timeIntervalSince1970), launchEnvironment: fixture.appLaunchEnvironment)
+        defer { app.terminate() }
+        func openRetainedRender() {
+            let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+            if !drawer.exists { app.buttons["studio.sidebar.right.toggle"].tap() }
+            XCTAssertTrue(drawer.waitForExistence(timeout: 8))
+            let tab = app.buttons["studio.right-panel.draft"]
+            XCTAssertTrue(waitForHittability(of: tab, timeout: 5)); tab.tap()
+            let review = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "studio.recovery.reply.")).firstMatch
+            XCTAssertTrue(review.waitForExistence(timeout: 45))
+            XCTAssertTrue(revealInStudioDrawer(review, drawer: drawer, scrollingUp: true, maxSwipes: 10))
+            review.tap()
+            let text = app.staticTexts["talk.recovery.render.reply"]
+            XCTAssertTrue(text.waitForExistence(timeout: 15))
+            XCTAssertTrue(text.label.contains("HOME VOICE HANDOFF"))
+            XCTAssertFalse(app.buttons["talk.recovery.reply.play"].exists)
+            XCTAssertFalse(app.buttons["talk.recovery.reply.append"].exists)
+            XCTAssertTrue(app.staticTexts["talk.recovery.render.status"].exists)
+            app.buttons["Close"].tap()
+            XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "studio.recovery.reply.")).count, 1)
+            app.buttons["studio.sidebar.right.toggle"].tap()
+        }
+        XCTAssertTrue(waitForExactWriterLoopDraft(before, in: app, timeout: 25))
+        guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
+        openRetainedRender()
+        XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(before.utf8))
+        app.terminate()
+        app = launchApp(openStudio: true, resetState: false, launchEnvironment: fixture.appLaunchEnvironment)
+        XCTAssertTrue(waitForExactWriterLoopDraft(before, in: app, timeout: 25))
+        openRetainedRender()
+        XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(before.utf8))
+        let project = try await writerLoopProject(id: projectID, fixture: fixture)
+        XCTAssertEqual((project["versions"] as? [[String:Any]])?.count, 1, "Review must never save or regenerate a page")
+    }
+
+    @MainActor
+    func test_studio_delayed_render_project_switch_preserves_newer_submission() async throws {
+        try await assertDelayedStudioRenderOwnership(switchProject: true)
+    }
+
+    @MainActor
+    func test_studio_delayed_render_stop_preserves_resubmission() async throws {
+        try await assertDelayedStudioRenderOwnership(switchProject: false)
+    }
+
+    // Actual authenticated render routes and native page/save delivery, with
+    // complete responses held by a loopback proxy. This is not live AI proof.
+    @MainActor
+    private func assertDelayedStudioRenderOwnership(switchProject: Bool) async throws {
+#if os(iOS)
+        guard let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? ""),
+              let base = URL(string: "http://127.0.0.1:\(port)") else {
+            throw XCTSkip("Task-owned authenticated render barrier required")
+        }
+        let fixture = try await createWriterLoopAuthenticationFixture(baseURL: base)
+        let suffix = UUID().uuidString.lowercased()
+        let projectA = "render-a-\(suffix)", projectB = switchProject ? "render-b-\(suffix)" : projectA
+        let titleB = "Owner B \(suffix.prefix(8))"
+        let beforeA = "INT. CABIN - NIGHT\r\n\r\nOriginal A keeps cafe\u{0301}.  \r\n"
+        let beforeB = switchProject ? "INT. DOCK - DAY\r\n\r\nOriginal B keeps cafe\u{0301}.  \r\n" : beforeA
+        func seed(_ id: String, _ title: String, _ draft: String) async throws -> String {
+            let response = try await requestJSON(baseURL: base, path: "/screenplay/projects/initialize", method: "POST",
+                headers: fixture.authorizedHeaders, body: ["project_id": id, "title": title,
+                    "initial_draft": ["draft": draft, "client_request_id": UUID().uuidString]])
+            try assertHTTP(response, context: "Render owner initial draft")
+            return try firstNonEmptyString(response.payload["version_id"], message: "Initial version missing")
+        }
+        let versionA = try await seed(projectA, "Owner A \(suffix.prefix(8))", beforeA)
+        var versionB = versionA
+        if switchProject { versionB = try await seed(projectB, titleB, beforeB) }
+        var app = launchApp(openStudio: true, restoreProjectID: projectA, restoreVersionID: versionA,
+            restoreLoadToken: Int(Date().timeIntervalSince1970), submitTransportMode: "live-backend", launchEnvironment: fixture.appLaunchEnvironment)
+        defer { app.terminate() }
+        XCTAssertTrue(waitForExactWriterLoopDraft(beforeA, in: app, timeout: 20))
+        XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(beforeA.utf8))
+        guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
+        let prompt = "Write a story about two astronauts who discover the observatory sky is a painted set. Put HOME VOICE HANDOFF on the panel."
+        try submitStudioWriterBlockPrompt(prompt, in: app, pageRouting: true)
+        let heldA = try await waitForHeldStudioRender(projectID: projectA, excluding: [], baseURL: base)
+        XCTAssertTrue(dismissKeyboardIfPresent(in: app))
+        if switchProject {
+            let left = app.buttons["studio.sidebar.left.toggle"]
+            XCTAssertTrue(waitForHittability(of: left, timeout: 5)); left.tap()
+            let chooseB = app.buttons.containing(.staticText, identifier: titleB).firstMatch
+            XCTAssertTrue(waitForHittability(of: chooseB, timeout: 8)); chooseB.tap()
+            XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 12) { stringValue($0["selected_project_id"]) == projectB })
+            if element(identifier: "studio.sidebar.left.drawer", in: app).exists { left.tap() }
+            XCTAssertTrue(waitForExactWriterLoopDraft(beforeB, in: app, timeout: 10))
+        } else {
+            let stop = app.buttons["studio.compact.talk"]
+            XCTAssertTrue(waitForHittability(of: stop, timeout: 5))
+            XCTAssertEqual(stop.label, "Stop talking"); stop.tap()
+            let stopped = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "Start talking"), object: stop)
+            await fulfillment(of: [stopped], timeout: 5)
+            XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(beforeA.utf8))
+        }
+        // Identical user text must receive a different dispatch lease. B must
+        // reach production rendering while A still has no delivered response.
+        try submitStudioWriterBlockPrompt(prompt, in: app, pageRouting: true)
+        let heldB = try await waitForHeldStudioRender(projectID: projectB, excluding: [heldA], baseURL: base)
+        let field = element(identifier: "studio.prompt.field", in: app)
+        let unsent = "Keep my unsent second idea.  "
+        XCTAssertTrue(waitForHittability(of: field, timeout: 5))
+        let composerBeforeIdea = field.value as? String ?? ""
+        field.tap(); field.typeText(unsent)
+        let composerWithIdea = field.value as? String ?? ""
+        XCTAssertTrue(composerWithIdea.contains(unsent), "The newer unsent idea must be entered")
+        XCTAssertEqual(composerWithIdea.replacingOccurrences(of: unsent, with: ""), composerBeforeIdea,
+            "Entering the newer idea must preserve the existing composer text")
+        let releasedA = try await requestJSON(baseURL: base, path: "/__them-proof/render/release", method: "POST", headers: [:], body: ["id": heldA])
+        try assertHTTP(releasedA, context: "Release stale A render")
+        // Receipt publication proves the app consumed A, rather than merely
+        // asserting immediately after the proxy wrote bytes to its socket.
+        try await waitForStudioHeldRenderCount(1, in: app)
+        try revealStudioOwnerPromptComposer(in: app)
+        XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(beforeB.utf8))
+        XCTAssertEqual(Data((field.value as? String ?? "").utf8), Data(composerWithIdea.utf8))
+        let send = app.buttons["studio.prompt.send"]
+        XCTAssertEqual(send.label, "Sending…"); XCTAssertFalse(send.isEnabled, "A cleared B's busy state")
+        XCTAssertEqual(app.buttons["studio.compact.talk"].label, "Stop talking", "A revoked B's active Stop control")
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 5) { snapshot in
+            stringValue(snapshot["selected_project_id"]) == projectB && stringValue(snapshot["latest_ask_note_prompt"]) != prompt
+        }, "A published stale history into B")
+        let releasedB = try await requestJSON(baseURL: base, path: "/__them-proof/render/release", method: "POST", headers: [:], body: ["id": heldB])
+        try assertHTTP(releasedB, context: "Release current B render")
+        let idle = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "Send"), object: send)
+        await fulfillment(of: [idle], timeout: 15)
+        // The debug/model accessibility snapshot is capped at 1,000 characters.
+        // Read the complete editor after submission, then prove its saved bytes.
+        let committed = textInput("studio.draft.editor", in: app)
+        let originalMarker = switchProject ? "Original B keeps" : "Original A keeps"
+        let delivered = XCTNSPredicateExpectation(predicate: NSPredicate { object, _ in
+            guard let snapshot = object as? XCUIElement, snapshot.exists else { return false }
+            let text = snapshot.value as? String ?? ""
+            return text.components(separatedBy: "HOME VOICE HANDOFF").count - 1 == 1
+                && text.components(separatedBy: originalMarker).count - 1 == 1
+        }, object: committed)
+        await fulfillment(of: [delivered], timeout: 25)
+        let finalDraft = committed.value as? String ?? ""
+        XCTAssertEqual(finalDraft.components(separatedBy: "HOME VOICE HANDOFF").count - 1, 1)
+        XCTAssertEqual(finalDraft.components(separatedBy: switchProject ? "Original B keeps" : "Original A keeps").count - 1, 1)
+        let originalBytes = Array(beforeB.utf8), deliveredBytes = Array(finalDraft.utf8)
+        let preservedPrefix = zip(originalBytes, deliveredBytes).prefix { $0.0 == $0.1 }.count
+        let preservedSuffix = zip(originalBytes.dropFirst(preservedPrefix).reversed(),
+            deliveredBytes.dropFirst(preservedPrefix).reversed()).prefix { $0.0 == $0.1 }.count
+        XCTAssertEqual(preservedPrefix + preservedSuffix, originalBytes.count,
+            "Insertion must retain every original byte, including CRLF, decomposed accents and whitespace")
+        XCTAssertEqual(Data((field.value as? String ?? "").utf8), Data(composerWithIdea.utf8), "B must also preserve the newer unsent seed")
+        _ = try await waitForWriterLoopSavedVersion(projectID: projectB, draft: finalDraft, fixture: fixture, app: app, timeout: 20)
+        let savedB = try await writerLoopProject(id: projectB, fixture: fixture)
+        XCTAssertEqual((savedB["versions"] as? [[String: Any]])?.count, 2, "Only B may add one saved version")
+        XCTAssertNotEqual(stringValue(savedB["active_version_id"]), versionB, "The initial baseline cannot stand in for a new save")
+        let activeB = (savedB["versions"] as? [[String: Any]])?.first { stringValue($0["id"]) == stringValue(savedB["active_version_id"]) }
+        XCTAssertEqual(Data((activeB?["draft"] as? String ?? "").utf8), Data(finalDraft.utf8), "The active saved version must contain the committed page")
+        let savedAnchors = activeB?["studio_write_anchors"] as? [[String: Any]] ?? []
+        XCTAssertTrue(savedAnchors.contains { anchor in
+            !stringValue(anchor["write_id"]).isEmpty &&
+                stringValue(anchor["inserted_text"]).contains("HOME VOICE HANDOFF") &&
+                (anchor["anchor_line"] as? Int ?? 0) > 0
+        }, "The single saved page version must preserve its write anchor")
+        if element(identifier: "studio.sidebar.right.drawer", in: app).exists {
+            app.buttons["studio.sidebar.right.toggle"].tap()
+        }
+        // T1199: this fixture contains two conversational blocks. Measure the
+        // real narrow page banner, then invoke its actual Review callback.
+        if switchProject {
+            let banner = app.otherElements["studio.page.integrity.banner"]
+            XCTAssertTrue(banner.waitForExistence(timeout: 5))
+            XCTAssertLessThan(banner.frame.height, 250, "The warning must leave the screenplay visible")
+            let actionIDs = ["review", "move-all", "move", "remove"]
+            var actionFrames: [CGRect] = []
+            for id in actionIDs {
+                let action = app.buttons["studio.page.integrity.\(id)"]
+                XCTAssertTrue(waitForHittability(of: action, timeout: 5), "Integrity action \(id) is unreachable")
+                let frame = action.frame
+                XCTAssertGreaterThanOrEqual(frame.width, 70, "Action labels must not collapse into vertical columns")
+                XCTAssertGreaterThanOrEqual(frame.height, 44, "Integrity actions need a full touch target")
+                XCTAssertTrue(banner.frame.insetBy(dx: -1, dy: -1).contains(frame), "Action escaped the banner")
+                XCTAssertFalse(actionFrames.contains { $0.intersects(frame) }, "Integrity actions overlap")
+                actionFrames.append(frame)
+            }
+        }
+        let committedImage = XCTAttachment(screenshot: app.screenshot())
+        committedImage.name = switchProject ? "Committed project B page" : "Committed Stop resubmission page"
+        committedImage.lifetime = .keepAlways
+        add(committedImage)
+        if switchProject {
+            app.buttons["studio.page.integrity.review"].tap()
+            XCTAssertTrue(element(identifier: "studio.sidebar.right.drawer", in: app).waitForExistence(timeout: 5))
+            XCTAssertTrue(waitForSelection(of: app.buttons["studio.right-panel.draft"], timeout: 5),
+                "Review must open the real Draft inspector")
+            let savedA = try await writerLoopProject(id: projectA, fixture: fixture)
+            let versions = savedA["versions"] as? [[String: Any]] ?? []
+            XCTAssertEqual(versions.count, 1); XCTAssertEqual(stringValue(savedA["active_version_id"]), versionA)
+            XCTAssertEqual(Data((versions.first?["draft"] as? String ?? "").utf8), Data(beforeA.utf8))
+        }
+        // Current B delivery is acknowledged; stale A remains read-only and
+        // survives launch without any new render/fallback/model request.
+        try await waitForStudioHeldRenderCount(1, in: app)
+        app.terminate()
+        app = launchApp(openStudio: true, submitTransportMode: "live-backend", resetState: false, launchEnvironment: fixture.appLaunchEnvironment)
+        let restoredEditor = textInput("studio.draft.editor", in: app)
+        let restoredDraftExpectation = XCTNSPredicateExpectation(predicate: NSPredicate { object, _ in
+            guard let editor = object as? XCUIElement, editor.exists else { return false }
+            return Data((editor.value as? String ?? "").utf8) == Data(finalDraft.utf8)
+        }, object: restoredEditor)
+        await fulfillment(of: [restoredDraftExpectation], timeout: 20)
+        XCTAssertEqual(Data((restoredEditor.value as? String ?? "").utf8), Data(finalDraft.utf8))
+        try await waitForStudioHeldRenderCount(1, in: app, openReply: true)
+        let stats = try await requestJSON(baseURL: base, path: "/__them-proof/render", method: "GET", headers: [:], body: nil)
+        try assertHTTP(stats, context: "Render owner final route counts")
+        let renders = (stats.payload["renders"] as? [[String: Any]] ?? []).filter {
+            [projectA, projectB].contains(stringValue($0["project_id"]))
+        }
+        XCTAssertEqual(renders.count, 2, "A late completion or relaunch retried generation")
+        XCTAssertTrue(renders.allSatisfy { ($0["character_voice_memory_count"] as? Int) == 0 },
+            "New empty projects must not inherit another project's character voices from the user's cache")
+        XCTAssertTrue(renders.allSatisfy { boolValue($0["delivered"]) && !boolValue($0["closed"]) && intValue($0["status"]) == 200 })
+        let restored = try await writerLoopProject(id: projectB, fixture: fixture)
+        XCTAssertEqual((restored["versions"] as? [[String: Any]])?.count, 2, "Review/relaunch resaved a held response")
+#else
+        throw XCTSkip("iPhone render ownership workflow")
+#endif
+    }
+
+    private func waitForHeldStudioRender(projectID: String, excluding: Set<Int>, baseURL: URL) async throws -> Int {
+        let deadline = Date().addingTimeInterval(25)
+        repeat {
+            let response = try await requestJSON(baseURL: baseURL, path: "/__them-proof/render", method: "GET", headers: [:], body: nil)
+            try assertHTTP(response, context: "Held production render")
+            let renders = response.payload["renders"] as? [[String: Any]] ?? []
+            if let held = renders.first(where: {
+                stringValue($0["project_id"]) == projectID && boolValue($0["held"]) && !excluding.contains(intValue($0["id"]))
+            }) { return intValue(held["id"]) }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        } while Date() < deadline
+        throw NSError(domain: "themUITests.renderOwner", code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Current submission did not reach its authenticated render barrier"])
+    }
+
+    @MainActor
+    private func waitForStudioHeldRenderCount(_ count: Int, in app: XCUIApplication, openReply: Bool = false) async throws {
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        if drawer.exists, app.keyboards.firstMatch.exists {
+            app.buttons["studio.sidebar.right.toggle"].tap()
+        }
+        if !drawer.exists { app.buttons["studio.sidebar.right.toggle"].tap() }
+        guard drawer.waitForExistence(timeout: 8) else { throw NSError(domain: "themUITests.renderOwner", code: 3,
+            userInfo: [NSLocalizedDescriptionKey: "The recovery inspector did not open"]) }
+        let tab = app.buttons["studio.right-panel.draft"]
+        guard revealInStudioDrawer(tab, drawer: drawer, scrollingUp: false, maxSwipes: 6) else {
+            throw NSError(domain: "themUITests.renderOwner", code: 3,
+                userInfo: [NSLocalizedDescriptionKey: "The inspector did not reveal its Document tab"])
+        }
+        tab.tap()
+        let receiptCount = app.staticTexts["studio.recovery.received-count"]
+        XCTAssertTrue(revealInStudioDrawer(receiptCount, drawer: drawer, scrollingUp: true, maxSwipes: 10))
+        let countMatches = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", String(count)), object: receiptCount)
+        await fulfillment(of: [countMatches], timeout: 15)
+        if openReply {
+            let review = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "studio.recovery.reply.")).firstMatch
+            XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "studio.recovery.reply.")).count, 1)
+            XCTAssertTrue(revealInStudioDrawer(review, drawer: drawer, scrollingUp: true, maxSwipes: 6)); review.tap()
+            let text = app.staticTexts["talk.recovery.render.reply"]
+            XCTAssertTrue(text.waitForExistence(timeout: 10)); XCTAssertTrue(text.label.contains("HOME VOICE HANDOFF"))
+            XCTAssertEqual(app.staticTexts["talk.recovery.render.status"].label, "Complete Studio response kept for review.",
+                "The stale response must be complete and quality-confirmed, not merely an HTTP 200 error frame")
+            XCTAssertFalse(app.buttons["talk.recovery.reply.play"].exists)
+            XCTAssertFalse(app.buttons["talk.recovery.reply.append"].exists)
+            app.buttons["Close"].tap()
+        }
+        app.buttons["studio.sidebar.right.toggle"].tap()
+    }
+
+    @MainActor
+    private func assertKeptTalkPageRecovery(liveReplacement: Bool) async throws {
+        guard let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? "") else {
+            throw XCTSkip("Task-owned authenticated backend required; no injected success")
+        }
+        let base = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)"))
+        let fixture = try await createWriterLoopAuthenticationFixture(baseURL: base)
+        let projectID = "recovered-page-\(UUID().uuidString.lowercased())"
+        let created = try await requestJSON(baseURL: base, path: "/screenplay/projects", method: "POST",
+            headers: fixture.authorizedHeaders, body: ["project_id": projectID, "title": "Keep my original words", "activate": true])
+        try assertHTTP(created, context: "Recovery project")
+        let before = liveReplacement
+            ? "INT. CONTROL ROOM - NIGHT\r\n\r\nKeep my cafe\u{0301} before.  \r\nOLD LINE TO REPLACE\r\nKeep my exact after.\t \r\n"
+            : "INT. CONTROL ROOM - NIGHT\n\nMARA\nKeep my original words."
+        let saved = try await requestJSON(baseURL: base, path: "/screenplay/projects/\(projectID)/version", method: "POST",
+            headers: fixture.authorizedHeaders, body: ["draft": before, "phase": "scene_draft", "base_version_id": ""])
+        try assertHTTP(saved, context: "Recovery baseline")
+        let version = try firstNonEmptyString(saved.payload["version_id"], saved.payload["server_version_id"], message: "Baseline version missing")
+        var app = launchApp(openStudio: true, receiveTalkPage: true, receiveLiveTalkReplacement: liveReplacement, restoreProjectID: projectID,
+            restoreVersionID: version, restoreLoadToken: Int(Date().timeIntervalSince1970), launchEnvironment: fixture.appLaunchEnvironment)
+        defer { app.terminate() }
+        XCTAssertTrue(waitForExactWriterLoopDraft(before, in: app, timeout: 25))
+        guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
+        app.buttons["studio.sidebar.right.toggle"].tap()
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        XCTAssertTrue(drawer.waitForExistence(timeout: 8))
+        let draftTab = app.buttons["studio.right-panel.draft"]
+        XCTAssertTrue(waitForHittability(of: draftTab, timeout: 5)); draftTab.tap()
+        guard revealInStudioDrawer(app.buttons["studio.draft.document.save"], drawer: drawer, scrollingUp: true, maxSwipes: 8, fullyVisible: true) else {
+            XCTFail("The actual Document card did not become visible"); return
+        }
+        let review = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "studio.recovery.reply.")).firstMatch
+        guard review.waitForExistence(timeout: 45) else { XCTFail("Queued HTTP response did not become a retained reply"); return }
+        XCTAssertTrue(revealInStudioDrawer(review, drawer: drawer, scrollingUp: true, maxSwipes: 8, fullyVisible: true))
+        review.tap()
+        XCTAssertTrue(app.staticTexts["talk.recovery.reply.text"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["talk.recovery.reply.text"].label.contains("HOME VOICE HANDOFF"))
+        let receivedScene = app.staticTexts["talk.recovery.reply.text"].label
+        let expectedDraft = liveReplacement
+            ? (before as NSString).replacingCharacters(in: (before as NSString).range(of: "OLD LINE TO REPLACE"),
+                with: receivedScene.trimmingCharacters(in: .whitespacesAndNewlines))
+            : before + "\n\n" + receivedScene.trimmingCharacters(in: .whitespacesAndNewlines)
+        let play = app.buttons["talk.recovery.reply.play"]
+        XCTAssertTrue(play.waitForExistence(timeout: 5)); play.tap()
+        let playing = NSPredicate(format: "label == %@", "Stop playback")
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: playing, object: play)], timeout: 3), .completed)
+        play.tap()
+        XCTAssertEqual(play.label, "Play reply")
+        let append = app.buttons["talk.recovery.reply.append"]
+        if !append.isHittable { app.swipeUp() }
+        XCTAssertTrue(waitForHittability(of: append, timeout: 5))
+        if liveReplacement { XCTAssertEqual(append.label, "Recover original page change") }
+        append.tap()
+        let status = app.staticTexts["talk.recovery.reply.status"]
+        let delivered = NSPredicate(format: "label == %@", liveReplacement ? "Original page change saved." : "Recovered scene saved.")
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: delivered, object: status)], timeout: 35), .completed,
+            "Recovery did not confirm the saved version: \(status.label)")
+        app.buttons["Close"].tap()
+        XCTAssertFalse(review.exists, "Only a confirmed saved page may release the retained reply")
+        app.buttons["studio.sidebar.right.toggle"].tap()
+        let editor = textInput("studio.draft.editor", in: app)
+        XCTAssertTrue(waitForTextInputValue(in: editor, containing: "Someone on the other side pulls back.", timeout: 10))
+        let draft = editor.value as? String ?? ""
+        XCTAssertEqual(Data(draft.utf8), Data(expectedDraft.utf8), "The full native page must match the reviewed result, not the 1,000-character debug preview")
+        if liveReplacement {
+            XCTAssertFalse(draft.contains("OLD LINE TO REPLACE"))
+            XCTAssertTrue(draft.contains("Keep my cafe\u{0301} before.  \r\n"))
+            XCTAssertTrue(draft.hasSuffix("\r\nKeep my exact after.\t \r\n"))
+        } else { XCTAssertTrue(draft.utf8.starts(with: before.utf8), "Recovery changed existing writer bytes") }
+        XCTAssertEqual(occurrenceCount(of: "HOME VOICE HANDOFF", in: draft), 1)
+        let project = try await writerLoopProject(id: projectID, fixture: fixture)
+        let versions = project["versions"] as? [[String: Any]] ?? []
+        XCTAssertEqual(versions.filter { (($0["draft"] as? String) ?? "").utf8.elementsEqual(draft.utf8) }.count, 1,
+            "One recovered change must create exactly one exact saved version")
+        app.terminate()
+        app = launchApp(openStudio: true, resetState: false, launchEnvironment: fixture.appLaunchEnvironment)
+        let restoredEditor = textInput("studio.draft.editor", in: app)
+        let exact = NSPredicate { object, _ in ((object as? XCUIElement)?.value as? String)?.utf8.elementsEqual(draft.utf8) == true }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: exact, object: restoredEditor)], timeout: 30), .completed)
+        let restored = restoredEditor.value as? String ?? ""
+        XCTAssertEqual(Data(restored.utf8), Data(draft.utf8))
+        XCTAssertEqual(occurrenceCount(of: "HOME VOICE HANDOFF", in: restored), 1)
+    }
+
+    private var interruptedTalkRecoveryEnvironment: [String: String] {
+        // No authenticated transport/provider calls. The actor-level replay
+        // cases separately exercise the original bytes/key and current auth.
+        ["THEM_UITEST_BACKEND_BASE_URL": "http://127.0.0.1:9", "THEM_UITEST_USER_ID": "talk-recovery-ui-owner",
+         "THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN_ENABLED": "0", "THEM_UITEST_AUTH_SIGNED_IN": "0"]
     }
 
     func test_outline_recovery_exposes_stale_chain_without_unsafe_retry() {
@@ -1519,7 +2964,7 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(staticText(containing: "Which existing story facts", in: studio).exists)
     }
 
-    func test_draft_conflict_load_server_replaces_local_page() {
+    func test_draft_conflict_load_server_without_verified_head_keeps_local_page() {
         let app = launchApp(
             openStudio: true,
             structuralSeed: true,
@@ -1543,25 +2988,22 @@ final class V1SmokeUITests: XCTestCase {
         loadServer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
 
         XCTAssertTrue(
-            waitForDraft(in: app, containing: "EXT. FERRY TERMINAL - DAWN", timeout: 5),
-            "Load Server did not replace the local page. Accessibility hierarchy:\n\(app.debugDescription)"
+            waitForDraft(in: app, containing: "INT. DINER - NIGHT", timeout: 5),
+            "An unverified cached server preview must not replace the local page."
         )
-        XCTAssertTrue(
-            waitForDisappearance(of: banner, timeout: 5),
-            "Conflict banner remained after Load Server. Accessibility hierarchy:\n\(app.debugDescription)"
-        )
-        XCTAssertTrue(
-            staticText(containing: "Loaded latest server draft", in: app).waitForExistence(timeout: 5),
-            "Load Server confirmation was not presented."
-        )
+        XCTAssertTrue(banner.exists, "An unverified server draft must leave the conflict open.")
+        var snapshot: [String: Any] = [:]
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 5) { state in
+            snapshot = state
+            return stringValue(state["error_text"]).contains("Your local words are kept")
+        }, "The unavailable server choice must explain that local words were kept: \(snapshot)")
     }
 
-    func test_draft_conflict_keep_mine_preserves_local_page() {
+    func test_draft_conflict_keep_mine_without_verified_origin_keeps_conflict() {
         let app = launchApp(
             openStudio: true,
             structuralSeed: true,
-            showDraftConflict: true,
-            conflictSaveSuccess: true
+            showDraftConflict: true
         )
         defer { app.terminate() }
 
@@ -1584,17 +3026,12 @@ final class V1SmokeUITests: XCTestCase {
             waitForDraft(in: app, containing: "INT. DINER - NIGHT", timeout: 5),
             "Keep Mine replaced the local page unexpectedly. Accessibility hierarchy:\n\(app.debugDescription)"
         )
-        XCTAssertTrue(
-            waitForDisappearance(of: banner, timeout: 5),
-            "Conflict banner remained after Keep Mine. Accessibility hierarchy:\n\(app.debugDescription)"
-        )
-        let confirmation = app.staticTexts["studio.transient.status.info"]
-        XCTAssertTrue(
-            confirmation.waitForExistence(timeout: 5)
-                && confirmation.isHittable
-                && confirmation.label.localizedCaseInsensitiveContains("Local draft saved"),
-            "Keep Mine confirmation was not visible in the Studio status bar. Accessibility hierarchy:\n\(app.debugDescription)"
-        )
+        XCTAssertTrue(banner.exists, "An unverified conflict must remain open.")
+        var snapshot: [String: Any] = [:]
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 5) { state in
+            snapshot = state
+            return stringValue(state["error_text"]).contains("Your words are kept")
+        }, "Keep Mine must report that it could not confirm the local copy: \(snapshot)")
     }
 
     func test_studio_compact_drawers_fit_phone_and_remain_mutually_exclusive() {
@@ -1651,6 +3088,81 @@ final class V1SmokeUITests: XCTestCase {
             "Inspector drawer did not close."
         )
         XCTAssertTrue(waitForDraft(in: app, containing: "INT. DINER - NIGHT", timeout: 5))
+    }
+
+    func test_held_draft_copy_controls_preview_defer_reopen_and_dismiss_on_simulated_identity_change() throws {
+#if os(iOS)
+        let app = launchApp(
+            openStudio: true,
+            structuralSeed: true,
+            heldDraftRecoveryFixture: true
+        )
+        defer { app.terminate() }
+
+        let banner = element(identifier: "studio.held-draft-recovery.banner", in: app)
+        XCTAssertTrue(
+            banner.waitForExistence(timeout: 10),
+            "Synthetic held-copy banner missing. Accessibility hierarchy:\n\(app.debugDescription)"
+        )
+        var fixtureSnapshot: [String: Any] = [:]
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 5) { state in
+            fixtureSnapshot = state
+            return boolValue(state["held_recovery_is_synthetic_fixture"]) &&
+                boolValue(state["held_recovery_backend_is_loopback"])
+        }, "Held-copy fixture used a non-synthetic account or non-loopback backend: \(fixtureSnapshot)")
+        let controls = [
+            app.buttons["studio.held-draft-recovery.primary-action"],
+            app.buttons["studio.held-draft-recovery.preview"],
+            app.buttons["studio.held-draft-recovery.secondary-action"],
+        ]
+        for control in controls {
+            XCTAssertTrue(control.waitForExistence(timeout: 3), "Held-copy control is not readable.")
+            XCTAssertFalse(control.label.isEmpty, "Held-copy control lost its readable label.")
+            XCTAssertTrue(waitForHittability(of: control, timeout: 3), "Held-copy control is not tappable at phone width: \(control.frame)")
+            XCTAssertGreaterThanOrEqual(control.frame.minX, app.frame.minX - 1)
+            XCTAssertLessThanOrEqual(control.frame.maxX, app.frame.maxX + 1)
+            XCTAssertGreaterThan(control.frame.width, 44)
+            XCTAssertGreaterThanOrEqual(control.frame.height, 44)
+        }
+
+        let preview = app.buttons["studio.held-draft-recovery.preview"]
+        preview.tap()
+        let review = element(identifier: "studio.held-draft-recovery.review", in: app)
+        XCTAssertTrue(review.waitForExistence(timeout: 5), "Exact-copy preview did not open.")
+        XCTAssertTrue(staticText(containing: "THE EXACT HELD UI FIXTURE COPY", in: app).exists)
+        XCTAssertEqual(
+            review.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "Export")).count,
+            0,
+            "The synthetic held-copy review must not expose an external export action."
+        )
+        app.buttons["Done"].tap()
+        XCTAssertTrue(waitForDisappearance(of: review, timeout: 3))
+
+        app.buttons["studio.held-draft-recovery.secondary-action"].tap()
+        let reopen = app.buttons["studio.held-draft-recovery.reopen"]
+        XCTAssertTrue(reopen.waitForExistence(timeout: 3), "Not Now did not expose the reopen control.")
+        XCTAssertTrue(reopen.isHittable)
+        XCTAssertFalse(app.buttons["studio.held-draft-recovery.preview"].exists)
+        reopen.tap()
+        XCTAssertTrue(app.buttons["studio.held-draft-recovery.preview"].waitForExistence(timeout: 3))
+
+        app.buttons["studio.held-draft-recovery.preview"].tap()
+        XCTAssertTrue(review.waitForExistence(timeout: 3))
+        let simulatedChange = app.buttons["studio.held-draft-recovery.simulate-identity-change"]
+        XCTAssertTrue(simulatedChange.waitForExistence(timeout: 3))
+        XCTAssertTrue(simulatedChange.isHittable)
+        simulatedChange.tap()
+        XCTAssertTrue(
+            waitForDisappearance(of: review, timeout: 3),
+            "The simulated identity-partition change did not close the private preview."
+        )
+        XCTAssertTrue(
+            waitForDisappearance(of: banner, timeout: 3),
+            "The simulated identity-partition change did not clear the held-copy presentation."
+        )
+#else
+        throw XCTSkip("The narrow-width held-copy workflow is an iPhone UI contract.")
+#endif
     }
 
     func test_restored_screenplay_question_can_be_answered_or_skipped() {
@@ -1807,16 +3319,36 @@ final class V1SmokeUITests: XCTestCase {
 
     @MainActor
     func test_screenplay_save_outbox_survives_relaunch_and_reconnects_once() async throws {
+        try await assertQueuedSaveRecoveryWithRealAuthRefresh(false)
+    }
+
+    @MainActor
+    func test_screenplay_save_outbox_refreshes_real_auth_and_restores_exact_words() async throws {
+        try await assertQueuedSaveRecoveryWithRealAuthRefresh(true)
+    }
+
+    @MainActor
+    private func assertQueuedSaveRecoveryWithRealAuthRefresh(_ expireAuth: Bool) async throws {
         let configuredPort = Int(
-            ProcessInfo.processInfo.environment["THEM_UITEST_SCREENPLAY_SAVE_BACKEND_PORT"] ?? ""
+            ProcessInfo.processInfo.environment["THEM_UITEST_SCREENPLAY_SAVE_BACKEND_PORT"]
+                ?? ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? ""
         ) ?? 31337
         let baseURL = try XCTUnwrap(URL(string: "http://127.0.0.1:\(configuredPort)"))
         guard await backendRestoreContractIsAvailable(baseURL: baseURL) else {
             throw XCTSkip("Screenplay save recovery server is not running on \(baseURL.absoluteString).")
         }
 
-        let fixture = try await seedBackendRestoreContractFixture(baseURL: baseURL)
-        let marker = "SAVE-OUTBOX-\(UUID().uuidString.uppercased())"
+        let fixture = try await seedBackendRestoreContractFixture(baseURL: baseURL, independentReader: expireAuth)
+        var refreshBaseline: [String: Any] = [:]
+        if expireAuth {
+            let baseline = try await requestJSON(baseURL: baseURL, path: "/__test/save-auth-refresh-stats",
+                method: "GET", headers: ["X-APP-TOKEN": fixture.appLaunchEnvironment["THEM_UITEST_APP_TOKEN"] ?? "them-dev"], body: nil)
+            try assertHTTP(baseline, context: "auth-refresh baseline")
+            refreshBaseline = baseline.payload
+        }
+        var recoveryEnvironment = fixture.appLaunchEnvironment
+        if expireAuth { recoveryEnvironment["THEM_UITEST_USE_STORED_AUTH_SESSION"] = "1" }
+        let marker = "SAVE-OUTBOX-\(UUID().uuidString.uppercased()) cafe\u{0301}"
         let expectedQueuedDraft = "\(fixture.expectedDraft)\n\n\(marker)"
         var app = launchApp(
             openStudio: true,
@@ -1824,7 +3356,7 @@ final class V1SmokeUITests: XCTestCase {
             restoreProjectID: fixture.projectID,
             restoreVersionID: fixture.versionID,
             restoreLoadToken: fixture.loadToken,
-            launchEnvironment: fixture.appLaunchEnvironment
+            launchEnvironment: recoveryEnvironment
         )
 
         XCTAssertTrue(app.otherElements["studio.surface"].waitForExistence(timeout: 12))
@@ -1845,12 +3377,16 @@ final class V1SmokeUITests: XCTestCase {
             },
             "Offline screenplay save was not durably queued before termination. Snapshot: \(queuedSnapshot)"
         )
+        let queuedDraft = accessibleDraftText(in: app)
+        XCTAssertEqual(Data(queuedDraft.utf8), Data(expectedQueuedDraft.utf8),
+                       "The queued page must preserve the complete writer text.")
         app.terminate()
 
         app = launchApp(
             openStudio: true,
+            screenplaySaveExpireAuthOnce: expireAuth,
             resetState: false,
-            launchEnvironment: fixture.appLaunchEnvironment
+            launchEnvironment: recoveryEnvironment
         )
         defer { app.terminate() }
 
@@ -1875,7 +3411,7 @@ final class V1SmokeUITests: XCTestCase {
             headers: [
                 "X-APP-TOKEN": fixture.appLaunchEnvironment["THEM_UITEST_APP_TOKEN"] ?? "them-dev",
                 "X-Client-Token": fixture.appLaunchEnvironment["THEM_UITEST_CLIENT_TOKEN"] ?? "",
-                "Authorization": "Bearer \(fixture.appLaunchEnvironment["THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN"] ?? "")",
+                "Authorization": "Bearer \(fixture.readerAccessToken ?? fixture.appLaunchEnvironment["THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN"] ?? "")",
             ],
             body: nil,
             queryItems: [
@@ -1908,13 +3444,10 @@ final class V1SmokeUITests: XCTestCase {
             1,
             "The recovered local save must create exactly one server version: \(versions)"
         )
+        XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(queuedDraft.utf8),
+                       "The restored page must retain all queued bytes.")
         let recoveredVersion = try XCTUnwrap(recoveredVersions.first)
-        let expectedRecoveredDraft = "\(fixture.expectedDraft)\n\n\(marker)"
-        XCTAssertEqual(
-            stringValue(recoveredVersion["draft"]),
-            expectedRecoveredDraft,
-            "The offline save must restore the writer's complete draft exactly, not just retain its marker."
-        )
+        XCTAssertEqual(Data(((recoveredVersion["draft"] as? String) ?? "").utf8), Data(queuedDraft.utf8))
         let recoveredVersionID = try firstNonEmptyString(
             recoveredVersion["id"],
             recoveredVersion["version_id"],
@@ -1929,10 +3462,71 @@ final class V1SmokeUITests: XCTestCase {
             stringValue(recoveredVersion["client_request_id"] ?? recoveredVersion["clientRequestId"]).isEmpty,
             "The recovered version must retain its idempotency key."
         )
+        if expireAuth {
+            app.terminate()
+            app = launchApp(openStudio: true, resetState: false, launchEnvironment: recoveryEnvironment)
+            XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 25) { snapshot in
+                stringValue(snapshot["selected_project_id"]).lowercased() == fixture.projectID.lowercased()
+                    && stringValue(snapshot["latest_version_id"]).lowercased() == recoveredVersionID.lowercased()
+            })
+            XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(queuedDraft.utf8))
+            let observed = try await requestJSON(baseURL: baseURL, path: "/__test/save-auth-refresh-stats",
+                method: "GET", headers: ["X-APP-TOKEN": fixture.appLaunchEnvironment["THEM_UITEST_APP_TOKEN"] ?? "them-dev"], body: nil)
+            try assertHTTP(observed, context: "real auth-refresh observation")
+            XCTAssertEqual(intValue(observed.payload["version401"]) - intValue(refreshBaseline["version401"]), 1, "Must observe the real rejected save, not a masked fixture.")
+            XCTAssertEqual(intValue(observed.payload["refresh200"]) - intValue(refreshBaseline["refresh200"]), 1, "Must observe a real successful auth refresh.")
+            XCTAssertEqual(intValue(observed.payload["freshBearerVersion201"]) - intValue(refreshBaseline["freshBearerVersion201"]), 1, "Exactly one save must use the bearer returned by real refresh.")
+        }
     }
 
     @MainActor
-    func test_screenplay_save_outbox_refreshes_auth_and_resolves_stale_conflict_once() async throws {
+    func test_recovery_controls_preserve_independent_copies_across_relaunch() throws {
+        let preserved = "INT. ROOM - DAY\n\nPRESERVED RECOVERY COPY."
+        var app = launchApp(openStudio: true, structuralSeed: true, recoveryTwoSlotFixture: true)
+        XCTAssertTrue(app.otherElements["studio.surface"].waitForExistence(timeout: 15))
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 20) { snapshot in
+            stringValue(snapshot["recovery_slot"]) == "preservedConflict"
+                && stringValue(snapshot["recovery_base_version_id"]) == "recovery-base-b"
+                && !boolValue(snapshot["recovery_matches_current_draft"])
+        })
+        let originalPage = accessibleDraftText(in: app)
+        XCTAssertFalse(originalPage.isEmpty)
+        XCTAssertNotEqual(Data(originalPage.utf8), Data(preserved.utf8))
+        let recover = app.buttons["studio.draft-recovery.primary-action"]
+        XCTAssertTrue(recover.waitForExistence(timeout: 10))
+        XCTAssertTrue(recover.label.contains("Recover Local"))
+        recover.tap()
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 15) { snapshot in
+            stringValue(snapshot["recovery_slot"]) == "ordinary"
+                && stringValue(snapshot["recovery_base_version_id"]) == "recovery-base-a"
+        })
+        XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(preserved.utf8))
+        let keep = app.buttons["studio.draft-recovery.secondary-action"]
+        XCTAssertTrue(keep.waitForExistence(timeout: 10))
+        XCTAssertTrue(keep.label.contains("Keep Current"))
+        keep.tap()
+        // The preserved copy was already reviewed in this session. Keeping
+        // the current page must not loop that retained copy back into the
+        // banner; relaunch below proves it was hidden, not deleted.
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 15) {
+            !boolValue($0["recovery_present"])
+        })
+        XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(preserved.utf8))
+        app.terminate()
+        app = launchApp(openStudio: true, structuralSeed: true, recoveryTwoSlotFixture: true, resetState: false)
+        defer { app.terminate() }
+        XCTAssertTrue(app.otherElements["studio.surface"].waitForExistence(timeout: 15))
+        var relaunchState = "snapshot unavailable"
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 20) { snapshot in
+            relaunchState = "project=\(stringValue(snapshot["selected_project_id"])) slot=\(stringValue(snapshot["recovery_slot"])) base=\(stringValue(snapshot["recovery_base_version_id"]))"
+            return stringValue(snapshot["recovery_slot"]) == "preservedConflict"
+                && stringValue(snapshot["recovery_base_version_id"]) == "recovery-base-b"
+        }, "Synthetic relaunch recovery: \(relaunchState)")
+        XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(originalPage.utf8))
+    }
+
+    @MainActor
+    func test_screenplay_save_outbox_restores_conflict_choice_and_resolves_once() async throws {
         let configuredPort = Int(
             ProcessInfo.processInfo.environment["THEM_UITEST_SCREENPLAY_SAVE_BACKEND_PORT"] ?? ""
         ) ?? 31337
@@ -2001,7 +3595,6 @@ final class V1SmokeUITests: XCTestCase {
 
         app = launchApp(
             openStudio: true,
-            screenplaySaveExpireAuthOnce: true,
             resetState: false,
             launchEnvironment: fixture.appLaunchEnvironment
         )
@@ -2021,7 +3614,7 @@ final class V1SmokeUITests: XCTestCase {
                     && boolValue(snapshot["has_unsaved_draft_changes"])
                     && stringValue(snapshot["error_text"]).isEmpty
             },
-            "Expired auth was not refreshed into a clean stale-version decision. Snapshot: \(conflictSnapshot)"
+            "Queued draft did not restore a clean stale-version decision. Snapshot: \(conflictSnapshot)"
         )
 
         let preResolutionProject = try await requestJSON(
@@ -2122,6 +3715,166 @@ final class V1SmokeUITests: XCTestCase {
             stringValue(resolvedBody["active_version_id"] ?? resolvedBody["activeVersionId"]).lowercased(),
             localVersionID.lowercased()
         )
+    }
+
+    @MainActor
+    func test_screenplay_load_server_fetches_head_and_retires_selected_conflict() async throws {
+        let configuredPort = Int(
+            ProcessInfo.processInfo.environment["THEM_UITEST_SCREENPLAY_SAVE_BACKEND_PORT"] ?? ""
+        ) ?? 31337
+        let baseURL = try XCTUnwrap(URL(string: "http://127.0.0.1:\(configuredPort)"))
+        guard await backendRestoreContractIsAvailable(baseURL: baseURL) else {
+            throw XCTSkip("Screenplay save recovery server is not running on \(baseURL.absoluteString).")
+        }
+
+        let fixture = try await seedBackendRestoreContractFixture(baseURL: baseURL)
+        let marker = "SAVE-CONFLICT-\(UUID().uuidString.uppercased())"
+        var app = launchApp(
+            openStudio: true,
+            screenplaySaveNetworkFaultMarker: marker,
+            restoreProjectID: fixture.projectID,
+            restoreVersionID: fixture.versionID,
+            restoreLoadToken: fixture.loadToken,
+            launchEnvironment: fixture.appLaunchEnvironment
+        )
+
+        XCTAssertTrue(app.otherElements["studio.surface"].waitForExistence(timeout: 12))
+        var queuedSnapshot: [String: Any] = [:]
+        XCTAssertTrue(
+            waitForRestoreSnapshot(in: app, timeout: 60) { snapshot in
+                queuedSnapshot = snapshot
+                return stringValue(snapshot["draft_tail_preview"]).contains(marker)
+                    && intValue(snapshot["queued_draft_save_count"]) == 1
+                    && intValue(snapshot["parked_draft_save_count"]) == 0
+                    && boolValue(snapshot["has_unsaved_draft_changes"])
+                    && stringValue(snapshot["error_text"]).isEmpty
+            },
+            "Offline screenplay save was not queued before stale-version setup. Snapshot: \(queuedSnapshot)"
+        )
+        app.terminate()
+
+        let ownerHeaders = [
+            "X-APP-TOKEN": fixture.appLaunchEnvironment["THEM_UITEST_APP_TOKEN"] ?? "them-dev",
+            "X-Client-Token": fixture.appLaunchEnvironment["THEM_UITEST_CLIENT_TOKEN"] ?? "",
+            "Authorization": "Bearer \(fixture.appLaunchEnvironment["THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN"] ?? "")",
+        ]
+        let competingDraft = "\(fixture.expectedDraft)\n\nSERVER-COLLABORATOR-\(UUID().uuidString.uppercased())"
+        let competingSave = try await requestJSON(
+            baseURL: baseURL,
+            path: "/screenplay/projects/\(fixture.projectID)/version",
+            method: "POST",
+            headers: ownerHeaders,
+            body: [
+                "draft": competingDraft,
+                "title": "Concurrent server revision",
+                "phase": "scene_draft",
+                "source": "ui_network_fault_competitor",
+                "base_version_id": fixture.versionID,
+                "conflict_strategy": "reject_if_stale",
+                "client_request_id": "ui-competitor-\(UUID().uuidString.lowercased())",
+            ]
+        )
+        try assertHTTP(competingSave, context: "competing screenplay version")
+        let competingVersionID = try firstNonEmptyString(
+            competingSave.payload["version_id"],
+            competingSave.payload["server_version_id"],
+            message: "Competing screenplay save did not return a version id."
+        )
+
+        app = launchApp(
+            openStudio: true,
+            resetState: false,
+            launchEnvironment: fixture.appLaunchEnvironment
+        )
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.otherElements["studio.surface"].waitForExistence(timeout: 12))
+        var conflictSnapshot: [String: Any] = [:]
+        XCTAssertTrue(
+            waitForRestoreSnapshot(in: app, timeout: 75) { snapshot in
+                conflictSnapshot = snapshot
+                return stringValue(snapshot["selected_project_id"]).lowercased() == fixture.projectID.lowercased()
+                    && stringValue(snapshot["conflict_project_id"]).lowercased() == fixture.projectID.lowercased()
+                    && stringValue(snapshot["conflict_server_version_id"]).lowercased() == competingVersionID.lowercased()
+                    && stringValue(snapshot["draft_tail_preview"]).contains(marker)
+                    && intValue(snapshot["queued_draft_save_count"]) == 0
+                    && intValue(snapshot["parked_draft_save_count"]) == 1
+                    && boolValue(snapshot["has_unsaved_draft_changes"])
+                    && stringValue(snapshot["error_text"]).isEmpty
+            },
+            "Queued draft did not restore a clean stale-version decision. Snapshot: \(conflictSnapshot)"
+        )
+
+        let preResolutionProject = try await requestJSON(
+            baseURL: baseURL,
+            path: "/screenplay/projects/\(fixture.projectID)",
+            method: "GET",
+            headers: ownerHeaders,
+            body: nil,
+            queryItems: [
+                URLQueryItem(name: "include_drafts", value: "1"),
+                URLQueryItem(name: "version_limit", value: "24"),
+            ]
+        )
+        try assertHTTP(preResolutionProject, context: "pre-resolution screenplay project")
+        let preResolutionEnvelope = preResolutionProject.payload["payload"] as? [String: Any]
+            ?? preResolutionProject.payload
+        let preResolutionBody = preResolutionEnvelope["project"] as? [String: Any]
+            ?? preResolutionEnvelope
+        let preResolutionVersions = preResolutionBody["versions"] as? [[String: Any]] ?? []
+        XCTAssertEqual(
+            preResolutionVersions.filter { stringValue($0["draft"]).contains(marker) }.count,
+            0,
+            "A stale queued save must not commit before the writer chooses a resolution."
+        )
+
+        // Advance the head after the conflict was displayed. The choice must
+        // fetch the current version, not reuse the cached conflict snapshot.
+        let newestMarker = "SERVER-HEAD-\(UUID().uuidString.uppercased())"
+        let newestDraft = "\(competingDraft)\n\n\(newestMarker)"
+        let newestSave = try await requestJSON(baseURL: baseURL,
+            path: "/screenplay/projects/\(fixture.projectID)/version", method: "POST", headers: ownerHeaders,
+            body: ["draft": newestDraft, "title": "Latest server revision", "phase": "scene_draft",
+                   "source": "ui_network_fault_competitor", "base_version_id": competingVersionID,
+                   "conflict_strategy": "reject_if_stale", "client_request_id": "ui-newest-\(UUID().uuidString.lowercased())"])
+        try assertHTTP(newestSave, context: "newest screenplay version")
+        let newestID = try firstNonEmptyString(newestSave.payload["version_id"], newestSave.payload["server_version_id"],
+            message: "Newest screenplay save did not return a version id.")
+        let loadServer = app.buttons["studio.conflict.load-server"]
+        if !loadServer.isHittable { app.swipeUp() }
+        XCTAssertTrue(loadServer.waitForExistence(timeout: 5))
+        XCTAssertTrue(loadServer.isHittable)
+        loadServer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        var loaded: [String: Any] = [:]
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 75) { snapshot in
+            loaded = snapshot
+            return stringValue(snapshot["conflict_project_id"]).isEmpty &&
+                stringValue(snapshot["draft_tail_preview"]).contains(newestMarker) &&
+                intValue(snapshot["queued_draft_save_count"]) == 0 &&
+                intValue(snapshot["parked_draft_save_count"]) == 0 &&
+                !boolValue(snapshot["has_unsaved_draft_changes"]) &&
+                stringValue(snapshot["error_text"]).isEmpty
+        }, "Load Server did not load the fetched head and retire the selected copy: \(loaded)")
+        let readback = try await requestJSON(baseURL: baseURL,
+            path: "/screenplay/projects/\(fixture.projectID)", method: "GET", headers: ownerHeaders, body: nil,
+            queryItems: [URLQueryItem(name: "include_drafts", value: "1"), URLQueryItem(name: "version_limit", value: "24")])
+        try assertHTTP(readback, context: "load-server readback")
+        let envelope = readback.payload["payload"] as? [String: Any] ?? readback.payload
+        let project = envelope["project"] as? [String: Any] ?? envelope
+        let versions = project["versions"] as? [[String: Any]] ?? []
+        XCTAssertEqual(stringValue(project["active_version_id"] ?? project["activeVersionId"]).lowercased(), newestID.lowercased())
+        XCTAssertEqual(versions.filter { stringValue($0["draft"]).contains(marker) }.count, 0,
+                       "Load Server must not save the retired local copy.")
+        app.terminate()
+        app = launchApp(openStudio: true, resetState: false, launchEnvironment: fixture.appLaunchEnvironment)
+        XCTAssertTrue(app.otherElements["studio.surface"].waitForExistence(timeout: 12))
+        var restored: [String: Any] = [:]
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 60) { snapshot in
+            restored = snapshot
+            return stringValue(snapshot["draft_tail_preview"]).contains(newestMarker) &&
+                intValue(snapshot["queued_draft_save_count"]) == 0 &&
+                intValue(snapshot["parked_draft_save_count"]) == 0
+        }, "Server choice did not survive relaunch: \(restored)")
     }
 
     @MainActor
@@ -2975,12 +4728,20 @@ final class V1SmokeUITests: XCTestCase {
         openCommandBar: Bool = false,
         openExportTools: Bool = false,
         structuralSeed: Bool = false,
+        recoveryTwoSlotFixture: Bool = false,
+        heldDraftRecoveryFixture: Bool = false,
         realtimeStub: Bool = false,
         routePage: Bool = false,
         routeVoicePin: Bool = false,
         showCanonClarification: Bool = false,
         showDraftConflict: Bool = false,
         showOutlineRecovery: Bool = false,
+        showTalkRecovery: Bool = false,
+        interruptTalkEnqueue: Bool = false,
+        receiveTalkReply: Bool = false,
+        receiveTalkPage: Bool = false,
+        receiveLiveTalkReplacement: Bool = false,
+        receiveStudioRender: Bool = false,
         conflictSaveSuccess: Bool = false,
         liveMemory: Bool = false,
         showPendingScreenplayQuestion: Bool = false,
@@ -2993,6 +4754,7 @@ final class V1SmokeUITests: XCTestCase {
         autoSubmitPagePrompt: String? = nil,
         autoSubmitVoicePinPrompt: String? = nil,
         autoSubmitVoiceSourcePrompt: String? = nil,
+        restoreUnboundDraft: String? = nil,
         restoreProjectID: String? = nil,
         restoreVersionID: String? = nil,
         restoreLoadToken: Int? = nil,
@@ -3032,11 +4794,14 @@ final class V1SmokeUITests: XCTestCase {
             arguments.append("--ui-open-export-tools")
         }
         if structuralSeed {
+            structuralSeedToken += 1
             arguments.append(contentsOf: [
                 "-studio_debug_seed_structural_token",
-                "\(Int(Date().timeIntervalSince1970 * 1_000))"
+                "\(structuralSeedToken)"
             ])
         }
+        if recoveryTwoSlotFixture { arguments.append("--ui-draft-recovery-two-slot-fixture") }
+        if heldDraftRecoveryFixture { arguments.append("--ui-held-draft-recovery-fixture") }
         if realtimeStub {
             arguments.append("--ui-realtime-stub")
         }
@@ -3055,6 +4820,14 @@ final class V1SmokeUITests: XCTestCase {
         if showOutlineRecovery {
             arguments.append("--ui-outline-recovery-fixture")
         }
+        if showTalkRecovery {
+            arguments.append("--ui-talk-recovery-fixture")
+        }
+        if interruptTalkEnqueue { arguments.append("--ui-talk-interrupted-enqueue-fixture") }
+        if receiveTalkReply { arguments.append("--ui-talk-received-reply-fixture") }
+        if receiveTalkPage || receiveLiveTalkReplacement || receiveStudioRender { arguments.append("--ui-talk-page-recovery-fixture") }
+        if receiveLiveTalkReplacement { arguments.append("--ui-talk-live-page-replacement-fixture") }
+        if receiveStudioRender { arguments.append("--ui-studio-render-recovery-fixture") }
         if conflictSaveSuccess {
             arguments.append("--ui-conflict-save-success")
         }
@@ -3114,8 +4887,22 @@ final class V1SmokeUITests: XCTestCase {
             ])
         }
         app.launchArguments = arguments
-        if !launchEnvironment.isEmpty {
-            app.launchEnvironment = launchEnvironment
+        var environment = launchEnvironment
+        if heldDraftRecoveryFixture {
+            // Synthetic DEBUG-only credentials keep the fixture account-scoped
+            // without reading a real account or contacting an external backend.
+            environment["THEM_UITEST_AUTH_SIGNED_IN"] = "1"
+            environment["THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN_ENABLED"] = "1"
+            environment["THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN"] = "synthetic-held-copy-access"
+            environment["THEM_UITEST_USER_ID"] = "synthetic-held-copy-writer"
+            environment["THEM_UITEST_CLIENT_TOKEN"] = "synthetic-held-copy-client"
+            environment["THEM_UITEST_BACKEND_BASE_URL"] = "http://127.0.0.1:9"
+        }
+        if let restoreUnboundDraft {
+            environment["THEM_UITEST_RESTORE_UNBOUND_DRAFT_BASE64"] = Data(restoreUnboundDraft.utf8).base64EncodedString()
+        }
+        if !environment.isEmpty {
+            app.launchEnvironment = environment
         }
         app.launch()
 #if os(macOS)
@@ -3458,33 +5245,37 @@ final class V1SmokeUITests: XCTestCase {
         return waitForWriterLoopSwitch(element, toBeOn: expected, timeout: max(1, timeout * 3 / 4))
     }
 
-    private func dismissWriterLoopProjectKeyboard(in app: XCUIApplication) -> Bool {
-#if os(iOS)
-        let keyboard = app.keyboards.firstMatch
-        guard keyboard.exists else { return true }
-        let returnKey = keyboard.buttons
-            .matching(NSPredicate(
-                format: "label ==[c] %@ OR label ==[c] %@",
-                "return",
-                "done"
-            ))
-            .firstMatch
-        if returnKey.waitForExistence(timeout: 2), returnKey.isHittable {
-            returnKey.tap()
-            if waitForDisappearance(of: keyboard, timeout: 3) {
-                return true
-            }
-        }
-        return dismissKeyboardIfPresent(in: app)
-#else
-        return true
-#endif
-    }
-
     private func staticText(containing text: String, in app: XCUIApplication) -> XCUIElement {
         app.staticTexts
             .matching(NSPredicate(format: "label CONTAINS[c] %@", text))
             .firstMatch
+    }
+
+    private func nativeFilesExporterIsPresented(in app: XCUIApplication) -> Bool {
+        // Reuse2369367: runtimes expose either the Browse picker or its filename field.
+        app.otherElements["Browse View (Picker)"].exists || app.textFields["DOCPicker.filenameTextField"].exists
+    }
+
+    private func waitForNativeFilesExporter(in app: XCUIApplication, presented: Bool, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if nativeFilesExporterIsPresented(in: app) == presented { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        return nativeFilesExporterIsPresented(in: app) == presented
+    }
+
+    private func dismissNativeFilesExporter(in app: XCUIApplication) -> Bool {
+        guard nativeFilesExporterIsPresented(in: app) else { return false }
+        let backToBrowse = app.buttons["BackButton"]
+        if backToBrowse.waitForExistence(timeout: writerLoopWait(3)),
+           backToBrowse.isHittable, backToBrowse.frame.midX < app.frame.midX {
+            backToBrowse.tap()
+            guard waitForDisappearance(of: backToBrowse, timeout: writerLoopWait(3)) else { return false }
+        }
+        // The real leading close control has no stable identifier on all runtimes.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.095, dy: 0.126)).tap()
+        return waitForNativeFilesExporter(in: app, presented: false, timeout: writerLoopWait(8))
     }
 
     private func element(identifier: String, in app: XCUIApplication) -> XCUIElement {
@@ -3519,6 +5310,37 @@ final class V1SmokeUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
         return element.exists && element.isHittable
+    }
+
+    @discardableResult
+    /// The inspector tab grid sits at the top of a lazy drawer, so revealing a
+    /// panel can scroll it out of the accessibility hierarchy. Swiping down
+    /// normally brings it back; in the full scripted smoke those swipes were
+    /// once swallowed while the drawer was still settling ("Missing craft
+    /// inspector tab" after 16 swipes, 44 s instead of 34 s). Closing and
+    /// reopening the drawer puts the grid back at the top, so do that once
+    /// before giving up. Callers keep their own assertion and message.
+    private func revealInspectorTab(
+        _ tab: XCUIElement,
+        drawer: XCUIElement,
+        in app: XCUIApplication
+    ) -> Bool {
+        if tab.waitForExistence(timeout: 8)
+            || revealInStudioDrawer(tab, drawer: drawer, scrollingUp: false, maxSwipes: 16) {
+            return true
+        }
+        XCTContext.runActivity(
+            named: "Inspector tab grid did not come back after 16 swipes; reopening the drawer"
+        ) { _ in }
+        let toggle = app.buttons["studio.sidebar.right.toggle"]
+        guard waitForHittability(of: toggle, timeout: 4) else { return false }
+        toggle.tap()
+        _ = waitForDisappearance(of: drawer, timeout: 4)
+        guard waitForHittability(of: toggle, timeout: 4) else { return false }
+        toggle.tap()
+        guard drawer.waitForExistence(timeout: 5) else { return false }
+        return tab.waitForExistence(timeout: 8)
+            || revealInStudioDrawer(tab, drawer: drawer, scrollingUp: false, maxSwipes: 16)
     }
 
     private func revealInStudioDrawer(
@@ -3796,9 +5618,38 @@ final class V1SmokeUITests: XCTestCase {
 #endif
     }
 
+    // The owner cases begin on a focused screenplay page and return from
+    // the Draft recovery tab. Navigate the real inspector before searching
+    // its composer; whole-app swipes cannot reveal a closed drawer.
+    private func revealStudioOwnerPromptComposer(in app: XCUIApplication) throws {
+        revealStudioPartnerContent(identifier: "studio.commandbar.toggle", in: app)
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        guard drawer.waitForExistence(timeout: 5) else {
+            throw NSError(domain: "themUITests.renderOwner", code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "The THEM inspector did not open"])
+        }
+        let field = element(identifier: "studio.prompt.field", in: app)
+        if !field.exists {
+            let toggle = app.buttons["studio.commandbar.toggle"]
+            guard revealInStudioDrawer(toggle, drawer: drawer, scrollingUp: false, maxSwipes: 4)
+                || revealInStudioDrawer(toggle, drawer: drawer, scrollingUp: true, maxSwipes: 4) else {
+                throw NSError(domain: "themUITests.renderOwner", code: 2,
+                    userInfo: [NSLocalizedDescriptionKey: "The THEM inspector did not expose its composer toggle"])
+            }
+            toggle.tap()
+        }
+        guard field.waitForExistence(timeout: 5),
+              revealInStudioDrawer(field, drawer: drawer, scrollingUp: false, maxSwipes: 4)
+                || revealInStudioDrawer(field, drawer: drawer, scrollingUp: true, maxSwipes: 4) else {
+            throw NSError(domain: "themUITests.renderOwner", code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "The open THEM composer did not expose its prompt field"])
+        }
+    }
+
     private func submitStudioWriterBlockPrompt(
         _ prompt: String,
-        in app: XCUIApplication
+        in app: XCUIApplication,
+        pageRouting: Bool = false
     ) throws {
 #if os(macOS)
         app.activate()
@@ -3830,7 +5681,9 @@ final class V1SmokeUITests: XCTestCase {
             )
         }
         let field = element(identifier: "studio.prompt.field", in: app)
-        if !field.exists {
+        if pageRouting {
+            try revealStudioOwnerPromptComposer(in: app)
+        } else if !field.exists {
             let commandBarToggle = app.buttons["studio.commandbar.toggle"]
             let rightDrawer = element(identifier: "studio.sidebar.right.drawer", in: app)
             let interactionSurface = rightDrawer.exists ? rightDrawer : app
@@ -3845,7 +5698,7 @@ final class V1SmokeUITests: XCTestCase {
 #endif
             }
         }
-        if !field.isHittable {
+        if !pageRouting && !field.isHittable {
             let rightToggle = app.buttons["studio.sidebar.right.toggle"]
             if rightToggle.waitForExistence(timeout: 3),
                rightToggle.isHittable,
@@ -3858,6 +5711,14 @@ final class V1SmokeUITests: XCTestCase {
             field.waitForExistence(timeout: 8),
             "Studio prompt field was missing."
         )
+        if pageRouting {
+            let page = element(identifier: "studio.prompt.routing.page", in: app)
+            guard waitForHittability(of: page, timeout: 5) else {
+                throw NSError(domain: "themUITests.renderOwner", code: 2,
+                    userInfo: [NSLocalizedDescriptionKey: "The open composer did not expose its Page destination"])
+            }
+            if !page.isSelected { page.tap() }
+        }
 #if os(macOS)
         let window = app.windows.firstMatch
         let fieldIsVisible = field.frame.width > 1 &&
@@ -4597,6 +6458,7 @@ final class V1SmokeUITests: XCTestCase {
         let expectedCanonCorrectionText: String
         let expectedRetiredCanonFacts: [String]
         let appLaunchEnvironment: [String: String]
+        var readerAccessToken: String? = nil
     }
 
     /// Live typing between devices: this simulator and the macOS scaffold
@@ -4831,14 +6693,24 @@ final class V1SmokeUITests: XCTestCase {
     ) async throws -> WriterLoopAuthenticationFixture {
         let appToken = "them-dev"
         let stamp = "\(Int(Date().timeIntervalSince1970 * 1_000))-\(UUID().uuidString.prefix(6).lowercased())"
+        // The intercepted-provider runner may provision a funded synthetic
+        // writer. Use real login/session routes; keep production wallet checks.
+        let localHost = ["127.0.0.1", "localhost", "::1"].contains(baseURL.host ?? "")
+        let funded: JSONResponse?
+        if localHost {
+            funded = try? await requestJSON(baseURL: baseURL, path: "/__test/funded-writer",
+                method: "GET", headers: ["X-APP-TOKEN": appToken], body: nil)
+        } else { funded = nil }
+        let useFunded = funded?.status == 200 && (funded?.payload["funded_writer"] as? Bool) == true
+        let port = intValue(funded?.payload["fixture_port"])
         let signup = try await requestJSON(
             baseURL: baseURL,
-            path: "/auth/signup",
+            path: useFunded ? "/auth/login" : "/auth/signup",
             method: "POST",
             headers: ["X-APP-TOKEN": appToken],
             body: [
-                "email": "studio-writer-loop-\(stamp)@example.test",
-                "password": "ThemWriterLoop-\(stamp)-aA1!",
+                "email": useFunded ? "studio-funded-\(port)@example.test" : "studio-writer-loop-\(stamp)@example.test",
+                "password": useFunded ? "Local-funded-\(port)-aA1!" : "ThemWriterLoop-\(stamp)-aA1!",
                 "display_name": "Studio Writer Loop Contract",
             ]
         )
@@ -4913,7 +6785,7 @@ final class V1SmokeUITests: XCTestCase {
         timeout: TimeInterval
     ) async throws -> String {
         let deadline = Date().addingTimeInterval(timeout)
-        var lastPayload: [String: Any] = [:]
+        var lastProjectCount = 0
         while Date() < deadline {
             let response = try await requestJSON(
                 baseURL: fixture.baseURL,
@@ -4924,8 +6796,8 @@ final class V1SmokeUITests: XCTestCase {
                 queryItems: [URLQueryItem(name: "limit", value: "50")]
             )
             try assertHTTP(response, context: "writer-loop project list")
-            lastPayload = response.payload
             let projects = response.payload["screenplay_projects"] as? [[String: Any]] ?? []
+            lastProjectCount = projects.count
             if let project = projects.first(where: { stringValue($0["title"]) == title }) {
                 return try firstNonEmptyString(
                     project["id"],
@@ -4939,7 +6811,7 @@ final class V1SmokeUITests: XCTestCase {
             domain: "themUITests.writerLoop",
             code: 1,
             userInfo: [
-                NSLocalizedDescriptionKey: "Timed out waiting for UI-created project \(title). Last payload: \(lastPayload)"
+                NSLocalizedDescriptionKey: "Timed out waiting for UI-created project \(title). Visible project count: \(lastProjectCount)"
             ]
         )
     }
@@ -4975,7 +6847,7 @@ final class V1SmokeUITests: XCTestCase {
         while Date() < deadline {
             lastProject = try await writerLoopProject(id: projectID, fixture: fixture)
             let versions = lastProject["versions"] as? [[String: Any]] ?? []
-            if versions.contains(where: { stringValue($0["draft"]) == draft }) {
+            if versions.contains(where: { (($0["draft"] as? String) ?? "").utf8.elementsEqual(draft.utf8) }) {
                 return lastProject
             }
             try await Task.sleep(nanoseconds: 200_000_000)
@@ -4994,7 +6866,7 @@ final class V1SmokeUITests: XCTestCase {
         )
     }
 
-    private func seedBackendRestoreContractFixture(baseURL: URL) async throws -> RestoreContractFixture {
+    private func seedBackendRestoreContractFixture(baseURL: URL, independentReader: Bool = false) async throws -> RestoreContractFixture {
         let appToken = "them-dev"
         let stamp = "\(Int(Date().timeIntervalSince1970 * 1000))-\(UUID().uuidString.prefix(6).lowercased())"
         let projectID = "studio-ios-restore-\(stamp)"
@@ -5068,6 +6940,15 @@ final class V1SmokeUITests: XCTestCase {
             signup.payload["refreshToken"],
             message: "Signup did not return a refresh token."
         )
+        var readerAccessToken: String?
+        if independentReader {
+            let reader = try await requestJSON(baseURL: baseURL, path: "/auth/login", method: "POST",
+                headers: ["X-APP-TOKEN": appToken], body: [
+                    "email": "studio-ios-restore-\(stamp)@example.test", "password": "ThemRestore-\(stamp)-aA1!",
+                ])
+            try assertHTTP(reader, context: "independent recovery reader")
+            readerAccessToken = try firstNonEmptyString(reader.payload["access_token"], reader.payload["accessToken"], message: "Reader needs a real access token")
+        }
         let userID = try firstNonEmptyString(
             user["id"],
             user["user_id"],
@@ -5238,7 +7119,7 @@ final class V1SmokeUITests: XCTestCase {
                 "THEM_UITEST_STUDIO_ASK_NOTE_HISTORY_JSON": askHistoryJSON,
                 "THEM_UITEST_STUDIO_DIFF_ACKNOWLEDGED_JSON": acknowledgedJSON,
                 "THEM_UITEST_STUDIO_DIFF_ACKNOWLEDGED_WRITEIDS_JSON": acknowledgedWriteIDsJSON,
-            ]
+            ], readerAccessToken: readerAccessToken
         )
     }
 

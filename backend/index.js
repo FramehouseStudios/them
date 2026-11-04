@@ -5,6 +5,7 @@ import { execFile } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { app, talkUpload } from "./app.js";
+import { deriveKnowledgeTopicWeights } from "./lib/knowledge_topic_weights.js";
 import {
   API_SCHEMA_VERSION,
   APP_TOKEN,
@@ -100,6 +101,7 @@ import {
 import { selectPendingScreenplayLearningQuestion } from "./lib/screenplay_question_planner.js";
 import { normalizeStoryMovePreferenceOverrides } from "./lib/story_rescue_move_library.js";
 import { resolveScreenplayTargetFromRequest } from "./lib/screenplay_turn_target.js";
+import { createTalkTurnStore } from "./lib/talk_turn_store.js";
 import {
   buildTalkScreenplayQualityAlert,
   deriveTalkScreenplayQualitySignal,
@@ -124,6 +126,7 @@ import { mountHistoryRoutes } from "./lib/history_routes.js";
 import { mountRecapRoutes } from "./lib/recap_routes.js";
 import { mountTasksRoutes } from "./lib/tasks_routes.js";
 import { createReadStateHelpers } from "./lib/read_state.js";
+import { screenplayTaskCanUseProjectMemory } from "./lib/screenplay_project_memory_policy.js";
 import { incrementErrorCounter, mountTalkErrorRoute } from "./lib/talk_error_counter.js";
 import { computeBlockSignal, buildBlockCoachingBlockForPrompt } from "./lib/block_detector.js";
 import {
@@ -170,6 +173,7 @@ import {
   normalizeOutlineRevision,
 } from "./lib/screenplay_outline_protocol.js";
 import { mountTalkPipelineRoutes } from "./lib/talk_pipeline.js";
+import { createTalkTurnReadPolicy } from "./lib/talk_turn_read_policy.js";
 import { createPageReservationStore } from "./lib/clementine/page_cancel.js";
 import { createWalletStore } from "./lib/clementine/wallet.js";
 import {
@@ -192,6 +196,7 @@ import { mountFountainImportRoute } from "./lib/fountain_import_route.js";
 import { mountFDXExportRoute } from "./lib/fdx_export_route.js";
 import { mountFountainExportRoute } from "./lib/fountain_export_route.js";
 import { mountScreenplayProjectsRoutes } from "./lib/screenplay_projects_routes.js";
+import { normalizeStoredScreenplayVersionRecord } from "./lib/screenplay_version_record.js";
 import { mountScreenplayCompanionRoutes } from "./lib/screenplay_companion_routes.js";
 import { mountRealtimeRoutes } from "./lib/realtime_routes.js";
 import { mountRealtimeClientSecretRoute } from "./lib/realtime_client_secret_route.js";
@@ -206,7 +211,7 @@ import {
   createAccountMemoryTurnCommitter,
 } from "./lib/account_memory_turn_commit.js";
 import { mountScreenplayQuestionRoutes } from "./lib/screenplay_question_routes.js";
-import { mountAccountRoutes, EXPORTABLE_DOMAINS } from "./lib/account_routes.js";
+import { mountAccountRoutes, EXPORTABLE_DOMAINS, accountExportPersistenceValue } from "./lib/account_routes.js";
 import { mountAuthRoutes } from "./lib/auth_routes.js";
 import { createAccountLifecycleStore } from "./lib/account_lifecycle_store.js";
 import {
@@ -230,7 +235,8 @@ import { configureLoglineDistiller, _defaultClassifier as defaultLoglineClassifi
 import { configureAcceptedTwistLog, getAcceptedTwistsForProject, acceptedTwistLogDeps } from "./lib/accepted_twist_log.js";
 import { configureFirstPageTelemetry } from "./lib/first_page_telemetry.js";
 import { mountFirstPageTelemetryRoute } from "./lib/first_page_telemetry_route.js";
-import { buildCraftContextBlock, CRAFT_BLOCK_OPEN } from "./lib/craft_prompts.js";
+import { buildCraftContextBlock, shouldAppendCraftContext } from "./lib/craft_prompts.js";
+import { DEFAULT_FRAMEWORK_ID } from "./lib/craft_frameworks.js";
 import {
   configureUserStore,
   deleteUserById,
@@ -2991,18 +2997,18 @@ const checkInCooldownByIp = new Map();
 const assistantIdentityByIp = loadAssistantIdentityStore();
 const talkSpeculativeCache = new Map();
 const talkMetricsSamples = [];
-const talkTurnMetaById = new Map();
+// One shared PostgreSQL/JSON adapter owns the durable store domains.
+const sharedPersistence = createPersistence();
+const talkTurnStore = createTalkTurnStore({ persistence: sharedPersistence,
+  ttlMs: TALK_TURN_META_TTL_MS, maxEntries: TALK_TURN_META_MAX_ENTRIES });
 const scaleBackplane = await createScaleBackplane({
   redisUrl: SCALE_BACKPLANE_ENABLED ? SCALE_REDIS_URL : "",
   postgresUrl: SCALE_BACKPLANE_ENABLED ? SCALE_POSTGRES_URL : "",
   outboxFilePath: OUTBOX_STORE_PATH,
+  persistence: sharedPersistence,
   logger: console,
 });
 await scaleBackplane.init();
-// T07b/c: shared persistence adapter (Postgres if DATABASE_URL is set, JSON-file
-// fallback otherwise). Stores opt-in by passing it via configureXxxStore deps.
-// Declared early so configureMemoryStore (the first store init) can consume it.
-const sharedPersistence = createPersistence();
 
 // T13: realtime supplier (OpenAI by default; configurable via
 // REALTIME_PROVIDER env). Falls back to the OpenAI supplier even on
@@ -3063,17 +3069,15 @@ const creativeMemoryStore = createCreativeMemoryStore({
 // memory if any is present. No-op for cold users - the memory block is
 // omitted rather than serialized as null/empty (see prompt_assembly.js).
 // T21: append a craft-context block to the system prompt for
-// screenplay page-write turns. Defaults to the "save-the-cat" framework
+// screenplay page-write and mentor turns. Defaults to the "three-act" framework
 // when the request does not specify a preference; production wiring of
 // per-project framework selection lives in T22's stored reports +
 // Codex-side BackendClient (T19).
 function appendCraftContextToSystem(systemPrompt, { req } = {}) {
-  if (String(systemPrompt || "").includes(CRAFT_BLOCK_OPEN)) return systemPrompt;
+  if (!shouldAppendCraftContext(systemPrompt)) return systemPrompt;
   const requested = String(req?.body?.craft_framework_id || "").trim();
-  const frameworkId = requested || "save-the-cat";
-  const block = buildCraftContextBlock({ framework: frameworkId });
-  if (!block) return systemPrompt;
-  return `${systemPrompt}\n\n${block}`;
+  const block = buildCraftContextBlock({ framework: requested || DEFAULT_FRAMEWORK_ID });
+  return block ? `${systemPrompt}\n\n${block}` : systemPrompt;
 }
 
 // T08w-triggers: persist creative-memory writes from a completed turn.
@@ -4072,31 +4076,6 @@ function positiveTalkContextInteger(value) {
   return Math.round(parsed);
 }
 
-const SCREENPLAY_PROJECT_MEMORY_PROMPT_INTENTS = new Set([
-  "write_scene",
-  "rewrite_scene",
-  "continue_script",
-  "scene_doctor",
-  "outline_structure",
-  "character_development",
-  "dialogue_punchup",
-  "emotional_continuity",
-  "pacing_pass",
-  "finish_feature",
-  "momentum_rescue",
-]);
-
-function screenplayTaskCanUseProjectMemory(task, hint = "") {
-  const intent = String(task?.intent || "").trim();
-  if (!SCREENPLAY_PROJECT_MEMORY_PROMPT_INTENTS.has(intent)) return false;
-  const lowerHint = String(hint || "").toLowerCase();
-  if (!lowerHint.trim()) return false;
-  if (["continue_script", "finish_feature", "write_scene", "rewrite_scene", "scene_doctor", "dialogue_punchup", "momentum_rescue"].includes(intent)) {
-    return true;
-  }
-  return /\b(screenplay|script|scene|pages?|act|feature|movie|film|draft|dialogue|beat|sequence|fountain|character|ending|outline|story|emotional continuity|pacing|stuck|blocked|writer'?s block|writers block|creative block|out of ideas|next move)\b/.test(lowerHint);
-}
-
 function selectScreenplayProjectMemoryForPrompt(memory, studioMeta = null, body = {}) {
   const items = sanitizeScreenplayProjectMemoryItems(
     memory?.screenplayProjectMemory,
@@ -4957,6 +4936,7 @@ if (!loadedUserStoreFromAdapter) {
     throw error;
   }
 }
+await talkTurnStore.hydrate(); // Auth startup owns the first fail-closed storage check.
 const userAuth = createUserAuthSubsystem({
   accessTtlSeconds: JWT_TTL_SECONDS,
   appleAudience: AUTH_APPLE_AUDIENCE,
@@ -5084,6 +5064,7 @@ function persistenceRowBelongsToUser(row, userId) {
     key === `byIp:authuser:${normalizedUserId}` ||
     key.startsWith(`${normalizedUserId}:`) ||
     key.startsWith(`user:${normalizedUserId}:`) ||
+    key.startsWith(`user:${normalizedUserId}|`) ||
     key.startsWith(`authuser:${normalizedUserId}:`)
   ) {
     return true;
@@ -5114,7 +5095,7 @@ async function exportAuthenticatedUserData({ userId, domains = EXPORTABLE_DOMAIN
     });
     payload[domain] = rows.map((row) => ({
       key: row.key,
-      value: row.value,
+      value: accountExportPersistenceValue(domain, row.value),
     }));
   }
   return { domains: payload };
@@ -5540,30 +5521,7 @@ function summarizeTalkMetrics(windowMs = TALK_METRICS_WINDOW_MS) {
   };
 }
 
-function cleanupTalkTurnMetaStore(now = Date.now()) {
-  const cutoff = now - Math.max(60_000, Number(TALK_TURN_META_TTL_MS || 0));
-  for (const [turnId, entry] of talkTurnMetaById.entries()) {
-    const updatedAt = Math.max(
-      0,
-      Number(entry?.updatedAt || entry?.createdAt || 0)
-    );
-    if (updatedAt > 0 && updatedAt < cutoff) {
-      talkTurnMetaById.delete(turnId);
-    }
-  }
-  if (talkTurnMetaById.size <= TALK_TURN_META_MAX_ENTRIES) return;
-  const entries = [...talkTurnMetaById.entries()]
-    .map(([turnId, entry]) => ({
-      turnId,
-      updatedAt: Math.max(0, Number(entry?.updatedAt || entry?.createdAt || 0)),
-    }))
-    .sort((a, b) => b.updatedAt - a.updatedAt);
-  for (let i = TALK_TURN_META_MAX_ENTRIES; i < entries.length; i += 1) {
-    talkTurnMetaById.delete(entries[i].turnId);
-  }
-}
-
-function storeTalkTurnMeta({
+async function storeTalkTurnMeta({
   turnId = "",
   sessionId = "",
   userId = "",
@@ -5581,11 +5539,10 @@ function storeTalkTurnMeta({
 } = {}) {
   const normalizedTurnId = String(turnId || "").trim();
   if (!normalizedTurnId) return;
-  cleanupTalkTurnMetaStore(now);
-  talkTurnMetaById.set(normalizedTurnId, {
+  return talkTurnStore.put({
     turnId: normalizedTurnId,
     sessionId: String(sessionId || "").trim(),
-    userId: normalizeScreenplayOwnerValue(userId, "user"),
+    userId: String(userId || "").trim(),
     stateVersion: String(stateVersion || "").trim(),
     transcript: normalizeSnippet(transcript, 6_000),
     reply: normalizeSnippet(reply, 8_000),
@@ -5666,16 +5623,15 @@ function storeTalkTurnMeta({
   });
 }
 
-function readTalkTurnMeta(turnId = "", now = Date.now()) {
-  cleanupTalkTurnMetaStore(now);
+async function readTalkTurnMeta(turnId = "", now = Date.now(), scope = null) {
   const normalizedTurnId = String(turnId || "").trim();
   if (!normalizedTurnId) return null;
-  const entry = talkTurnMetaById.get(normalizedTurnId);
+  const entry = await talkTurnStore.read(normalizedTurnId, scope);
   if (!entry) return null;
   return {
     turnId: normalizedTurnId,
     sessionId: String(entry.sessionId || "").trim(),
-    userId: normalizeScreenplayOwnerValue(entry.userId, "user"),
+    userId: String(entry.userId || "").trim(),
     stateVersion: String(entry.stateVersion || "").trim(),
     transcript: String(entry.transcript || ""),
     reply: String(entry.reply || ""),
@@ -7631,33 +7587,7 @@ function consumeSpeculativeTalkPrepared({
   };
 }
 
-function canReadTalkTurnMeta(req, meta) {
-  if (!meta || typeof meta !== "object") return false;
-  const appToken = String(req.get("X-APP-TOKEN") || "").trim();
-  const ip = normalizeClientIp(clientIp(req));
-  if (
-    process.env.NODE_ENV !== "production"
-    && appToken === "them-dev"
-    && (ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1")
-  ) {
-    return true;
-  }
-  const sessionId = String(meta.sessionId || "").trim();
-  const metaUserId = normalizeScreenplayOwnerValue(meta.userId, "user");
-  const requestUserId = normalizeScreenplayOwnerValue(req.authUser?.id || req.userId, "user");
-  if (metaUserId && requestUserId && metaUserId === requestUserId) {
-    return true;
-  }
-  if (!sessionId) return true;
-  const token = normalizeClientToken(req.get("X-Client-Token"));
-  if (token) {
-    return sessionId === token || sessionId === `ip:${ip}`;
-  }
-  if (sessionId.startsWith("ip:")) {
-    return sessionId === `ip:${ip}`;
-  }
-  return false;
-}
+const canReadTalkTurnMeta = createTalkTurnReadPolicy({ clientIp, normalizeClientIp, normalizeClientToken });
 
 function deriveBackendRuntimeStatus() {
   const metrics = summarizeTalkMetrics();
@@ -9803,28 +9733,8 @@ function createEmptyScreenplayOwner(ownerKey) {
 }
 
 function normalizeStoredScreenplayVersion(entry) {
-  if (!entry || typeof entry !== "object") return null;
-  const id = normalizeSnippet(entry.id, 64);
-  if (!id) return null;
-  return {
-    id,
-    projectId: normalizeSnippet(entry.projectId, 64),
-    phase: normalizeSnippet(entry.phase, 48) || "scene_draft",
-    source: normalizeSnippet(entry.source, 48),
-    clientRequestId: normalizeSnippet(entry.clientRequestId ?? entry.client_request_id, 96),
-    createdAt: Math.max(0, Number(entry.createdAt || 0)),
-    updatedAt: Math.max(0, Number(entry.updatedAt || entry.createdAt || 0)),
-    prompt: normalizeSnippet(entry.prompt, 320),
-    notes: normalizeSnippet(entry.notes, 240),
-    formatScore: Number(entry.formatScore || 0),
-    storyScore: Number(entry.storyScore || 0),
-    confidenceClass: normalizeSnippet(entry.confidenceClass, 24) || "medium",
-    warnings: normalizeScreenplayStringList(entry.warnings, 8, 64),
-    draft: String(entry.draft || ""),
-    draftExcerpt: buildDraftExcerpt(entry.draftExcerpt || entry.draft || ""),
-    studioWriteAnchors: normalizeStoredScreenplayWriteAnchors(entry.studioWriteAnchors || entry.studio_write_anchors),
-    screenplayBindings: normalizeStoredScreenplayBindings(entry.screenplayBindings || entry.screenplay_bindings),
-  };
+  return normalizeStoredScreenplayVersionRecord(entry, { normalizeSnippet, normalizeScreenplayStringList,
+    buildDraftExcerpt, normalizeStoredScreenplayWriteAnchors, normalizeStoredScreenplayBindings });
 }
 
 function normalizeStoredScreenplayWriteAnchor(entry) {
@@ -10435,6 +10345,14 @@ function normalizeStoredScreenplayProject(entry) {
   return {
     id,
     title,
+    initialCreationRequestId: normalizeSnippet(
+      entry.initialCreationRequestId ?? entry.initial_creation_request_id,
+      96
+    ),
+    initialCreationRequestHash: normalizeSnippet(
+      entry.initialCreationRequestHash ?? entry.initial_creation_request_hash,
+      64
+    ),
     archived: Boolean(entry.archived),
     tags: normalizeScreenplayStringList(entry.tags, 24, 48),
     characters: normalizeScreenplayStringList(entry.characters, 24, 48),
@@ -20932,7 +20850,7 @@ function fitSystemPromptForTurnLatency(systemPrompt, args = {}) {
   return fitSystemPromptForTurnLatencyBase(systemPrompt, {
     ...args,
     fastMaxChars: FAST_TURN_SYSTEM_PROMPT_MAX_CHARS,
-    richMaxChars: RICH_TURN_SYSTEM_PROMPT_MAX_CHARS,
+    richMaxChars: Math.max(RICH_TURN_SYSTEM_PROMPT_MAX_CHARS, Number(args.richMaxChars) || 0),
     structuralMaxChars: STRUCTURAL_TURN_SYSTEM_PROMPT_MAX_CHARS,
   });
 }
@@ -20975,22 +20893,6 @@ const KNOWLEDGE_STOPWORDS = new Set([
   "she", "them", "me", "my", "your", "our", "their", "like", "just", "really", "very", "more",
   "into", "than", "also", "still", "been", "being", "get", "got", "use", "using",
 ]);
-
-const KNOWLEDGE_TOPIC_KEYWORDS = Object.freeze({
-  movies: ["movie", "movies", "film", "cinema", "director", "screenplay", "editing", "scene"],
-  art_history: ["art", "artist", "painting", "museum", "renaissance", "baroque", "modernism", "sculpture"],
-  philosophy: ["philosophy", "ethics", "existential", "stoic", "meaning", "truth", "consciousness", "virtue"],
-  learning: ["learn", "learning", "study", "practice", "memory", "habit", "skill", "improve", "growth"],
-  compatibility: ["compatibility", "values", "attachment", "fit", "alignment", "red flags", "green flags"],
-  heartbreak: [
-    "heartbreak", "heartbroken", "breakup", "break up", "broke up", "my ex", "ex partner",
-    "ex-partner", "ex boyfriend", "ex girlfriend", "no contact", "closure",
-  ],
-  friendship: ["friend", "friendship", "best friend", "support", "trust", "loyal", "repair"],
-  betrayal: ["betrayal", "betrayed", "lie", "liar", "cheat", "disrespect", "trust broken", "deception"],
-  empathy: ["empathy", "compassion", "attunement", "validation", "listening", "emotional safety"],
-  human_connection: ["connection", "intimacy", "belonging", "lonely", "closeness", "bond", "relational"],
-});
 
 const KNOWLEDGE_RELATIONAL_TOPICS = new Set([
   "compatibility",
@@ -21149,35 +21051,6 @@ function tokenizeKnowledgeQuery(text) {
     .split(/\s+/)
     .map((x) => x.trim())
     .filter((x) => x.length >= 3 && !KNOWLEDGE_STOPWORDS.has(x));
-}
-
-function countKeywordHits(text, keywords) {
-  const t = String(text || "");
-  return keywords.reduce((count, keyword) => (
-    keyword && t.includes(keyword) ? count + 1 : count
-  ), 0);
-}
-
-function deriveKnowledgeTopicWeights(queryText) {
-  const text = String(queryText || "").toLowerCase();
-  const weights = {};
-  for (const [topic, keywords] of Object.entries(KNOWLEDGE_TOPIC_KEYWORDS)) {
-    const hits = countKeywordHits(text, keywords);
-    if (hits <= 0) continue;
-    weights[topic] = Math.min(1, 0.28 + (hits * 0.18));
-  }
-  if (textContainsAny(text, ["relationship", "dating", "partner", "breakup"])) {
-    weights.compatibility = Math.max(weights.compatibility || 0, 0.42);
-    weights.human_connection = Math.max(weights.human_connection || 0, 0.38);
-  }
-  if (textContainsAny(text, ["hurt", "betrayed", "liar", "lied"])) {
-    weights.betrayal = Math.max(weights.betrayal || 0, 0.50);
-    weights.empathy = Math.max(weights.empathy || 0, 0.32);
-  }
-  if (textContainsAny(text, ["friend", "friendship", "best friend"])) {
-    weights.friendship = Math.max(weights.friendship || 0, 0.48);
-  }
-  return weights;
 }
 
 function deriveKnowledgeQueryProfile(query, { flags, turnPlanner } = {}) {
@@ -32917,9 +32790,13 @@ mountAccountRoutes(app, {
   auditLog: accountAuditLog,
 });
 
-// Phase 7a: guards are built from backend/lib/talk_state.js factories
-// using live config + helpers. State (rate buckets, idempotency cache,
-// session locks, in-flight counter) lives inside the lib's module scope.
+// Canonical guards own talk state; wallet assignment/hydration precedes mounts.
+let clementineWalletStore = null;
+const resolveTalkTurnOwnerScope = req => ({
+  userId: String(req?.authUser?.id || req?.userId || req?.user?.id || "").trim(),
+  sessionId: normalizeClientToken(req?.get?.("X-Client-Token")) || `ip:${normalizeClientIp(clientIp(req))}`,
+});
+const restoreTalkTurnMetadata = (req, record) => talkTurnStore.restoreForReplay(record, resolveTalkTurnOwnerScope(req));
 const talkRateLimitGuard = createTalkRateLimitGuard({
   clientIp,
   talkRateLimitWindowMs: TALK_RATE_LIMIT_WINDOW_MS,
@@ -32934,6 +32811,8 @@ const talkIdempotencyGuard = createTalkIdempotencyGuard({
   recordTalkMetric,
   talkIdempotencyTtlMs: TALK_IDEMPOTENCY_TTL_MS,
   talkIdempotencyMaxEntries: TALK_IDEMPOTENCY_MAX_ENTRIES,
+  reconcilePreparedIdempotency: (_req, settlement) => clementineWalletStore.reconcileDurableSettlement(settlement),
+  restoreTurnMetadata: restoreTalkTurnMetadata,
 });
 const talkSessionSerialGuard = createTalkSessionSerialGuard({
   isSpeculativePrepareRequest,
@@ -32952,17 +32831,14 @@ const talkConcurrencyGuard = createTalkConcurrencyGuard({
   recordTalkMetric,
 });
 const talkIdempotencyHelpers = createTalkIdempotencyHelpers({
-  scaleBackplane,
-  talkIdempotencyEnabled: TALK_IDEMPOTENCY_ENABLED,
+  scaleBackplane, talkIdempotencyEnabled: TALK_IDEMPOTENCY_ENABLED,
   talkIdempotencyTtlMs: TALK_IDEMPOTENCY_TTL_MS,
   talkIdempotencyMaxEntries: TALK_IDEMPOTENCY_MAX_ENTRIES,
+  restoreTurnMetadata: restoreTalkTurnMetadata,
 });
-const commitTalkIdempotencySuccess = (req, opts) =>
-  talkIdempotencyHelpers.commitSuccess(req, opts);
-const clearTalkIdempotencyPending = (req, opts) =>
-  talkIdempotencyHelpers.clearPending(req, opts);
-const captureTalkResponseHeaders = (res) =>
-  talkIdempotencyHelpers.captureResponseHeaders(res);
+const commitTalkIdempotencySuccess = (req, opts) => talkIdempotencyHelpers.commitSuccess(req, opts);
+const clearTalkIdempotencyPending = (req, opts) => talkIdempotencyHelpers.clearPending(req, opts);
+const captureTalkResponseHeaders = (res) => talkIdempotencyHelpers.captureResponseHeaders(res);
 
 const handleTalkRequest = createTalkHandler({
   logger: console,
@@ -33262,7 +33138,7 @@ const clementineWalletPersistence =
   sharedPersistence.kind === "postgres"
     ? createPostgresWalletPersistence({ client: sharedPersistence })
     : createAdapterWalletPersistence({ persistence: sharedPersistence });
-const clementineWalletStore = createWalletStore({
+clementineWalletStore = createWalletStore({
   persistence: clementineWalletPersistence,
 });
 try {
@@ -33287,7 +33163,7 @@ mountTalkPipelineRoutes(app, {
   talkUpload,
   handleTalkRequest,
   normalizeTalkTurnId: (value) => String(value || "").trim(),
-  getTalkTurnMeta: (turnId) => readTalkTurnMeta(turnId, Date.now()),
+  getTalkTurnMeta: (turnId, req) => readTalkTurnMeta(turnId, Date.now(), resolveTalkTurnOwnerScope(req)),
   canReadTalkTurnMeta,
   pageReservationStore: clementinePageReservationStore,
   walletStore: clementineWalletStore,
@@ -33435,7 +33311,7 @@ mountDecisionsQueueRoute(app);
 mountCreativeMemoryStatsRoute(app, { creativeMemoryStore });
 
 // T-talk-turn-meta-stats: GET /talk/stats returns aggregate health
-// over the in-memory talkTurnMetaById store.
+// over the bounded canonical talk-turn store.
 //
 // ACCESS-CONTROL POSTURE (load-bearing — Codex review on #97):
 //   Safe-public, matches /ops/metrics + /ops/alerts.
@@ -33444,7 +33320,7 @@ mountCreativeMemoryStatsRoute(app, { creativeMemoryStore });
 //   no session IDs). The no-leakage property is pinned by the test
 //   suite ("[talk-stats] response contains no per-user content").
 mountTalkTurnStatsRoute(app, {
-  getAllTalkTurns: () => [...talkTurnMetaById.values()],
+  getAllTalkTurns: () => talkTurnStore.values(),
 });
 // 405 method guards (extracted to lib/method_not_allowed_routes.js).
 // Registered here — after the real handlers, before the final 404 — so

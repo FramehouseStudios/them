@@ -5,7 +5,7 @@ import UIKit
 
 extension IOSCursorInsertTextEditor.Coordinator {
     func publishEditorText(_ text: String) {
-        guard parent.text != text else { return }
+        guard !parent.text.utf8.elementsEqual(text.utf8) else { return }
         pendingEditorPublications.record(text)
         parent.text = text
     }
@@ -39,6 +39,7 @@ extension IOSCursorInsertTextEditor.Coordinator {
 struct CursorInsertTextEditor: View {
     @Binding var text: String
     var documentID: String = ""
+    var externalMutationRevision: UInt64 = 0
     @Binding var activeScreenplayElement: ScreenplayEditorElement
     @Binding var insertionRequest: ScreenplayInsertionRequest?
     @Binding var lineJumpRequest: ScreenplayLineJumpRequest?
@@ -79,6 +80,7 @@ struct CursorInsertTextEditor: View {
         IOSCursorInsertTextEditor(
             text: $text,
             documentID: documentID,
+            externalMutationRevision: externalMutationRevision,
             activeScreenplayElement: $activeScreenplayElement,
             insertionRequest: $insertionRequest,
             lineJumpRequest: $lineJumpRequest,

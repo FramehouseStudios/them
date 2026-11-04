@@ -10,7 +10,7 @@ const {
   storeTalkTurnMeta,
 } = await import("../index.js");
 
-test("[talk-turn-meta] preserves authoritative screenplay batches beyond the old 8k ceiling", () => {
+test("[talk-turn-meta] preserves authoritative screenplay batches beyond the old 8k ceiling", async () => {
   const turnId = `screenplay-length-${Date.now()}`;
   const screenplayText = Array.from({ length: 90 }, (_, index) => [
     `INT. EDITING ROOM ${index + 1} - NIGHT`,
@@ -24,7 +24,7 @@ test("[talk-turn-meta] preserves authoritative screenplay batches beyond the old
   assert.ok(screenplayText.length > 8_000);
   assert.ok(screenplayText.length < 32_000);
 
-  storeTalkTurnMeta({
+  await storeTalkTurnMeta({
     turnId,
     sessionId: "session-feature-batch",
     userId: "user-feature-batch",
@@ -45,7 +45,7 @@ test("[talk-turn-meta] preserves authoritative screenplay batches beyond the old
     now: Date.now(),
   });
 
-  const stored = readTalkTurnMeta(turnId, Date.now());
+  const stored = await readTalkTurnMeta(turnId, Date.now());
   assert.ok(stored);
   assert.equal(stored.screenplayOutput?.text, screenplayText);
   assert.equal(stored.screenplayOutput?.text.length, screenplayText.length);

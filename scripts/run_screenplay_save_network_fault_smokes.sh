@@ -21,7 +21,8 @@ if [[ -n "${SCREENPLAY_SAVE_TEST_IDENTIFIER:-}" ]]; then
 else
   test_identifiers=(
     "themUITests/V1SmokeUITests/test_screenplay_save_outbox_survives_relaunch_and_reconnects_once"
-    "themUITests/V1SmokeUITests/test_screenplay_save_outbox_refreshes_auth_and_resolves_stale_conflict_once"
+    "themUITests/V1SmokeUITests/test_screenplay_save_outbox_restores_conflict_choice_and_resolves_once"
+    "themUITests/V1SmokeUITests/test_screenplay_save_outbox_refreshes_real_auth_and_restores_exact_words"
   )
 fi
 

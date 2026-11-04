@@ -4,6 +4,7 @@
 import { shouldSuggest, buildSuggestion } from "./samantha_intuition.js";
 import { getSamanthaPresence } from "./samantha_presence.js";
 import { getWriterVoiceProfile, buildVulnerabilityAsk } from "./samantha_voice.js";
+import { paginateScreenplay } from "../screenplay_pagination.js";
 
 function toTrimmed(v) { return String(v||"").trim(); }
 
@@ -26,21 +27,18 @@ export function buildUncertaintyHeader({ quality } = {}) {
 }
 
 export function buildCollabCursorHeader({ collabCursor, project, draft } = {}) {
-  // Prefer explicit cursor from request/body, else derive next page cursor.
+  // A collaboration hint is not a validated selection or edit authorization.
   if (collabCursor && typeof collabCursor === "object") {
-    const page = Math.max(1, Math.round(Number(collabCursor.page||collabCursor.p||1)));
-    const line = Math.max(1, Math.round(Number(collabCursor.line||collabCursor.l||1)));
-    const ch = toTrimmed(collabCursor.character||collabCursor.c||"");
-    const payload = ch ? { page, line, character: ch } : { page, line };
-    try { return JSON.stringify(payload); } catch { return JSON.stringify({ page, line }); }
+    const page = Number(collabCursor.page ?? collabCursor.p ?? 1);
+    const line = Number(collabCursor.line ?? collabCursor.l ?? 1);
+    if (![page, line].every(value => Number.isFinite(value) && value >= 1 && value <= Number.MAX_SAFE_INTEGER)) return "";
+    const ch = toTrimmed(collabCursor.character ?? collabCursor.c ?? "").slice(0, 64);
+    return JSON.stringify({ page: Math.round(page), line: Math.round(line), ...(ch ? { character: ch } : {}), basis: "explicit", authoritative: false });
   }
-  // Derive next page from draft pagination (55 lines/page heuristic)
-  const lines = String(draft||"").split("\n").length;
-  const nextPage = Math.max(1, Math.ceil(lines/55) || 1);
-  // include active character if project has one
-  const ch = toTrimmed(project?.characterContexts?.[0]?.name || "");
-  const payload = ch ? { page: nextPage, line: 1, character: ch } : { page: nextPage, line: 1 };
-  return JSON.stringify(payload);
+  // Provided text may be a generated fragment, not the complete saved script.
+  // Use the canonical layout, never raw55 or the project's first character.
+  const lastPage = typeof draft === "string" ? paginateScreenplay(draft).pages.at(-1) : null;
+  return lastPage ? JSON.stringify({ page: lastPage.page, line: 1, basis: "provided_text", authoritative: false }) : "";
 }
 
 export function buildPresenceHeaders({ project } = {}) {

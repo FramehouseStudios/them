@@ -71,7 +71,7 @@ import { getFeatureBeats } from "./feature_structure_knowledge.js";
 
 export function buildLivePaperPayload(project, opts = {}) {
   if (!project || typeof project !== "object" || Array.isArray(project)) {
-    return { logline: "", synopsis: "", beats: [], characterContexts: {}, pages: [], totalPages: 0, currentPage: 1 };
+    return { logline: "", synopsis: "", beats: [], characterContexts: {}, pages: [], totalPages: 0, currentPage: 1, paginationAvailable: false, pageBasis: "unavailable", authoritative: false };
   }
   const logline = clampString(project.logline ?? project.screenplayLogline ?? project.screenplay_logline ?? "", 280);
   const synopsis = clampString(project.synopsis ?? project.screenplaySynopsis ?? project.screenplay_synopsis ?? project.summary ?? project.overview ?? "", 4000);
@@ -80,12 +80,15 @@ export function buildLivePaperPayload(project, opts = {}) {
   const rawContexts = project.characterContexts ?? project.character_contexts ?? project.character_context ?? project.characterContext ?? project.characterVoiceContexts ?? {};
   const characterContexts = normalizeCharacterContexts(rawContexts);
   // Flip-through: paginate draft if available (latest version draft or opts.draft)
-  const draft = String(opts.draft || project?.versions?.[0]?.draft || project?.latestDraft || "");
+  const rawDraft = opts.draft ?? project?.versions?.[0]?.draft ?? project?.latestDraft;
+  const paginationAvailable = typeof rawDraft === "string";
+  const pageBasis = !paginationAvailable ? "unavailable" : opts.draft != null ? "provided_text" : "project_version";
+  const draft = paginationAvailable ? rawDraft : "";
   let pages = [];
   try {
     if (draft) pages = paginateFountainDraft(draft);
   } catch {}
-  const totalPages = pages.length || Math.max(1, Number(opts.currentPage) || 1);
+  const totalPages = pages.length;
   const currentPage = Math.max(1, Math.min(totalPages, Number(opts.currentPage) || 1));
   // Feature 40-beat scaffold for 60p+ (D009)
   let beats40 = null;
@@ -96,7 +99,7 @@ export function buildLivePaperPayload(project, opts = {}) {
       beats40 = fb.beats40 || null;
     }
   } catch {}
-  return { logline, synopsis, beats, beats40, beatCount: beats40 ? 40 : beats.length, characterContexts, pages, totalPages, currentPage, projectId: String(project.id || "") };
+  return { logline, synopsis, beats, beats40, beatCount: beats40 ? 40 : beats.length, characterContexts, pages, totalPages, currentPage, projectId: String(project.id || ""), paginationAvailable, pageBasis, authoritative: false };
 }
 
 export default { buildLivePaperPayload };

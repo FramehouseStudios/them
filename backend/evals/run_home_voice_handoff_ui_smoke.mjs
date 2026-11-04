@@ -1,0 +1,144 @@
+import { spawn, spawnSync } from 'node:child_process';
+import { existsSync, unlinkSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { startBackend, apiRequest } from '../tests/helpers/backend_test_server.mjs';
+import { createJsonPersistence } from '../lib/persistence_json.js';
+import { createAdapterWalletPersistence } from '../lib/clementine/wallet_persistence.js';
+import path from 'node:path';
+import { startPromotionDelayProxy } from './promotion_delay_proxy.mjs';
+
+// Deterministic transport/insertion/save proof, never microphone or model proof.
+// Caller must erase a TASK-OWNED simulator before invoking this runner.
+const root = fileURLToPath(new URL('../..', import.meta.url));
+const destination = process.env.IOS_SIMULATOR_DESTINATION || '';
+if (!/^platform=iOS Simulator,id=[A-F0-9-]+$/.test(destination)) {
+  throw new Error('An explicit task-owned IOS_SIMULATOR_DESTINATION is required');
+}
+const allowedTests = [
+  'themUITests/V1SmokeUITests/test_screenplay_export_returns_a_file',
+  'themUITests/V1SmokeUITests/test_confirmed_home_voice_turn_opens_studio_writes_and_restores',
+  'themUITests/V1SmokeUITests/test_home_raw_audio_uses_current_server_transcript_writes_and_restores',
+  'themUITests/V1SmokeUITests/test_home_raw_audio_studio_stop_ends_capture_and_cancels_page',
+  'themUITests/V1SmokeUITests/test_integrated_iphone_writer_loop_creates_saves_exports_and_restores',
+  'themUITests/V1SmokeUITests/test_coverage_read_labels_earlier_snapshot_and_refreshes_current_draft',
+  'themUITests/V1SmokeUITests/test_restored_unbound_draft_keeps_title_and_exact_bytes_after_promotion_and_relaunch',
+  'themUITests/V1SmokeUITests/test_delayed_project_creation_cannot_save_or_bind_a_changed_page',
+  'themUITests/V1SmokeUITests/test_screenplay_save_outbox_survives_relaunch_and_reconnects_once',
+  'themUITests/V1SmokeUITests/test_studio_refused_write_preserves_saved_page_despite_page_selection',
+  'themUITests/V1SmokeUITests/test_pages_navigator_controls_jump_and_preserve_source',
+  'themUITests/V1SmokeUITests/test_talk_recovery_exports_current_owner_and_confirms_exact_deletion',
+  'themUITests/V1SmokeUITests/test_initial_project_relaunch_replays_saved_identity_and_preserves_newer_edits',
+  'themUITests/V1SmokeUITests/test_initial_project_relaunch_blank_replays_one_creation',
+  'themUITests/V1SmokeUITests/test_explicit_project_creation_preserves_existing_page_bytes',
+  'themUITests/V1SmokeUITests/test_interrupted_talk_recovery_requires_confirmation_and_keeps_original_queue_on_relaunch',
+  'themUITests/V1SmokeUITests/test_received_talk_reply_is_reviewed_and_exported_without_resend_after_relaunch',
+  'themUITests/V1SmokeUITests/test_queued_talk_reply_plays_appends_saves_and_restores_once',
+  'themUITests/V1SmokeUITests/test_live_talk_replacement_recovers_saves_and_restores_once',
+  'themUITests/V1SmokeUITests/test_render_response_is_reviewed_without_audio_or_page_mutation_after_relaunch',
+  'themUITests/V1SmokeUITests/test_studio_delayed_render_project_switch_preserves_newer_submission',
+  'themUITests/V1SmokeUITests/test_studio_delayed_render_stop_preserves_resubmission',
+];
+const tests = process.argv.length > 2 ? process.argv.slice(2)
+  : process.env.ONLY_TESTING ? [process.env.ONLY_TESTING] : allowedTests.slice(1, 3);
+if (tests.some(test => !allowedTests.includes(test))) throw new Error('Unsupported Home voice proof test');
+if (process.env.THEM_HOME_VOICE_LONG_AUDIO === '1' && (tests.length !== 1 || !tests[0].includes('home_raw_audio'))) throw new Error('Long audio regression requires the raw-audio case alone');
+// Reuse the measured audio asset so Stop interrupts an active turn, rather
+// than racing the short silence fixture; production timing is unchanged.
+const needsInterruptibleAudio = tests.some(test => test.endsWith('/test_home_raw_audio_studio_stop_ends_capture_and_cancels_page'));
+if (needsInterruptibleAudio && tests.length !== 1) throw new Error('Stop cancellation proof requires an isolated interruptible-audio run; normal writing must use its normal audio fixture');
+// These workflows intentionally start from an empty account. This runner's
+// funded identity is shared within a batch, so earlier voice/recovery cases
+// would seed a real saved page that new-project creation correctly preserves.
+const needsEmptyAccount = tests.some(test => test.endsWith('/test_integrated_iphone_writer_loop_creates_saves_exports_and_restores')
+  || test.endsWith('/test_coverage_read_labels_earlier_snapshot_and_refreshes_current_draft'));
+if (needsEmptyAccount && tests.length !== 1) throw new Error('Empty-account writer proof requires its own isolated backend run; do not share a funded account with another workflow');
+const bundle = process.env.THEM_HOME_VOICE_RESULT_BUNDLE || `/tmp/them-home-voice-${process.pid}.xcresult`;
+if (existsSync(bundle)) throw new Error('Refusing to overwrite an existing result bundle');
+const config = `/tmp/them-home-voice-${process.pid}.xcconfig`;
+const fixtureURL = new URL('./home_voice_provider_fixture.mjs', import.meta.url);
+const backendOptions = { unsetEnv: ['DATABASE_URL', 'REDIS_URL'], env: {
+  APP_TOKEN: 'them-dev', REQUIRE_USER_AUTH: '1', CLEMENTINE_PROVIDER: 'openai',
+  CLEMENTINE_MUSE_ENABLED: '0', TALK_TEST_DEBUG_TRANSCRIPT_ENABLED: '0',
+  MUSE_ENABLED: '0', LLM_PROVIDER: 'openai',
+  TALK_TEST_DEBUG_OFFLINE_ENABLED: '0', TALK_STREAM_AUDIO_ENABLED: '0',
+  KNOWLEDGE_RAG_EMBEDDINGS_ENABLED: '0', THEM_HOME_VOICE_PROVIDER_FIXTURE: '1',
+  THEM_HOME_VOICE_FUNDED_WRITER: '1',
+  THEM_PAGE_CANCEL_PROOF: needsInterruptibleAudio ? '1' : '0',
+  THEM_HOME_VOICE_LONG_AUDIO: process.env.THEM_HOME_VOICE_LONG_AUDIO === '1' || needsInterruptibleAudio ? '1' : '0',
+  THEM_PAGE_NAVIGATOR_PROOF: tests.some(test => test.includes('test_pages_navigator_controls')) ? '1' : '0',
+  NODE_OPTIONS: `--import=${fixtureURL.href}`,
+} };
+let server = await startBackend(backendOptions);
+let promotionProxy;
+try {
+  // Provision synthetic funds through canonical persistence, never a shipping
+  // wallet bypass. This is not evidence of an App Store purchase.
+  const port = server.port;
+  const signup = await apiRequest(server, '/auth/signup', { method: 'POST', json: {
+    email: `studio-funded-${port}@example.test`, password: `Local-funded-${port}-aA1!`,
+    display_name: 'Funded local writer fixture',
+  } });
+  if (signup.status !== 201) throw new Error('Funded writer fixture signup failed');
+  const ownerId = signup.json.user?.user_id || signup.json.user?.id;
+  if (!ownerId) throw new Error('Funded writer fixture has no canonical owner');
+  const dataDir = server.dataDir;
+  await server.stop();
+  const persistence = createJsonPersistence({ jsonRoot: path.join(dataDir, 'persistence') });
+  await createAdapterWalletPersistence({ persistence }).putBalance({
+    ownerId, pageMilliturns: 100000, companionMilliturns: 0,
+    grantedPageMilliturns: 100000, grantedCompanionMilliturns: 0,
+  });
+  server = await startBackend({ ...backendOptions, dataDir, port });
+  const holdsCreations = tests.some(test => test.includes('test_delayed_project_creation') || test.includes('test_initial_project_relaunch'));
+  const holdsRenders = tests.some(test => test.includes('test_studio_delayed_render_'));
+  if (holdsCreations || holdsRenders) promotionProxy = await startPromotionDelayProxy(server.baseUrl,
+    { holdCreations: holdsCreations, holdStudioRenders: holdsRenders });
+  writeFileSync(config, `THEM_UITEST_WRITER_LOOP_BACKEND_PORT = ${promotionProxy?.port || server.port}\n`, {mode: 0o600});
+  const child = spawn('bash', ['scripts/run_v1_ui_smoke.sh', '-quiet', '-resultBundlePath', bundle, ...tests.slice(1).map(test => '-only-testing:' + test)], {
+    cwd: root, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env,
+      ONLY_TESTING: tests[0], THEM_UITEST_RESTORE_XCCONFIG_PATH: config,
+      IOS_SIMULATOR_DESTINATION: destination,
+    },
+  });
+  // Keep the event loop free to drain the backend pipes during Xcode's run.
+  child.stdout.on('data', data => process.stdout.write(data));
+  child.stderr.on('data', data => process.stderr.write(data));
+  const status = await new Promise((resolve, reject) => {
+    child.on('error', reject); child.on('close', resolve);
+  });
+  const report = spawnSync('xcrun', ['xcresulttool', 'get', 'test-results', 'summary', '--path', bundle], {encoding: 'utf8'});
+  if (report.status !== 0) throw new Error('Missing xcresult summary');
+  const summary = JSON.parse(report.stdout);
+  const counts = Object.fromEntries(['stt', 'chat', 'tts'].map(name => [name, server.stdout.join('').split('mocked_' + name).length - 1]));
+  console.log(JSON.stringify({bundle, passed: summary.passedTests, failed: summary.failedTests, skipped: summary.skippedTests, mockedProviderCalls: counts, failures: summary.testFailures}));
+  const paginationResponses = server.stdout.join('').split('[proof-provider] observed_pagination_200').length - 1;
+  if (tests.some(test => test.includes('test_pages_navigator_controls')) && paginationResponses < 1) throw new Error('Pages UI never reached real pagination HTTP');
+  if (tests.some(test => test.includes('test_pages_navigator_controls'))) console.log(JSON.stringify({paginationResponses}));
+  const reasons = server.stdout.join('').split('\n').filter(line => /screenplay_page_quality_exhausted reason=|studio_render(?:_stream)? quality_rejected reason=/.test(line));
+  console.log(reasons.join('\n'));
+  if (needsInterruptibleAudio) {
+    const facts = server.stdout.join('').split('\n').filter(line => /^\[proof-provider\] page_cancel_(?:talk_response|result)=/.test(line));
+    console.log(facts.join('\n'));
+    const results = facts.filter(line => line.startsWith('[proof-provider] page_cancel_result='))
+      .map(line => JSON.parse(line.slice(line.indexOf('=') + 1)));
+    if (!results.some(result => result.status === 200 && result.cancelled && result.dropped === 1 && result.byReservation)) {
+      throw new Error('Studio Stop never cancelled its actual authenticated Page reservation');
+    }
+  }
+  if (status !== 0 || summary.passedTests !== tests.length || summary.failedTests !== 0 || summary.skippedTests !== 0) throw new Error('UI proof failed');
+  if (tests.some(test => test.includes('home_raw_audio')) && counts.stt < 1) throw new Error('Raw audio test never reached mocked server ASR');
+  if (tests.some(test => test.includes('home_')) && counts.chat < 1) throw new Error('Home test never reached mocked generation');
+  if (tests.some(test => test.includes('test_studio_delayed_render_')) && counts.chat < 2) throw new Error('Delayed render proof never reached two canonical generations');
+  if (tests.some(test => test.includes('test_render_response_is_reviewed')) && counts.chat < 1) throw new Error('Render recovery never reached canonical generation');
+  if (tests.some(test => test.includes('studio_refused_write')) && counts.chat < 1) throw new Error('Refusal test never reached mocked generation');
+  if (needsInterruptibleAudio) {
+    const statuses = [...server.stdout.join('').matchAll(/\[proof-provider\] page_cancel_status=(\d+)/g)].map(match => Number(match[1]));
+    console.log(JSON.stringify({pageCancelHTTPStatuses: statuses}));
+    console.log(server.stdout.join('').split('\n').filter(line => line.startsWith('[proof-provider] page_cancel_talk_response=')).join('\n'));
+    if (!statuses.includes(200)) throw new Error('Studio Stop never completed an authenticated server Page cancellation');
+  }
+} finally {
+  await promotionProxy?.stop();
+  await server.stop();
+  if (existsSync(config)) unlinkSync(config);
+}

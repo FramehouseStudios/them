@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import Network
 
 nonisolated extension Notification.Name {
@@ -14,6 +15,41 @@ nonisolated enum ScreenplayDraftSaveOutboxStatus: String, Codable, Equatable {
     case pending
     case inflight
     case parked
+}
+
+/// Created once with DraftSaveRequest and copied unchanged into every later
+/// materialization of that request. Wall-clock time is not request authority.
+nonisolated struct ScreenplayDraftSaveRequestAuthority: Codable, Equatable, Sendable {
+    let id: UUID
+    let generation: UInt64
+}
+
+/// Content-free authority to retire one exact parked conflict only after a
+/// replacement save receives a matching server acknowledgement. The digest
+/// includes explicit nil-origin presence and the referenced row's lineage.
+nonisolated struct ScreenplayDraftConflictRequestReference: Codable, Equatable, Sendable {
+    let requestID: String
+    let projectId: String
+    let ownerUserId: String
+    let deliveryOrigin: ScreenplayDraftSaveOrigin?
+    let requestAuthority: ScreenplayDraftSaveRequestAuthority?
+    let requestDigest: String
+}
+
+/// Stored inside a parked compatibility marker. Previous array-only builds
+/// ignore this new field, but still see the same request ID as parked and
+/// therefore cannot deliver that retired request after an app downgrade.
+nonisolated struct ScreenplayDraftLoadServerRetirement: Codable, Equatable, Sendable {
+    let requestID: String
+    let projectId: String
+    let ownerUserId: String
+    let deliveryOrigin: ScreenplayDraftSaveOrigin
+    let requestAuthority: ScreenplayDraftSaveRequestAuthority?
+    let requestDigest: String?
+    // Decode-only compatibility for the unreleased v1 marker. New markers
+    // leave these nil so the fence never retains writer notes or source text.
+    let source: String?
+    let notes: String?
 }
 
 nonisolated struct ScreenplayDraftSaveOutboxEntry: Identifiable, Codable, Equatable {
@@ -34,6 +70,178 @@ nonisolated struct ScreenplayDraftSaveOutboxEntry: Identifiable, Codable, Equata
     var retries: Int
     var nextAttemptAt: TimeInterval
     var lastError: String
+    var initialization: ScreenplayInitialProjectMetadata? = nil
+    var deliveryOrigin: ScreenplayDraftSaveOrigin? = nil
+    var requestAuthority: ScreenplayDraftSaveRequestAuthority? = nil
+    var loadServerRetirement: ScreenplayDraftLoadServerRetirement? = nil
+    /// Additive metadata only. Older clients drop this field when rewriting the
+    /// manifest, so release rollback remains unsafe until they are fenced out.
+    var supersededConflictRequests: [ScreenplayDraftConflictRequestReference] = []
+    /// Exact pending rows that a Keep Mine request is allowed to pass and must
+    /// rebase after its confirmed acknowledgement. References contain no draft
+    /// text, but bind the complete immutable request digest.
+    var deferredConflictRequests: [ScreenplayDraftConflictRequestReference] = []
+    /// Versioned per-row ordering semantics. Nil is a legacy row whose broad
+    /// rebase behavior is preserved for migration; new rows use version 1.
+    var saveOrderingVersion: Int? = nil
+    /// Exact predecessor authority for a request captured during its flight.
+    /// Independent and explicit-base requests deliberately leave this nil.
+    var savePredecessor: ScreenplayDraftConflictRequestReference? = nil
+    var hasExplicitBaseSelection: Bool = false
+
+    var isPassiveAutosave: Bool { source == "studio_autosave" && notes.isEmpty }
+
+    func isSatisfiedByAcknowledgement(of saved: Self, versionID: String) -> Bool {
+        guard isPassiveAutosave, deliveryOrigin != nil, !versionID.isEmpty,
+              baseVersionId == saved.baseVersionId || baseVersionId == versionID else { return false }
+        var originalBase = self
+        originalBase.baseVersionId = saved.baseVersionId
+        return originalBase.hasSameWritingTarget(as: saved)
+    }
+
+    func hasSameTarget(as other: Self) -> Bool {
+        hasSameWritingTarget(as: other) &&
+            Self.exactEncoded(studioWriteAnchors, other.studioWriteAnchors) &&
+            Self.exactEncoded(screenplayBindings, other.screenplayBindings)
+    }
+
+    private func hasSameWritingTarget(as other: Self) -> Bool {
+        projectId.utf8.elementsEqual(other.projectId.utf8) &&
+            ownerUserId.utf8.elementsEqual(other.ownerUserId.utf8) &&
+            Self.exactEncoded(deliveryOrigin, other.deliveryOrigin) &&
+            baseVersionId.utf8.elementsEqual(other.baseVersionId.utf8) &&
+            title.utf8.elementsEqual(other.title.utf8) &&
+            phase.utf8.elementsEqual(other.phase.utf8) &&
+            Self.exactEncoded(initialization, other.initialization) &&
+            Self.exactEncoded(supersededConflictRequests, other.supersededConflictRequests) &&
+            Self.exactEncoded(deferredConflictRequests, other.deferredConflictRequests) &&
+            saveOrderingVersion == other.saveOrderingVersion &&
+            Self.exactEncoded(savePredecessor, other.savePredecessor) &&
+            hasExplicitBaseSelection == other.hasExplicitBaseSelection &&
+            draft.utf8.elementsEqual(other.draft.utf8)
+    }
+
+    private static func exactEncoded<T: Encodable>(_ lhs: T, _ rhs: T) -> Bool {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let left = try? encoder.encode(lhs), let right = try? encoder.encode(rhs) else { return false }
+        return left == right
+    }
+}
+
+nonisolated extension ScreenplayDraftSaveOutboxEntry {
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case projectId
+        case ownerUserId
+        case draft
+        case title
+        case phase
+        case notes
+        case source
+        case studioWriteAnchors
+        case screenplayBindings
+        case baseVersionId
+        case createdAt
+        case updatedAt
+        case status
+        case retries
+        case nextAttemptAt
+        case lastError
+        case initialization
+        case deliveryOrigin
+        case requestAuthority
+        case loadServerRetirement
+        case supersededConflictRequests
+        case deferredConflictRequests
+        case saveOrderingVersion
+        case savePredecessor
+        case hasExplicitBaseSelection
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        projectId = try container.decode(String.self, forKey: .projectId)
+        ownerUserId = try container.decode(String.self, forKey: .ownerUserId)
+        draft = try container.decode(String.self, forKey: .draft)
+        title = try container.decode(String.self, forKey: .title)
+        phase = try container.decode(String.self, forKey: .phase)
+        notes = try container.decode(String.self, forKey: .notes)
+        source = try container.decode(String.self, forKey: .source)
+        studioWriteAnchors = try container.decode([BackendScreenplayWriteAnchor].self,
+            forKey: .studioWriteAnchors)
+        screenplayBindings = try container.decode([BackendScreenplayBindingRecord].self,
+            forKey: .screenplayBindings)
+        baseVersionId = try container.decode(String.self, forKey: .baseVersionId)
+        createdAt = try container.decode(TimeInterval.self, forKey: .createdAt)
+        updatedAt = try container.decode(TimeInterval.self, forKey: .updatedAt)
+        status = try container.decode(ScreenplayDraftSaveOutboxStatus.self, forKey: .status)
+        retries = try container.decode(Int.self, forKey: .retries)
+        nextAttemptAt = try container.decode(TimeInterval.self, forKey: .nextAttemptAt)
+        lastError = try container.decode(String.self, forKey: .lastError)
+        initialization = try container.decodeIfPresent(ScreenplayInitialProjectMetadata.self,
+            forKey: .initialization)
+        deliveryOrigin = try container.decodeIfPresent(ScreenplayDraftSaveOrigin.self,
+            forKey: .deliveryOrigin)
+        requestAuthority = try container.decodeIfPresent(ScreenplayDraftSaveRequestAuthority.self,
+            forKey: .requestAuthority)
+        loadServerRetirement = try container.decodeIfPresent(ScreenplayDraftLoadServerRetirement.self,
+            forKey: .loadServerRetirement)
+        if container.contains(.supersededConflictRequests) {
+            supersededConflictRequests = try container.decode(
+                [ScreenplayDraftConflictRequestReference].self,
+                forKey: .supersededConflictRequests
+            )
+        } else {
+            supersededConflictRequests = []
+        }
+        if container.contains(.deferredConflictRequests) {
+            deferredConflictRequests = try container.decode(
+                [ScreenplayDraftConflictRequestReference].self,
+                forKey: .deferredConflictRequests
+            )
+        } else {
+            deferredConflictRequests = []
+        }
+        saveOrderingVersion = try container.decodeIfPresent(Int.self, forKey: .saveOrderingVersion)
+        savePredecessor = try container.decodeIfPresent(ScreenplayDraftConflictRequestReference.self,
+            forKey: .savePredecessor)
+        hasExplicitBaseSelection = try container.decodeIfPresent(Bool.self,
+            forKey: .hasExplicitBaseSelection) ?? false
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(projectId, forKey: .projectId)
+        try container.encode(ownerUserId, forKey: .ownerUserId)
+        try container.encode(draft, forKey: .draft)
+        try container.encode(title, forKey: .title)
+        try container.encode(phase, forKey: .phase)
+        try container.encode(notes, forKey: .notes)
+        try container.encode(source, forKey: .source)
+        try container.encode(studioWriteAnchors, forKey: .studioWriteAnchors)
+        try container.encode(screenplayBindings, forKey: .screenplayBindings)
+        try container.encode(baseVersionId, forKey: .baseVersionId)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(updatedAt, forKey: .updatedAt)
+        try container.encode(status, forKey: .status)
+        try container.encode(retries, forKey: .retries)
+        try container.encode(nextAttemptAt, forKey: .nextAttemptAt)
+        try container.encode(lastError, forKey: .lastError)
+        try container.encodeIfPresent(initialization, forKey: .initialization)
+        try container.encodeIfPresent(deliveryOrigin, forKey: .deliveryOrigin)
+        try container.encodeIfPresent(requestAuthority, forKey: .requestAuthority)
+        try container.encodeIfPresent(loadServerRetirement, forKey: .loadServerRetirement)
+        try container.encode(supersededConflictRequests, forKey: .supersededConflictRequests)
+        try container.encode(deferredConflictRequests, forKey: .deferredConflictRequests)
+        try container.encodeIfPresent(saveOrderingVersion, forKey: .saveOrderingVersion)
+        try container.encodeIfPresent(savePredecessor, forKey: .savePredecessor)
+        if hasExplicitBaseSelection {
+            try container.encode(true, forKey: .hasExplicitBaseSelection)
+        }
+    }
 }
 
 nonisolated struct ScreenplayDraftSaveOutboxSnapshot: Equatable {
@@ -41,12 +249,14 @@ nonisolated struct ScreenplayDraftSaveOutboxSnapshot: Equatable {
     let inflightCount: Int
     let parkedCount: Int
     let lastError: String
+    let isStorageReadable: Bool
 
     static let empty = ScreenplayDraftSaveOutboxSnapshot(
         pendingCount: 0,
         inflightCount: 0,
         parkedCount: 0,
-        lastError: ""
+        lastError: "",
+        isStorageReadable: true
     )
 
     var activeCount: Int { pendingCount + inflightCount }
@@ -57,29 +267,105 @@ nonisolated struct ScreenplayDraftSaveOutboxSnapshot: Equatable {
             "inflightCount": inflightCount,
             "parkedCount": parkedCount,
             "lastError": lastError,
+            "isStorageReadable": isStorageReadable,
         ]
     }
 }
 
+nonisolated struct ScreenplayDraftSaveHydrationQueueState: Equatable {
+    let pendingEntry: ScreenplayDraftSaveOutboxEntry?
+    let parkedConflicts: [ScreenplayDraftSaveOutboxEntry]
+}
+
+/// A lineage-bearing queue uses an object envelope so array-only builds fail
+/// before decoding or rewriting any rows. Legacy arrays remain the storage
+/// format whenever no unresolved conflict lineage needs newer-client custody.
+nonisolated private struct ScreenplayDraftSaveOutboxManifest: Codable {
+    let schemaVersion: Int
+    let entries: [ScreenplayDraftSaveOutboxEntry]
+}
+
+nonisolated enum UnassignedDraftSaveCapture: Sendable {
+    case missing
+    case available([UnassignedLegacyRecoverySource], unconfirmedCount: Int)
+    case unconfirmed
+}
+
+nonisolated enum ScreenplayDraftSaveDelivery {
+    case deliver(ScreenplayDraftSaveOutboxEntry)
+    case alreadyInflight(ScreenplayDraftSaveOutboxEntry)
+    case waiting(ScreenplayDraftSaveOutboxEntry)
+    case parked(ScreenplayDraftSaveOutboxEntry)
+}
+
+/// In-memory proof of the exact conflict requests selected by Load Server.
+/// Resolution never infers deletion authority from age or broad scope.
+nonisolated struct ScreenplayDraftLoadServerSelection: Equatable {
+    let id: UUID
+    let projectId: String
+    let ownerUserId: String
+    let deliveryOrigin: ScreenplayDraftSaveOrigin
+    let requests: [ScreenplayDraftSaveOutboxEntry]
+    /// Same-scope pending rows preserved by this choice. They are revalidated
+    /// byte-for-byte and parked for an explicit recovery decision; they are
+    /// never silently delivered after Load Server.
+    let deferredRequests: [ScreenplayDraftSaveOutboxEntry]
+    /// Interactive choices may retire only rows that remain exact, durable,
+    /// parked conflicts with no active write in the same document scope.
+    let isInteractive: Bool
+}
+
+nonisolated struct ScreenplayDraftLoadServerResolution: Equatable {
+    let selectionID: UUID
+    let retiredRequestIDs: [String]
+    let retainedRequests: [ScreenplayDraftSaveOutboxEntry]
+}
+
+nonisolated struct ScreenplayDraftConflictResolutionPlan: Equatable {
+    let supersededConflictRequests: [ScreenplayDraftConflictRequestReference]
+    let deferredConflictRequests: [ScreenplayDraftConflictRequestReference]
+}
+
 actor ScreenplayDraftSaveOutbox {
-    static let conflictReason = "Server draft changed. Choose Keep Mine or Load Server."
     static let shared = ScreenplayDraftSaveOutbox(storageDirectory: defaultStorageDirectory())
 
+    private static let lineageManifestSchemaVersion = 2
+    private static let deferredManifestSchemaVersion = 3
+    private static let orderedManifestSchemaVersion = 4
     private static let maxDraftBytes = 2 * 1024 * 1024
     private static let backoffSeconds: [TimeInterval] = [2, 5, 15, 60, 300]
+    static let conflictReason = "Server draft changed. Choose Keep Mine or Load Server."
+    static let unconfirmedReceiptReason = "The server response did not prove this exact screenplay save."
+    static let loadServerDeferredReason = "Newer local words are held for an explicit recovery choice."
+    static let unprovenPredecessorReason = "The earlier save outcome could not be proven. Review this exact local save before sending it."
+    private static let retirementReason = "Load Server retired this exact local request. Update io.them before retrying it."
+    private static let retirementProjectID = "load-server-retirement"
+    private static let retirementOwnerID = "load-server-retirement"
+    private static let retirementSource = "studio_load_server_retirement"
+    private static let retirementNotesPrefix = "load-server-retirement-v2:"
+    private static let legacyRetirementNotesPrefix = "load-server-retirement-v1:"
 
     private let storageDirectory: URL
     private let manifestURL: URL
     private let fileManager: FileManager
+    private let manifestWriter: @Sendable (Data, URL) throws -> Void
     private var didLoad = false
     private var entries: [ScreenplayDraftSaveOutboxEntry] = []
+    private var retirementMarkers: [ScreenplayDraftSaveOutboxEntry] = []
     private var networkMonitor: NWPathMonitor?
     private let networkMonitorQueue = DispatchQueue(label: "io.them.screenplay-save-outbox.network")
 
-    init(storageDirectory: URL, fileManager: FileManager = .default) {
+    init(
+        storageDirectory: URL,
+        fileManager: FileManager = .default,
+        manifestWriter: @escaping @Sendable (Data, URL) throws -> Void = { data, url in
+            try data.write(to: url, options: .atomic)
+        }
+    ) {
         self.storageDirectory = storageDirectory
         self.manifestURL = storageDirectory.appendingPathComponent("queue.json")
         self.fileManager = fileManager
+        self.manifestWriter = manifestWriter
     }
 
     func startNetworkMonitoring() {
@@ -87,7 +373,7 @@ actor ScreenplayDraftSaveOutbox {
             try loadIfNeeded()
             publishSnapshot()
         } catch {
-            publish(snapshotFor(entries, lastError: error.localizedDescription))
+            publish(snapshotFor(entries, lastError: error.localizedDescription, isStorageReadable: false))
         }
         guard networkMonitor == nil else { return }
         let monitor = NWPathMonitor()
@@ -121,20 +407,124 @@ actor ScreenplayDraftSaveOutbox {
             }
             return snapshotFor(scopedEntries)
         } catch {
-            return snapshotFor([], lastError: error.localizedDescription)
+            return snapshotFor([], lastError: error.localizedDescription, isStorageReadable: false)
+        }
+    }
+
+    func hasActiveUnconfirmedReceipt(
+        projectId: String,
+        ownerUserId: String,
+        deliveryOrigin: ScreenplayDraftSaveOrigin
+    ) throws -> Bool {
+        try loadIfNeeded()
+        return entries.contains { entry in
+            (entry.status == .pending || entry.status == .inflight) &&
+                entry.initialization == nil &&
+                entry.projectId == projectId &&
+                entry.ownerUserId == ownerUserId &&
+                entry.deliveryOrigin == deliveryOrigin &&
+                entry.lastError == Self.unconfirmedReceiptReason &&
+                hasValidDeliveryScope(entry)
         }
     }
 
     @discardableResult
     func enqueue(_ entry: ScreenplayDraftSaveOutboxEntry) throws -> ScreenplayDraftSaveOutboxSnapshot {
+        _ = try enqueueForDelivery(entry)
+        return snapshotFor(entries)
+    }
+
+    /// An exact retired request is deliberately not queued. Check and enqueue
+    /// within the actor so a retirement cannot race a separate admission check.
+    @discardableResult
+    func enqueueUnlessRetiredByLoadServer(_ entry: ScreenplayDraftSaveOutboxEntry) throws -> Bool {
+        try loadIfNeeded()
+        if let marker = retirementMarkers.first(where: { $0.id == entry.id }) {
+            guard retirementMarker(marker, matches: entry) else {
+                throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_id_reused")
+            }
+            return false
+        }
+        _ = try enqueueForDelivery(entry)
+        return true
+    }
+
+    /// Durably admits one new-semantics request. A declared follower is linked
+    /// only to the exact active predecessor supplied by its owning VM. If that
+    /// predecessor already disappeared, the child is parked rather than
+    /// guessing from scope, timestamps, or another view model.
+    func admitPendingSave(
+        _ submitted: ScreenplayDraftSaveOutboxEntry,
+        following predecessor: ScreenplayDraftSaveOutboxEntry?
+    ) throws -> ScreenplayDraftSaveOutboxEntry {
+        try loadIfNeeded()
+        guard submitted.saveOrderingVersion == 1,
+              submitted.savePredecessor == nil,
+              submitted.status == .pending else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        var entry = submitted
+        if let predecessor {
+            guard !entry.hasExplicitBaseSelection,
+                  predecessor.id != entry.id,
+                  predecessor.ownerUserId == entry.ownerUserId,
+                  predecessor.projectId == entry.projectId,
+                  predecessor.deliveryOrigin == entry.deliveryOrigin,
+                  predecessor.baseVersionId == entry.baseVersionId,
+                  predecessor.createdAt <= entry.createdAt else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+            let exactActive = entries.first { stored in
+                guard stored.id == predecessor.id,
+                      stored.status == .pending || stored.status == .inflight else { return false }
+                // A process-local reservation is created before its own actor
+                // admission returns, so it may not yet contain the predecessor
+                // link that the actor persisted. Normalize only that link and
+                // still compare every other immutable target and authority.
+                var comparable = predecessor
+                comparable.savePredecessor = stored.savePredecessor
+                return stored.hasSameTarget(as: comparable) &&
+                    stored.source.utf8.elementsEqual(predecessor.source.utf8) &&
+                    stored.notes.utf8.elementsEqual(predecessor.notes.utf8) &&
+                    stored.requestAuthority == predecessor.requestAuthority &&
+                    stored.loadServerRetirement == predecessor.loadServerRetirement
+            }
+            if let exactActive {
+                entry.savePredecessor = try makeConflictReference(exactActive)
+            } else {
+                entry.savePredecessor = try makeConflictReference(predecessor)
+                entry.status = .parked
+                entry.nextAttemptAt = 0
+                entry.lastError = Self.unprovenPredecessorReason
+            }
+        }
+        return try enqueueForDelivery(entry)
+    }
+
+    /// Delivery must use the ID and base actually retained on disk, including
+    /// when a second caller coalesces with an already queued identical save.
+    func enqueueForDelivery(_ entry: ScreenplayDraftSaveOutboxEntry) throws -> ScreenplayDraftSaveOutboxEntry {
         try loadIfNeeded()
         guard entry.draft.utf8.count <= Self.maxDraftBytes else {
             throw BackendMemoryAPIError.server(status: 413, message: "screenplay_draft_too_large")
         }
+        if let marker = retirementMarkers.first(where: { $0.id == entry.id }) {
+            guard retirementMarker(marker, matches: entry) else {
+                throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_id_reused")
+            }
+            return marker
+        }
         if let index = entries.firstIndex(where: { $0.id == entry.id }) {
-            guard entries[index].projectId == entry.projectId,
-                  entries[index].ownerUserId == entry.ownerUserId,
-                  entries[index].draft.utf8.elementsEqual(entry.draft.utf8) else {
+            let stored = entries[index]
+            // The durable queue may have causally rebased this request. Use
+            // that stored base, but reject any other byte-distinct payload.
+            var comparable = entry
+            comparable.baseVersionId = stored.baseVersionId
+            guard stored.hasSameTarget(as: comparable),
+                  stored.source.utf8.elementsEqual(entry.source.utf8),
+                  stored.notes.utf8.elementsEqual(entry.notes.utf8),
+                  stored.requestAuthority == entry.requestAuthority,
+                  stored.loadServerRetirement == entry.loadServerRetirement else {
                 throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_id_reused")
             }
             if entry.status == .parked {
@@ -148,18 +538,18 @@ actor ScreenplayDraftSaveOutbox {
             }
             let nextSnapshot = snapshotFor(entries)
             publish(nextSnapshot)
-            return nextSnapshot
+            return entries[index]
         }
-        if entry.status != .parked, entries.contains(where: { existing in
-            existing.projectId == entry.projectId &&
-                existing.ownerUserId == entry.ownerUserId &&
-                existing.status != .parked &&
-                existing.baseVersionId == entry.baseVersionId &&
-                existing.draft.utf8.elementsEqual(entry.draft.utf8)
+        if let existing = entries.first(where: { existing in
+            entry.status != .parked && entry.isPassiveAutosave && existing.status != .parked &&
+                existing.hasSameTarget(as: entry) &&
+                ((existing.source.utf8.elementsEqual(entry.source.utf8) &&
+                  existing.notes.utf8.elementsEqual(entry.notes.utf8)) ||
+                    (entry.isPassiveAutosave && entry.deliveryOrigin != nil))
         }) {
             let nextSnapshot = snapshotFor(entries)
             publish(nextSnapshot)
-            return nextSnapshot
+            return existing
         }
         let previous = entries
         entries.append(entry)
@@ -170,12 +560,58 @@ actor ScreenplayDraftSaveOutbox {
         do { try persist() } catch { entries = previous; throw error }
         let nextSnapshot = snapshotFor(entries)
         publish(nextSnapshot)
-        return nextSnapshot
+        return entry
+    }
+
+    /// Canonical identity and inflight admission share one actor transaction.
+    func beginDelivery(_ entry: ScreenplayDraftSaveOutboxEntry,
+        continuingInflightID: String? = nil) throws -> ScreenplayDraftSaveDelivery {
+        let retained = try enqueueForDelivery(entry)
+        guard deferredConflictRequestsAreCurrent(for: retained) else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        // Older rows without a document/backend origin are kept but may not
+        // be delivered under whichever backend is currently selected.
+        if retained.initialization == nil && !hasValidDeliveryScope(retained) { return .parked(retained) }
+        let blockedByConflict = retained.initialization == nil &&
+            (hasUnscopedConflict(projectId: retained.projectId, ownerUserId: retained.ownerUserId) ||
+             hasBlockingScopedConflict(for: retained))
+        let waitingForSave = retained.initialization == nil && hasEarlierActiveSave(for: retained)
+        if blockedByConflict || waitingForSave {
+            if retained.status == .inflight, continuingInflightID == retained.id,
+               let index = entries.firstIndex(where: { $0.id == retained.id }) {
+                let previous = entries
+                entries[index].status = .pending
+                do { try persist() } catch { entries = previous; throw error }
+                publishSnapshot()
+                return blockedByConflict ? .parked(entries[index]) : .waiting(entries[index])
+            }
+            return blockedByConflict ? .parked(retained) : .waiting(retained)
+        }
+        if retained.status == .parked { return .parked(retained) }
+        if retained.status == .inflight {
+            return continuingInflightID == retained.id && entry.id == retained.id
+                ? .deliver(retained) : .alreadyInflight(retained)
+        }
+        try markInflight(id: retained.id)
+        guard let inflight = entries.first(where: { $0.id == retained.id }) else { throw BackendMemoryAPIError.invalidResponse }
+        return .deliver(inflight)
+    }
+
+    /// Check the actual stored row before absorbing an identical passive retry.
+    /// Actor memory alone is not evidence that the earlier write reached disk.
+    func hasDurableTarget(id: String, matching entry: ScreenplayDraftSaveOutboxEntry) throws -> Bool {
+        guard fileManager.fileExists(atPath: manifestURL.path) else { return false }
+        // Migration and semantic validation must precede any durable proof.
+        try loadIfNeeded()
+        let stored = try Self.decodeStoredEntries(Data(contentsOf: manifestURL))
+        return stored.contains { $0.id == id && $0.hasSameTarget(as: entry) }
     }
 
     func beginNext(
         projectId: String,
         ownerUserId: String,
+        deliveryOrigin: ScreenplayDraftSaveOrigin? = nil,
         now: Date = Date(),
         force: Bool = false
     ) throws -> ScreenplayDraftSaveOutboxEntry? {
@@ -183,38 +619,122 @@ actor ScreenplayDraftSaveOutbox {
         let cleanProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanOwnerUserId = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
         let nowSeconds = now.timeIntervalSince1970
-        guard let index = entries.firstIndex(where: {
-            $0.projectId == cleanProjectId && $0.ownerUserId == cleanOwnerUserId
-        }) else {
-            return nil
+        // An unscoped legacy choice anywhere in the queue fences every save,
+        // including rows ordered before it. Persist the hold before claiming.
+        let unscopedChoices = entries.indices.filter { index in
+            let row = entries[index]
+            return row.projectId == cleanProjectId && row.ownerUserId == cleanOwnerUserId &&
+                row.initialization == nil && row.status == .pending &&
+                row.source == "studio_conflict_resolve" && !hasValidDeliveryScope(row)
         }
-        let entry = entries[index]
-        if entry.source == "studio_conflict_resolve", entry.status == .pending {
-            entries[index].status = .parked
-            entries[index].nextAttemptAt = 0
-            entries[index].lastError = Self.conflictReason
-            do { try persist() } catch { entries[index] = entry; throw error }
+        if !unscopedChoices.isEmpty {
+            let previous = entries
+            for index in unscopedChoices {
+                entries[index].status = .parked
+                entries[index].nextAttemptAt = 0
+                entries[index].lastError = Self.conflictReason
+            }
+            do { try persist() } catch { entries = previous; throw error }
             publishSnapshot()
             return nil
         }
-        guard entry.status == .pending,
-              force || entry.nextAttemptAt <= nowSeconds else {
+        // Check the whole queue before claiming: an unknown-origin conflict may
+        // be newer than the first pending request and still blocks publication.
+        if hasUnscopedConflict(projectId: cleanProjectId, ownerUserId: cleanOwnerUserId) { return nil }
+        var nextIndex: Int?
+        var blockingConflicts: [ScreenplayDraftSaveOutboxEntry] = []
+        for index in entries.indices {
+            let candidate = entries[index]
+            guard candidate.projectId == cleanProjectId,
+                  candidate.ownerUserId == cleanOwnerUserId,
+                  candidate.initialization == nil else { continue }
+            if candidate.status == .parked && isWriterDecisionParked(candidate) {
+                // An unscoped conflict cannot authorize a replacement, but it
+                // must still fence later writes until its words are recovered.
+                guard hasValidDeliveryScope(candidate) else { return nil }
+                blockingConflicts.append(candidate)
+                continue
+            }
+            // A legacy resolution with no verifiable scope or lineage cannot
+            // be replayed. Park it even when its origin is missing so recovery
+            // can surface its words and fence subsequent writes.
+            if candidate.source == "studio_conflict_resolve", candidate.status == .pending,
+               (candidate.saveOrderingVersion == nil || !hasValidDeliveryScope(candidate)) {
+                let previous = entries
+                entries[index].status = .parked
+                entries[index].nextAttemptAt = 0
+                entries[index].lastError = Self.conflictReason
+                do { try persist() } catch { entries = previous; throw error }
+                publishSnapshot()
+                return nil
+            }
+            if hasValidDeliveryScope(candidate), let deliveryOrigin,
+               candidate.deliveryOrigin != deliveryOrigin { continue }
+            if !hasValidDeliveryScope(candidate) { continue }
+            guard deferredConflictRequestsAreCurrent(for: candidate) else { return nil }
+            if hasEarlierActiveSave(for: candidate) { continue }
+            guard blockingConflicts.allSatisfy({ conflict in
+                conflict.deliveryOrigin == candidate.deliveryOrigin &&
+                candidate.supersededConflictRequests.contains { reference in
+                    conflictReference(reference, matches: conflict)
+                }
+            }) else {
+                // A pending row fenced by this conflict stays exact and
+                // durable, but cannot prevent a later explicitly linked
+                // resolution from crossing the same barrier.
+                continue
+            }
+            guard candidate.status == .pending,
+                  force || candidate.nextAttemptAt <= nowSeconds else {
+                return nil
+            }
+            nextIndex = index
+            break
+        }
+        guard let index = nextIndex else {
             return nil
         }
+        let previous = entries
         entries[index].status = .inflight
         entries[index].updatedAt = nowSeconds
-        do { try persist() } catch { entries[index] = entry; throw error }
+        do { try persist() } catch { entries = previous; throw error }
         publishSnapshot()
         return entries[index]
     }
 
-    func hasActiveEntries(projectId: String, ownerUserId: String) throws -> Bool {
+    /// A context change after claiming must not strand the exact durable row.
+    func releaseInflightClaim(_ request: ScreenplayDraftSaveOutboxEntry) throws {
+        try loadIfNeeded()
+        guard let index = entries.firstIndex(where: { $0.id == request.id }),
+              entries[index].status == .inflight,
+              sameImmutableRequest(entries[index], request) else { return }
+        let previous = entries
+        entries[index].status = .pending
+        do { try persist() } catch { entries = previous; throw error }
+        publishSnapshot()
+    }
+
+    /// Clearing a page must not strand any pending, inflight, parked or setup save.
+    func hasUnresolvedEntries(projectId: String, ownerUserId: String) throws -> Bool {
+        try loadIfNeeded()
+        let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let owner = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
+        return entries.contains { entry in
+            entry.ownerUserId == owner &&
+                (entry.projectId == project || entry.initialization?.sourceProjectID == project)
+        }
+    }
+
+    func hasActiveEntries(projectId: String, ownerUserId: String,
+                          deliveryOrigin: ScreenplayDraftSaveOrigin? = nil) throws -> Bool {
         try loadIfNeeded()
         let cleanProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanOwnerUserId = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
         return entries.contains { entry in
             entry.projectId == cleanProjectId &&
                 entry.ownerUserId == cleanOwnerUserId &&
+                (entry.initialization != nil || hasValidDeliveryScope(entry)) &&
+                (deliveryOrigin == nil || entry.initialization != nil || entry.deliveryOrigin == deliveryOrigin) &&
                 (entry.status == .pending || entry.status == .inflight)
         }
     }
@@ -226,10 +746,10 @@ actor ScreenplayDraftSaveOutbox {
               entries[index].status != .parked else {
             throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_not_admitted")
         }
-        let previous = entries[index]
+        let previous = entries
         entries[index].status = .inflight
         entries[index].updatedAt = now.timeIntervalSince1970
-        do { try persist() } catch { entries[index] = previous; throw error }
+        do { try persist() } catch { entries = previous; throw error }
         publishSnapshot()
     }
 
@@ -239,33 +759,183 @@ actor ScreenplayDraftSaveOutbox {
         serverVersionId: String,
         supersedesEarlierSaves: Bool = false,
         requireInflight: Bool = false,
+        mayRebaseDeclaredFollowers: Bool = false,
         now: Date = Date()
     ) throws -> Bool {
         try loadIfNeeded()
         guard let index = entries.firstIndex(where: { $0.id == id }),
               !requireInflight || entries[index].status == .inflight else { return false }
+        // A legacy broad supersession flag is not authority to retire unrelated
+        // rows. Exact conflict lineage is handled by the confirmed path below.
+        _ = supersedesEarlierSaves
         let previous = entries
-        let completed = entries.remove(at: index)
-        entries.removeAll { entry in
-            entry.projectId == completed.projectId &&
-                entry.ownerUserId == completed.ownerUserId &&
-                (supersedesEarlierSaves || entry.status == .parked) &&
-                entry.createdAt <= completed.createdAt
-        }
-        let nextBase = serverVersionId.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !nextBase.isEmpty {
-            for queuedIndex in entries.indices where
-                entries[queuedIndex].projectId == completed.projectId &&
-                entries[queuedIndex].ownerUserId == completed.ownerUserId &&
-                entries[queuedIndex].createdAt >= completed.createdAt &&
-                entries[queuedIndex].baseVersionId == completed.baseVersionId {
-                entries[queuedIndex].baseVersionId = nextBase
+        do {
+            let completed = entries.remove(at: index)
+            let nextBase = serverVersionId.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !nextBase.isEmpty {
+            var rebasedPredecessors: [(before: ScreenplayDraftSaveOutboxEntry,
+                                      after: ScreenplayDraftSaveOutboxEntry)] = []
+            var satisfiedFollowerIDs = Set<String>()
+            for queuedIndex in entries.indices {
+                let queued = entries[queuedIndex]
+                let legacyFollower = queued.saveOrderingVersion == nil &&
+                    queued.projectId == completed.projectId &&
+                    queued.ownerUserId == completed.ownerUserId &&
+                    queued.deliveryOrigin == completed.deliveryOrigin &&
+                    queued.status != .parked &&
+                    queued.createdAt >= completed.createdAt &&
+                    queued.baseVersionId == completed.baseVersionId
+                let declaredFollower = queued.saveOrderingVersion == 1 &&
+                    queued.status != .parked &&
+                    queued.savePredecessor.map { conflictReference($0, matches: completed) } == true
+                guard legacyFollower || declaredFollower else { continue }
+                if legacyFollower {
+                    // Legacy rows carry no causal link and cannot distinguish
+                    // a follower from an independent or explicit-base writer
+                    // intent. Preserve its exact bytes/base for review rather
+                    // than silently moving it onto this acknowledgement.
+                    entries[queuedIndex].status = .parked
+                    entries[queuedIndex].nextAttemptAt = 0
+                    entries[queuedIndex].lastError = Self.unprovenPredecessorReason
+                } else if !mayRebaseDeclaredFollowers {
+                    entries[queuedIndex].status = .parked
+                    entries[queuedIndex].nextAttemptAt = 0
+                    entries[queuedIndex].lastError = Self.unprovenPredecessorReason
+                } else {
+                    let hasDeclaredDescendant = entries.contains { descendant in
+                        descendant.id != queued.id && descendant.savePredecessor.map {
+                            conflictReference($0, matches: queued)
+                        } == true
+                    }
+                    var comparableQueued = queued
+                    comparableQueued.saveOrderingVersion = nil
+                    comparableQueued.savePredecessor = nil
+                    comparableQueued.hasExplicitBaseSelection = false
+                    var comparableCompleted = completed
+                    comparableCompleted.saveOrderingVersion = nil
+                    comparableCompleted.savePredecessor = nil
+                    comparableCompleted.hasExplicitBaseSelection = false
+                    let acknowledgementAlreadySatisfiesFollower = !hasDeclaredDescendant &&
+                        comparableQueued.hasSameTarget(as: comparableCompleted) &&
+                        queued.source.utf8.elementsEqual(completed.source.utf8) &&
+                        queued.notes.utf8.elementsEqual(completed.notes.utf8)
+                    if acknowledgementAlreadySatisfiesFollower {
+                        satisfiedFollowerIDs.insert(queued.id)
+                    } else {
+                        let before = entries[queuedIndex]
+                        entries[queuedIndex].baseVersionId = nextBase
+                        rebasedPredecessors.append((before, entries[queuedIndex]))
+                    }
+                }
                 entries[queuedIndex].updatedAt = now.timeIntervalSince1970
             }
+            var propagatedRequestIDs = Set(rebasedPredecessors.map { $0.after.id })
+            var propagationIndex = 0
+            while propagationIndex < rebasedPredecessors.count {
+                guard rebasedPredecessors.count <= entries.count else {
+                    throw BackendMemoryAPIError.invalidResponse
+                }
+                let pair = rebasedPredecessors[propagationIndex]
+                propagationIndex += 1
+                let replacement = try makeConflictReference(pair.after)
+                for descendantIndex in entries.indices where
+                    !satisfiedFollowerIDs.contains(entries[descendantIndex].id) &&
+                    entries[descendantIndex].savePredecessor.map({
+                        conflictReference($0, matches: pair.before)
+                    }) == true {
+                    let before = entries[descendantIndex]
+                    guard propagatedRequestIDs.insert(before.id).inserted else {
+                        throw BackendMemoryAPIError.invalidResponse
+                    }
+                    entries[descendantIndex].savePredecessor = replacement
+                    entries[descendantIndex].updatedAt = now.timeIntervalSince1970
+                    // Rewriting this reference changes the descendant's own
+                    // digest. Carry that exact before/after pair forward so
+                    // every deeper declared child remains provably linked.
+                    rebasedPredecessors.append((before, entries[descendantIndex]))
+                }
+            }
+            entries.removeAll { satisfiedFollowerIDs.contains($0.id) }
+            }
+            try persist()
+        } catch {
+            entries = previous
+            throw error
+        }
+        publishSnapshot()
+        return true
+    }
+
+    /// Commits one Keep Mine acknowledgement and its exact conflict lineage in
+    /// one manifest write. A normal POST echo is required; the current readback
+    /// evidence does not prove all immutable metadata and must not call this.
+    func completeConfirmedConflictResolution(
+        _ resolution: ScreenplayDraftSaveOutboxEntry,
+        evidence: ScreenplayConfirmedDraftSave,
+        echoedRequestID: String,
+        now: Date = Date()
+    ) throws {
+        try loadIfNeeded()
+        guard !resolution.supersededConflictRequests.isEmpty,
+              Set(resolution.supersededConflictRequests.map(\.requestID)).count ==
+                resolution.supersededConflictRequests.count,
+              let resolutionIndex = entries.firstIndex(where: { $0.id == resolution.id }),
+              sameImmutableRequest(entries[resolutionIndex], resolution),
+              entries[resolutionIndex].status == .inflight,
+              echoedRequestID == resolution.id,
+              evidence.requestID == resolution.id,
+              evidence.owner.userID == resolution.ownerUserId,
+              evidence.projectID == resolution.projectId,
+              evidence.draft.utf8.elementsEqual(resolution.draft.utf8),
+              validIdentifier(evidence.versionID),
+              let origin = resolution.deliveryOrigin,
+              evidence.documentID == origin.documentID,
+              origin.permitsBackend(evidence.backendURL) else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+
+        var referencedIDs = Set<String>()
+        for reference in resolution.supersededConflictRequests {
+            guard reference.projectId == resolution.projectId,
+                  reference.ownerUserId == resolution.ownerUserId,
+                  reference.requestID != resolution.id,
+                  referencedIDs.insert(reference.requestID).inserted,
+                  let conflict = entries.first(where: { $0.id == reference.requestID }),
+                  conflict.status == .parked,
+                  isWriterDecisionParked(conflict),
+                  conflictReference(reference, matches: conflict) else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+        }
+
+        var deferredIDs = Set<String>()
+        for reference in resolution.deferredConflictRequests {
+            guard reference.projectId == resolution.projectId,
+                  reference.ownerUserId == resolution.ownerUserId,
+                  reference.deliveryOrigin == resolution.deliveryOrigin,
+                  reference.requestID != resolution.id,
+                  !referencedIDs.contains(reference.requestID),
+                  deferredIDs.insert(reference.requestID).inserted,
+                  let deferred = entries.first(where: { $0.id == reference.requestID }),
+                  deferred.status == .pending,
+                  conflictReference(reference, matches: deferred) else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+        }
+
+        let previous = entries
+        let completed = entries[resolutionIndex]
+        entries.removeAll { $0.id == completed.id || referencedIDs.contains($0.id) }
+        for deferredID in deferredIDs {
+            guard let queuedIndex = entries.firstIndex(where: { $0.id == deferredID }) else {
+                entries = previous
+                throw BackendMemoryAPIError.invalidResponse
+            }
+            entries[queuedIndex].baseVersionId = evidence.versionID
+            entries[queuedIndex].updatedAt = now.timeIntervalSince1970
         }
         do { try persist() } catch { entries = previous; throw error }
         publishSnapshot()
-        return true
     }
 
     func remove(id: String) throws {
@@ -276,13 +946,17 @@ actor ScreenplayDraftSaveOutbox {
         publishSnapshot()
     }
 
-    /// Retain every immutable draft until the writer resolves this chain.
-    func retainConflict(projectId: String, ownerUserId: String, now: Date = Date()) throws -> ScreenplayDraftSaveOutboxEntry? {
+    /// Port of original #962 retention: a server conflict is not deletion.
+    /// Preserve every immutable row in the exact owner/project/document origin.
+    @discardableResult
+    func retainConflict(projectId: String, ownerUserId: String,
+        deliveryOrigin: ScreenplayDraftSaveOrigin?, now: Date = Date()) throws -> ScreenplayDraftSaveOutboxEntry? {
         try loadIfNeeded()
         let previous = entries
         let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         let owner = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
-        for index in entries.indices where entries[index].projectId == project && entries[index].ownerUserId == owner {
+        for index in entries.indices where entries[index].projectId == project &&
+            entries[index].ownerUserId == owner && entries[index].deliveryOrigin == deliveryOrigin {
             entries[index].status = .parked
             entries[index].updatedAt = now.timeIntervalSince1970
             entries[index].nextAttemptAt = 0
@@ -290,33 +964,488 @@ actor ScreenplayDraftSaveOutbox {
         }
         do { try persist() } catch { entries = previous; throw error }
         publishSnapshot()
-        return entries.last { $0.projectId == project && $0.ownerUserId == owner }
+        return entries.last { $0.projectId == project && $0.ownerUserId == owner && $0.deliveryOrigin == deliveryOrigin }
     }
 
-    /// Only an explicit Load Server choice discards conflicts already present at that choice.
-    func discardConflicts(projectId: String, ownerUserId: String, through: TimeInterval) throws {
+    /// Exact-request replacement for broad conflict retention. This method may
+    /// park only the immutable request supplied by the caller; it cannot park a
+    /// newer or unrelated edit merely because it shares a document scope.
+    func retainConflict(
+        _ request: ScreenplayDraftSaveOutboxEntry,
+        now: Date = Date()
+    ) throws -> ScreenplayDraftSaveOutboxEntry? {
         try loadIfNeeded()
+        try validateConflictRequest(request)
+        if let marker = retirementMarkers.first(where: { $0.id == request.id }) {
+            guard retirementMarker(marker, matches: request) else {
+                throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_id_reused")
+            }
+            return nil
+        }
         let previous = entries
-        let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
-        let owner = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
-        entries.removeAll {
-            $0.projectId == project && $0.ownerUserId == owner && $0.status == .parked
-                && $0.lastError == Self.conflictReason && $0.createdAt <= through
+        if let index = entries.firstIndex(where: { $0.id == request.id }) {
+            guard sameImmutableRequest(entries[index], request) else {
+                throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_id_reused")
+            }
+            entries[index].status = .parked
+            entries[index].updatedAt = now.timeIntervalSince1970
+            entries[index].nextAttemptAt = 0
+            entries[index].lastError = Self.conflictReason
+            var newlyParked = [entries[index]]
+            while let predecessor = newlyParked.popLast() {
+                for childIndex in entries.indices where entries[childIndex].status == .pending &&
+                    entries[childIndex].savePredecessor.map({
+                        conflictReference($0, matches: predecessor)
+                    }) == true {
+                    entries[childIndex].status = .parked
+                    entries[childIndex].updatedAt = now.timeIntervalSince1970
+                    entries[childIndex].nextAttemptAt = 0
+                    entries[childIndex].lastError = Self.conflictReason
+                    newlyParked.append(entries[childIndex])
+                }
+            }
+        } else {
+            // Older rows have no minted request authority. Their stable ID is
+            // usable only when the exact row is already durable; an in-memory
+            // value alone cannot authorize destructive retirement.
+            guard request.requestAuthority != nil, request.deliveryOrigin != nil else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+            var parked = request
+            parked.status = .parked
+            parked.updatedAt = now.timeIntervalSince1970
+            parked.nextAttemptAt = 0
+            parked.lastError = Self.conflictReason
+            entries.append(parked)
+            entries.sort { lhs, rhs in
+                if lhs.createdAt == rhs.createdAt { return lhs.id < rhs.id }
+                return lhs.createdAt < rhs.createdAt
+            }
         }
         do { try persist() } catch { entries = previous; throw error }
         publishSnapshot()
+        return entries.first { $0.id == request.id }
+    }
+
+    /// Returns the transitive, sorted metadata-only lineage for a replacement
+    /// request. Every inherited reference and the current conflict must still
+    /// identify an exact durable parked row at capture time.
+    func conflictResolutionReferences(
+        for request: ScreenplayDraftSaveOutboxEntry
+    ) throws -> [ScreenplayDraftConflictRequestReference] {
+        try loadIfNeeded()
+        try validateConflictRequest(request)
+        guard let current = entries.first(where: { $0.id == request.id }),
+              sameImmutableRequest(current, request),
+              current.status == .parked,
+              isWriterDecisionParked(current) else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        var referencesByID: [String: ScreenplayDraftConflictRequestReference] = [:]
+        for reference in current.supersededConflictRequests {
+            guard reference.projectId == current.projectId,
+                  reference.ownerUserId == current.ownerUserId,
+                  reference.requestID != current.id,
+                  let conflict = entries.first(where: { $0.id == reference.requestID }),
+                  conflict.status == .parked,
+                  isWriterDecisionParked(conflict),
+                  conflictReference(reference, matches: conflict),
+                  referencesByID[reference.requestID] == nil else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+            referencesByID[reference.requestID] = reference
+        }
+        // A lineage-bearing conflict is canonical only when every ancestor's
+        // inherited references are already flattened into the current row.
+        // Reject cycles and partial chains instead of silently selecting a tip
+        // that would leave an older parked request behind.
+        for reference in current.supersededConflictRequests {
+            guard let conflict = entries.first(where: { $0.id == reference.requestID }) else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+            for inherited in conflict.supersededConflictRequests {
+                guard inherited.requestID != current.id,
+                      referencesByID[inherited.requestID] == inherited else {
+                    throw BackendMemoryAPIError.invalidResponse
+                }
+            }
+        }
+        let currentReference = try makeConflictReference(current)
+        guard referencesByID[currentReference.requestID] == nil else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        referencesByID[currentReference.requestID] = currentReference
+        return referencesByID.values.sorted { $0.requestID < $1.requestID }
+    }
+
+    /// Captures the conflict lineage and every exact pending row that currently
+    /// precedes a future Keep Mine request in one actor turn. Inflight work is
+    /// not safe to defer because its server outcome may already be committed.
+    func conflictResolutionPlan(
+        for request: ScreenplayDraftSaveOutboxEntry
+    ) throws -> ScreenplayDraftConflictResolutionPlan {
+        let superseded = try conflictResolutionReferences(for: request)
+        guard let origin = request.deliveryOrigin else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        let sameScope = entries.filter {
+            $0.id != request.id && $0.initialization == nil &&
+                exactScope($0, projectId: request.projectId,
+                           ownerUserId: request.ownerUserId,
+                           deliveryOrigin: origin)
+        }
+        guard !sameScope.contains(where: { $0.status == .inflight }) else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        let pending = sameScope.filter { $0.status == .pending }
+        guard pending.allSatisfy({
+            $0.supersededConflictRequests.isEmpty && $0.deferredConflictRequests.isEmpty
+        }) else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        let deferred = try pending
+            .map(makeConflictReference)
+            .sorted { $0.requestID < $1.requestID }
+        guard Set(deferred.map(\.requestID)).count == deferred.count,
+              Set(superseded.map(\.requestID)).isDisjoint(with: deferred.map(\.requestID)) else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        return .init(supersededConflictRequests: superseded,
+                     deferredConflictRequests: deferred)
+    }
+
+    /// Finds the one canonical relaunch root for an exact visible local page.
+    /// Every matching candidate must have valid flattened lineage before a tip
+    /// can be selected; timestamps and queue order never grant authority.
+    func parkedConflictLineageTip(
+        projectId: String,
+        ownerUserId: String,
+        deliveryOrigin: ScreenplayDraftSaveOrigin,
+        draft: String
+    ) throws -> ScreenplayDraftSaveOutboxEntry? {
+        try loadIfNeeded()
+        let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let owner = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
+        try validateScope(projectId: project, ownerUserId: owner,
+                          deliveryOrigin: deliveryOrigin)
+        let candidates = entries.filter { entry in
+            exactScope(entry, projectId: project, ownerUserId: owner,
+                       deliveryOrigin: deliveryOrigin) &&
+                entry.initialization == nil &&
+                entry.status == .parked &&
+                isWriterDecisionParked(entry) &&
+                entry.draft.utf8.elementsEqual(draft.utf8)
+        }
+        guard !candidates.isEmpty else { return nil }
+
+        let candidateIDs = Set(candidates.map(\.id))
+        var referencedCandidateIDs = Set<String>()
+        for candidate in candidates {
+            // This validates the candidate, every flattened reference, and
+            // every referenced durable parked row before tip selection.
+            _ = try conflictResolutionReferences(for: candidate)
+            for reference in candidate.supersededConflictRequests
+                where candidateIDs.contains(reference.requestID) {
+                referencedCandidateIDs.insert(reference.requestID)
+            }
+        }
+        let tips = candidates.filter { !referencedCandidateIDs.contains($0.id) }
+        guard tips.count == 1 else { throw BackendMemoryAPIError.invalidResponse }
+        return tips[0]
+    }
+
+    /// Captures only exact immutable requests explicitly supplied by the VM.
+    /// Parked status and owner/project/document scope are not writer authority
+    /// to discard any other row. Legacy rows without a delivery origin remain
+    /// unresolvable here and must stay durable for conservative VM recovery.
+    func captureLoadServerSelection(
+        projectId: String,
+        ownerUserId: String,
+        deliveryOrigin: ScreenplayDraftSaveOrigin,
+        explicitRequests: [ScreenplayDraftSaveOutboxEntry]
+    ) throws -> ScreenplayDraftLoadServerSelection {
+        try loadIfNeeded()
+        let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let owner = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
+        try validateScope(projectId: project, ownerUserId: owner, deliveryOrigin: deliveryOrigin)
+        var selected: [String: ScreenplayDraftSaveOutboxEntry] = [:]
+        for request in explicitRequests {
+            try validateRetirableRequest(request)
+            guard exactScope(request, projectId: project, ownerUserId: owner,
+                             deliveryOrigin: deliveryOrigin) else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+            if let current = entries.first(where: { $0.id == request.id }) {
+                guard sameImmutableRequest(current, request), current.status == .parked,
+                      isWriterDecisionParked(current) else {
+                    throw BackendMemoryAPIError.invalidResponse
+                }
+                selected[request.id] = current
+            } else if let marker = retirementMarkers.first(where: { $0.id == request.id }) {
+                guard retirementMarker(marker, matches: request) else {
+                    throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_id_reused")
+                }
+                selected[request.id] = request
+            } else if let existing = selected[request.id] {
+                guard sameImmutableRequest(existing, request) else {
+                    throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_id_reused")
+                }
+            } else {
+                // Only current-authority requests may be fenced before their
+                // row materializes. Legacy nil-authority requests need an
+                // exact durable parked row selected above.
+                guard request.requestAuthority != nil else {
+                    throw BackendMemoryAPIError.invalidResponse
+                }
+                selected[request.id] = request
+            }
+        }
+        guard !selected.isEmpty else { throw BackendMemoryAPIError.invalidResponse }
+        return ScreenplayDraftLoadServerSelection(
+            id: UUID(),
+            projectId: project,
+            ownerUserId: owner,
+            deliveryOrigin: deliveryOrigin,
+            requests: selected.values.sorted { $0.id < $1.id },
+            deferredRequests: [],
+            isInteractive: false
+        )
+    }
+
+    /// Captures one writer-selected, durable parked conflict and its canonical
+    /// flattened lineage. Unlike the general late-request fencing API above,
+    /// this path never grants retirement authority to an absent request and
+    /// refuses to race a pending or inflight write in the same document scope.
+    func captureInteractiveLoadServerSelection(
+        root: ScreenplayDraftSaveOutboxEntry
+    ) throws -> ScreenplayDraftLoadServerSelection {
+        try loadIfNeeded()
+        try validateRetirableRequest(root)
+        guard let origin = root.deliveryOrigin,
+              let current = entries.first(where: { $0.id == root.id }),
+              sameImmutableRequest(current, root),
+              current.status == .parked,
+              isWriterDecisionParked(current) else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+
+        var selected: [String: ScreenplayDraftSaveOutboxEntry] = [current.id: current]
+        // conflictResolutionReferences already flattens inherited lineage into
+        // this root. Validate those exact durable rows; do not infer by scope.
+        for reference in current.supersededConflictRequests {
+            guard reference.projectId == current.projectId,
+                  reference.ownerUserId == current.ownerUserId,
+                  reference.requestID != current.id,
+                  reference.deliveryOrigin == origin,
+                  selected[reference.requestID] == nil,
+                  let ancestor = entries.first(where: { $0.id == reference.requestID }) else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+            try validateRetirableRequest(ancestor)
+            guard exactScope(ancestor, projectId: current.projectId,
+                             ownerUserId: current.ownerUserId, deliveryOrigin: origin),
+                  ancestor.status == .parked,
+                  isWriterDecisionParked(ancestor),
+                  conflictReference(reference, matches: ancestor) else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+            selected[ancestor.id] = ancestor
+        }
+
+        let sameScope = entries.filter {
+            $0.initialization == nil &&
+                exactScope($0, projectId: current.projectId,
+                           ownerUserId: current.ownerUserId,
+                           deliveryOrigin: origin)
+        }
+        guard !sameScope.contains(where: { $0.status == .inflight }) else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        let deferred = sameScope.filter { row in
+            row.status == .pending && selected[row.id] == nil
+        }.sorted { lhs, rhs in
+            if lhs.createdAt == rhs.createdAt { return lhs.id < rhs.id }
+            return lhs.createdAt < rhs.createdAt
+        }
+        guard deferred.allSatisfy({
+            $0.supersededConflictRequests.isEmpty && $0.deferredConflictRequests.isEmpty
+        }) else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        let selection = ScreenplayDraftLoadServerSelection(
+            id: UUID(),
+            projectId: current.projectId,
+            ownerUserId: current.ownerUserId,
+            deliveryOrigin: origin,
+            requests: selected.values.sorted { $0.id < $1.id },
+            deferredRequests: deferred,
+            isInteractive: true
+        )
+        try validate(selection)
+        return selection
+    }
+
+    /// Retire only the exact immutable requests captured by the selection. Each
+    /// retirement becomes a parked array-compatible marker with the same ID,
+    /// so a previous build fails closed rather than delivering it after rollback.
+    func resolveLoadServerSelection(
+        _ selection: ScreenplayDraftLoadServerSelection,
+        serverVersionID: String? = nil,
+        now: Date = Date()
+    ) throws -> ScreenplayDraftLoadServerResolution {
+        try loadIfNeeded()
+        try validate(selection)
+        let cleanServerVersionID = serverVersionID?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if selection.isInteractive {
+            guard (selection.deferredRequests.isEmpty || validIdentifier(cleanServerVersionID)),
+                  !hasUncapturedActiveLoadServerEntry(in: selection) else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+            // Revalidate the complete selection before mutating either
+            // collection. A disappeared, replaced, or reactivated row cannot
+            // be converted into a retirement marker by stale UI authority.
+            for request in selection.requests {
+                guard let current = entries.first(where: { $0.id == request.id }),
+                      sameImmutableRequest(current, request),
+                      current.status == .parked,
+                      isWriterDecisionParked(current) else {
+                    throw BackendMemoryAPIError.invalidResponse
+                }
+            }
+            for request in selection.deferredRequests {
+                guard let current = entries.first(where: { $0.id == request.id }),
+                      sameImmutableRequest(current, request),
+                      current.status == .pending else {
+                    throw BackendMemoryAPIError.invalidResponse
+                }
+            }
+        }
+        let previousEntries = entries
+        let previousMarkers = retirementMarkers
+        var retiredIDs: [String] = []
+        var retainedRequests: [ScreenplayDraftSaveOutboxEntry] = []
+        do {
+            for request in selection.requests {
+                if let existingMarker = retirementMarkers.first(where: { $0.id == request.id }) {
+                    guard retirementMarker(existingMarker, matches: request) else {
+                        throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_id_reused")
+                    }
+                    retiredIDs.append(request.id)
+                    continue
+                }
+                if let index = entries.firstIndex(where: { $0.id == request.id }) {
+                    let current = entries[index]
+                    guard sameImmutableRequest(current, request), current.status == .parked,
+                          isWriterDecisionParked(current) else {
+                        throw BackendMemoryAPIError.invalidResponse
+                    }
+                    entries.remove(at: index)
+                } else if request.requestAuthority == nil {
+                    // Re-check legacy durability at commit time. Another actor
+                    // turn may have removed the selected row after capture.
+                    throw BackendMemoryAPIError.invalidResponse
+                }
+                retirementMarkers.append(try makeRetirementMarker(for: request))
+                retiredIDs.append(request.id)
+            }
+            if selection.isInteractive {
+                for request in selection.deferredRequests {
+                    guard let index = entries.firstIndex(where: { $0.id == request.id }),
+                          sameImmutableRequest(entries[index], request),
+                          entries[index].status == .pending else {
+                        throw BackendMemoryAPIError.invalidResponse
+                    }
+                    entries[index].baseVersionId = cleanServerVersionID
+                    entries[index].status = .parked
+                    entries[index].updatedAt = now.timeIntervalSince1970
+                    entries[index].nextAttemptAt = 0
+                    entries[index].lastError = Self.loadServerDeferredReason
+                    retainedRequests.append(entries[index])
+                }
+            }
+            try persist()
+        } catch {
+            entries = previousEntries
+            retirementMarkers = previousMarkers
+            throw error
+        }
+        publishSnapshot()
+        return ScreenplayDraftLoadServerResolution(
+            selectionID: selection.id,
+            retiredRequestIDs: retiredIDs.sorted(),
+            retainedRequests: retainedRequests
+        )
+    }
+
+    /// Nil is the intentional result for one exact retired request. A request
+    /// with a different ID or authority remains independently deliverable.
+    func beginDeliveryUnlessRetiredByLoadServer(
+        _ entry: ScreenplayDraftSaveOutboxEntry,
+        continuingInflightID: String? = nil
+    ) throws -> ScreenplayDraftSaveDelivery? {
+        try loadIfNeeded()
+        if let marker = retirementMarkers.first(where: { $0.id == entry.id }) {
+            guard retirementMarker(marker, matches: entry) else {
+                throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_id_reused")
+            }
+            return nil
+        }
+        return try beginDelivery(entry, continuingInflightID: continuingInflightID)
+    }
+
+    /// A process-local handoff is only a delivery hint for a row that was
+    /// already admitted durably. It must never recreate a row consumed by an
+    /// earlier acknowledgement, and delivery must use any causal rebase that
+    /// the actor committed after the hint was captured.
+    func beginPreviouslyAdmittedDeliveryUnlessRetiredByLoadServer(
+        _ entry: ScreenplayDraftSaveOutboxEntry
+    ) throws -> ScreenplayDraftSaveDelivery? {
+        try loadIfNeeded()
+        if let marker = retirementMarkers.first(where: { $0.id == entry.id }) {
+            guard retirementMarker(marker, matches: entry) else {
+                throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_id_reused")
+            }
+            return nil
+        }
+        guard let stored = entries.first(where: { $0.id == entry.id }) else { return nil }
+        // Base and predecessor are the only immutable projections that causal
+        // completion may rewrite after admission. Every other byte and the
+        // request authority must still match the original handoff.
+        var comparable = entry
+        comparable.baseVersionId = stored.baseVersionId
+        comparable.savePredecessor = stored.savePredecessor
+        guard stored.hasSameTarget(as: comparable),
+              stored.source.utf8.elementsEqual(entry.source.utf8),
+              stored.notes.utf8.elementsEqual(entry.notes.utf8),
+              stored.requestAuthority == entry.requestAuthority,
+              stored.loadServerRetirement == entry.loadServerRetirement else {
+            throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_id_reused")
+        }
+        return try beginDelivery(stored)
     }
 
     func removeAll(projectId: String, ownerUserId: String) throws {
         try loadIfNeeded()
         let cleanProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanOwnerUserId = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
-        let previous = entries
+        let previousEntries = entries
+        let previousMarkers = retirementMarkers
         entries.removeAll { entry in
             entry.projectId == cleanProjectId &&
                 entry.ownerUserId == cleanOwnerUserId
         }
-        do { try persist() } catch { entries = previous; throw error }
+        retirementMarkers.removeAll { marker in
+            marker.loadServerRetirement?.projectId == cleanProjectId &&
+                marker.loadServerRetirement?.ownerUserId == cleanOwnerUserId
+        }
+        do {
+            try persist()
+        } catch {
+            entries = previousEntries
+            retirementMarkers = previousMarkers
+            throw error
+        }
         publishSnapshot()
     }
 
@@ -354,20 +1483,221 @@ actor ScreenplayDraftSaveOutbox {
         publishSnapshot()
     }
 
+    /// Device-local recovery inventory. The caller must authenticate the device
+    /// owner; these rows grant no authority to send, reassign, or delete them.
+    /// Read the durable manifest without rewriting it during inspection.
+    func unassignedRecoveryEntries() throws -> [ScreenplayDraftSaveOutboxEntry] {
+        guard fileManager.fileExists(atPath: manifestURL.path) else { return [] }
+        let stored = try Self.decodeStoredEntries(Data(contentsOf: manifestURL))
+        for entry in stored where isRetirementMarkerLike(entry) {
+            guard isRetirementMarkerCandidate(entry), (try? hydratedRetirementMarker(entry)) != nil else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+        }
+        return stored.filter { entry in
+            !isRetirementMarkerLike(entry) && entry.initialization == nil && !hasValidDeliveryScope(entry)
+        }
+    }
+
+    /// Capture complete held rows as origin-free evidence without modifying the queue.
+    func captureUnassignedRecoverySources() -> UnassignedDraftSaveCapture {
+        guard fileManager.fileExists(atPath: manifestURL.path) else { return .missing }
+        do {
+            let stored = try Self.decodeStoredEntries(Data(contentsOf: manifestURL))
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            var sources: [UnassignedLegacyRecoverySource] = []
+            var unconfirmed = 0
+            for entry in stored {
+                if isRetirementMarkerLike(entry) {
+                    if !isRetirementMarkerCandidate(entry) || (try? hydratedRetirementMarker(entry)) == nil {
+                        unconfirmed += 1
+                    }
+                    continue
+                }
+                guard entry.initialization == nil, !hasValidDeliveryScope(entry) else { continue }
+                guard let data = try? encoder.encode(entry),
+                      data.count <= UnassignedLegacyRecoveryVault.maximumSourceBytes else {
+                    unconfirmed += 1
+                    continue
+                }
+                sources.append(.init(ownerHint: entry.ownerUserId, projectHint: entry.projectId,
+                    legacyStorageKeyHint: "screenplay-draft-save-outbox", slot: .draftSaveOutbox,
+                    encoding: .draftSaveJSON, payload: data))
+            }
+            return .available(sources, unconfirmedCount: unconfirmed)
+        } catch { return .unconfirmed }
+    }
+
     func entriesForTesting() throws -> [ScreenplayDraftSaveOutboxEntry] {
         try loadIfNeeded()
         return entries
+    }
+
+    func retirementMarkersForTesting() throws -> [ScreenplayDraftSaveOutboxEntry] {
+        try loadIfNeeded()
+        return retirementMarkers
+    }
+
+    func prepareInitialProject(ownerUserID: String, backendURL: URL, documentID: String,
+                               sourceProjectID: String, draft: String, title: String, phase: String,
+                               source: String, explicitTitle: Bool = false,
+                               blankProject: Bool = false) throws -> ScreenplayDraftSaveOutboxEntry {
+        try loadIfNeeded()
+        let origin = try ScreenplayInitialProjectMetadata.origin(backendURL)
+        guard !ownerUserID.isEmpty, !documentID.isEmpty, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              blankProject == draft.isEmpty else { throw BackendMemoryAPIError.invalidResponse }
+        if let existing = initialProjectEntry(ownerUserID: ownerUserID, backendURL: origin, documentID: documentID,
+                                             sourceProjectID: sourceProjectID) {
+            guard (existing.initialization?.blankProject == true) == blankProject else {
+                throw BackendMemoryAPIError.server(status: 409, message: "A different project setup is already pending. Finish it before starting another project.")
+            }
+            guard !explicitTitle || existing.title == title else {
+                throw BackendMemoryAPIError.server(status: 409, message: "A project named ‘\(existing.title)’ is still being set up. Save now to finish it before starting another project. Your words are kept.")
+            }
+            return existing
+        }
+        let now = Date().timeIntervalSince1970
+        var entry = ScreenplayDraftSaveOutboxEntry(id: UUID().uuidString.lowercased(),
+            projectId: "project-\(UUID().uuidString.lowercased())", ownerUserId: ownerUserID,
+            draft: draft, title: title, phase: phase, notes: "Initial Studio draft", source: source,
+            studioWriteAnchors: [], screenplayBindings: [], baseVersionId: "", createdAt: now, updatedAt: now,
+            status: .pending, retries: 0, nextAttemptAt: 0, lastError: "Project setup is kept on this device.")
+        entry.initialization = .init(documentID: documentID, backendURL: origin, sourceProjectID: sourceProjectID,
+                                     blankProject: blankProject ? true : nil)
+        entry.deliveryOrigin = .init(documentID: documentID, backendURL: origin)
+        _ = try enqueue(entry)
+        return entry
+    }
+
+    private func initialProjectEntry(ownerUserID: String, backendURL: URL, documentID: String,
+                                     sourceProjectID: String) -> ScreenplayDraftSaveOutboxEntry? {
+        entries.first { entry in
+            guard let metadata = entry.initialization else { return false }
+            return entry.ownerUserId == ownerUserID && metadata.documentID == documentID
+                && (metadata.sourceProjectID == sourceProjectID || entry.projectId == sourceProjectID)
+                && OfflineTalkRecoveryScope.sameBackend(metadata.backendURL, backendURL)
+        }
+    }
+
+    func pendingInitialProject(ownerUserID: String, backendURL: URL, documentID: String,
+                               sourceProjectID: String) throws -> ScreenplayDraftSaveOutboxEntry? {
+        try loadIfNeeded()
+        return initialProjectEntry(ownerUserID: ownerUserID, backendURL: backendURL,
+                                   documentID: documentID, sourceProjectID: sourceProjectID)
+    }
+
+    func beginInitialProject(id: String, ownerUserID: String, backendURL: URL) throws {
+        try loadIfNeeded()
+        guard let index = entries.firstIndex(where: { $0.id == id }),
+              let metadata = entries[index].initialization, entries[index].ownerUserId == ownerUserID,
+              OfflineTalkRecoveryScope.sameBackend(metadata.backendURL, backendURL) else { throw BackendMemoryAPIError.invalidResponse }
+        guard entries[index].status != .inflight else {
+            throw BackendMemoryAPIError.server(status: 409, message: "Project setup is already being sent. Your words are kept.")
+        }
+        let previous = entries
+        entries[index].status = .inflight
+        do { try persist() } catch { entries = previous; throw error }
+        publishSnapshot()
+    }
+
+    func recordInitialProjectReceipt(id: String, versionID: String) throws {
+        try loadIfNeeded()
+        guard let index = entries.firstIndex(where: { $0.id == id }), let metadata = entries[index].initialization,
+              metadata.blankProject == true ? versionID.isEmpty : !versionID.isEmpty else { throw BackendMemoryAPIError.invalidResponse }
+        let previous = entries
+        if metadata.blankProject == true {
+            entries[index].initialization?.blankReceipt = true
+        } else {
+            entries[index].initialization?.receiptVersionID = versionID
+        }
+        entries[index].status = .parked
+        entries[index].lastError = "First draft saved. Finish project setup to bind this receipt."
+        do { try persist() } catch { entries = previous; throw error }
+        publishSnapshot()
+    }
+
+    func finishInitialProjectBinding(id: String, versionID: String, owner: BackendAuthRequestIdentity) throws {
+        try owner.requireCurrentOwner(BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: false))
+        try loadIfNeeded()
+        guard let entry = entries.first(where: { $0.id == id }), entry.ownerUserId == owner.userID,
+              let metadata = entry.initialization,
+              (metadata.blankProject == true ? (metadata.blankReceipt == true && versionID.isEmpty) : metadata.receiptVersionID == versionID),
+              OfflineTalkRecoveryScope.sameBackend(metadata.backendURL, BackendAuthClient.resolvedBackendBaseURL()) else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        let previous = entries
+        entries.removeAll { $0.id == id }
+        do { try persist() } catch { entries = previous; throw error }
+        publishSnapshot()
+    }
+
+    func releaseInitialProject(id: String, error: String) throws {
+        try loadIfNeeded()
+        guard let index = entries.firstIndex(where: { $0.id == id }), entries[index].initialization != nil else { return }
+        let previous = entries
+        entries[index].status = .pending
+        entries[index].lastError = normalizedError(error)
+        do { try persist() } catch { entries = previous; throw error }
+        publishSnapshot()
+    }
+
+    /// Listing grants no authority to remove or deliver a conflict copy.
+    func parkedConflictEntries(projectId: String, ownerUserId: String) throws -> [ScreenplayDraftSaveOutboxEntry] {
+        try loadIfNeeded()
+        let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let owner = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !project.isEmpty, !owner.isEmpty else { return [] }
+        return entries.filter { $0.projectId == project && $0.ownerUserId == owner &&
+            $0.initialization == nil &&
+            (($0.status == .parked && isWriterDecisionParked($0)) ||
+             (($0.status == .pending || $0.status == .inflight) && !hasValidDeliveryScope($0))) }
+    }
+
+    /// Exact rows intentionally held by Load Server instead of being delivered.
+    /// Listing is read-only and grants no retirement authority.
+    func heldLoadServerRecoveryEntries(
+        projectId: String,
+        ownerUserId: String
+    ) throws -> [ScreenplayDraftSaveOutboxEntry] {
+        try loadIfNeeded()
+        let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let owner = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !project.isEmpty, !owner.isEmpty else { return [] }
+        return entries.filter {
+            $0.projectId == project && $0.ownerUserId == owner &&
+                $0.initialization == nil && $0.status == .parked &&
+                $0.lastError == Self.loadServerDeferredReason
+        }
+    }
+
+    /// Pending hydration and conflict precedence must come from one actor
+    /// snapshot; separate reads can otherwise admit a pending row while a
+    /// conflict is being parked for the same writer and project.
+    func hydrationQueueState(projectId: String,
+        ownerUserId: String) throws -> ScreenplayDraftSaveHydrationQueueState {
+        try loadIfNeeded()
+        let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let owner = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let pending = entries.first { entry in
+            entry.projectId == project && entry.ownerUserId == owner && entry.initialization == nil &&
+                hasValidDeliveryScope(entry) && (entry.status == .pending || entry.status == .inflight)
+        }
+        let conflicts = entries.filter { entry in
+            entry.projectId == project && entry.ownerUserId == owner && entry.initialization == nil &&
+                ((entry.status == .parked && isWriterDecisionParked(entry)) ||
+                 ((entry.status == .pending || entry.status == .inflight) && !hasValidDeliveryScope(entry)))
+        }
+        return .init(pendingEntry: pending, parkedConflicts: conflicts)
     }
 
     func pendingEntry(projectId: String, ownerUserId: String) throws -> ScreenplayDraftSaveOutboxEntry? {
         try loadIfNeeded()
         let cleanProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanOwnerUserId = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
-        return entries.last { entry in
-            entry.projectId == cleanProjectId
-                && entry.ownerUserId == cleanOwnerUserId
-                && (entry.status == .pending || entry.status == .inflight
-                    || (entry.status == .parked && entry.lastError == Self.conflictReason))
+        return entries.first { entry in
+            entry.projectId == cleanProjectId && entry.ownerUserId == cleanOwnerUserId && entry.initialization == nil &&
+                hasValidDeliveryScope(entry) && (entry.status == .pending || entry.status == .inflight)
         }
     }
 
@@ -406,13 +1736,33 @@ actor ScreenplayDraftSaveOutbox {
         guard !didLoad else { return }
         guard fileManager.fileExists(atPath: manifestURL.path) else {
             entries = []
+            retirementMarkers = []
             didLoad = true
             return
         }
         let data = try Data(contentsOf: manifestURL)
-        var restoredEntries = try JSONDecoder().decode([ScreenplayDraftSaveOutboxEntry].self, from: data)
+        let decodedEntries = try Self.decodeStoredEntries(data)
+        var restoredEntries: [ScreenplayDraftSaveOutboxEntry] = []
+        var restoredMarkers: [ScreenplayDraftSaveOutboxEntry] = []
+        for entry in decodedEntries {
+            if isRetirementMarkerLike(entry) {
+                guard isRetirementMarkerCandidate(entry) else { throw BackendMemoryAPIError.invalidResponse }
+                var marker = try hydratedRetirementMarker(entry)
+                marker.status = .parked
+                marker.nextAttemptAt = 0
+                marker.lastError = Self.retirementReason
+                restoredMarkers.append(marker)
+            } else {
+                guard entry.loadServerRetirement == nil else {
+                    throw BackendMemoryAPIError.invalidResponse
+                }
+                restoredEntries.append(entry)
+            }
+        }
         let now = Date().timeIntervalSince1970
-        for index in restoredEntries.indices where restoredEntries[index].status == .inflight {
+        for index in restoredEntries.indices where restoredEntries[index].status == .inflight ||
+            (restoredEntries[index].status == .pending && restoredEntries[index].source == "studio_conflict_resolve" &&
+             (restoredEntries[index].saveOrderingVersion == nil || !hasValidDeliveryScope(restoredEntries[index]))) {
             if restoredEntries[index].source == "studio_conflict_resolve" {
                 restoredEntries[index].status = .parked
                 restoredEntries[index].nextAttemptAt = 0
@@ -424,16 +1774,69 @@ actor ScreenplayDraftSaveOutbox {
             }
         }
         entries = restoredEntries
+        retirementMarkers = restoredMarkers
         try persist()
         didLoad = true
+    }
+
+    private static func decodeStoredEntries(
+        _ data: Data
+    ) throws -> [ScreenplayDraftSaveOutboxEntry] {
+        let decoder = JSONDecoder()
+        if let legacyEntries = try? decoder.decode([ScreenplayDraftSaveOutboxEntry].self, from: data) {
+            // Ordering requires the v4 envelope so an older array-only client
+            // cannot accept, rewrite, and silently discard causal authority.
+            guard legacyEntries.allSatisfy({
+                $0.saveOrderingVersion == nil && $0.savePredecessor == nil &&
+                    !$0.hasExplicitBaseSelection
+            }) else { throw BackendMemoryAPIError.invalidResponse }
+            return legacyEntries
+        }
+        let manifest = try decoder.decode(ScreenplayDraftSaveOutboxManifest.self, from: data)
+        let hasLineage = manifest.entries.contains { !$0.supersededConflictRequests.isEmpty }
+        let hasDeferred = manifest.entries.contains { !$0.deferredConflictRequests.isEmpty }
+        let hasOrdering = manifest.entries.contains { $0.saveOrderingVersion != nil }
+        guard (manifest.schemaVersion == Self.lineageManifestSchemaVersion && hasLineage && !hasDeferred && !hasOrdering) ||
+              (manifest.schemaVersion == Self.deferredManifestSchemaVersion && (hasLineage || hasDeferred) && !hasOrdering) ||
+              (manifest.schemaVersion == Self.orderedManifestSchemaVersion && hasOrdering) else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard manifest.entries.allSatisfy({ entry in
+            guard let ordering = entry.saveOrderingVersion else {
+                return entry.savePredecessor == nil && !entry.hasExplicitBaseSelection
+            }
+            return ordering == 1 && (entry.savePredecessor == nil || !entry.hasExplicitBaseSelection)
+        }) else { throw BackendMemoryAPIError.invalidResponse }
+        return manifest.entries
     }
 
     private func persist() throws {
         try fileManager.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        let data = try encoder.encode(entries)
-        try data.write(to: manifestURL, options: .atomic)
+        let stored = (entries + retirementMarkers).sorted { lhs, rhs in
+            if lhs.createdAt == rhs.createdAt { return lhs.id < rhs.id }
+            return lhs.createdAt < rhs.createdAt
+        }
+        let data = if stored.contains(where: { $0.saveOrderingVersion != nil }) {
+            try encoder.encode(ScreenplayDraftSaveOutboxManifest(
+                schemaVersion: Self.orderedManifestSchemaVersion,
+                entries: stored
+            ))
+        } else if stored.contains(where: { !$0.deferredConflictRequests.isEmpty }) {
+            try encoder.encode(ScreenplayDraftSaveOutboxManifest(
+                schemaVersion: Self.deferredManifestSchemaVersion,
+                entries: stored
+            ))
+        } else if stored.contains(where: { !$0.supersededConflictRequests.isEmpty }) {
+            try encoder.encode(ScreenplayDraftSaveOutboxManifest(
+                schemaVersion: Self.lineageManifestSchemaVersion,
+                entries: stored
+            ))
+        } else {
+            try encoder.encode(stored)
+        }
+        try manifestWriter(data, manifestURL)
         #if os(iOS)
         try? fileManager.setAttributes(
             [.protectionKey: FileProtectionType.complete],
@@ -446,18 +1849,499 @@ actor ScreenplayDraftSaveOutbox {
         #endif
     }
 
+    private func validateScope(
+        projectId: String,
+        ownerUserId: String,
+        deliveryOrigin: ScreenplayDraftSaveOrigin
+    ) throws {
+        guard validIdentifier(projectId), validIdentifier(ownerUserId),
+              validIdentifier(deliveryOrigin.documentID),
+              let origin = try? ScreenplayInitialProjectMetadata.origin(deliveryOrigin.backendURL),
+              origin == deliveryOrigin.backendURL else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+    }
+
+    private func hasEarlierActiveSave(for candidate: ScreenplayDraftSaveOutboxEntry) -> Bool {
+        entries.contains { prior in
+            prior.id != candidate.id && prior.ownerUserId == candidate.ownerUserId &&
+            prior.projectId == candidate.projectId && prior.initialization == nil &&
+            prior.deliveryOrigin == candidate.deliveryOrigin && hasValidDeliveryScope(prior) &&
+            (prior.status == .inflight || (prior.status == .pending &&
+             (prior.createdAt < candidate.createdAt ||
+              (prior.createdAt == candidate.createdAt && prior.id < candidate.id)))) &&
+            !candidate.deferredConflictRequests.contains { conflictReference($0, matches: prior) }
+        }
+    }
+
+    private func isWriterDecisionParked(_ entry: ScreenplayDraftSaveOutboxEntry) -> Bool {
+        entry.lastError == Self.conflictReason ||
+            entry.lastError == Self.loadServerDeferredReason ||
+            entry.lastError == Self.unprovenPredecessorReason
+    }
+
+    private func deferredConflictRequestsAreCurrent(
+        for candidate: ScreenplayDraftSaveOutboxEntry
+    ) -> Bool {
+        guard Set(candidate.deferredConflictRequests.map(\.requestID)).count ==
+                candidate.deferredConflictRequests.count,
+              Set(candidate.supersededConflictRequests.map(\.requestID)).isDisjoint(
+                with: candidate.deferredConflictRequests.map(\.requestID)) else { return false }
+        return candidate.deferredConflictRequests.allSatisfy { reference in
+            guard reference.projectId == candidate.projectId,
+                  reference.ownerUserId == candidate.ownerUserId,
+                  reference.deliveryOrigin == candidate.deliveryOrigin,
+                  let current = entries.first(where: { $0.id == reference.requestID }),
+                  current.status == .pending else { return false }
+            return conflictReference(reference, matches: current)
+        }
+    }
+
+    private func hasBlockingScopedConflict(for candidate: ScreenplayDraftSaveOutboxEntry) -> Bool {
+        entries.contains { conflict in
+            guard conflict.id != candidate.id, conflict.ownerUserId == candidate.ownerUserId,
+                  conflict.projectId == candidate.projectId, conflict.initialization == nil,
+                  conflict.status == .parked, isWriterDecisionParked(conflict),
+                  hasValidDeliveryScope(conflict),
+                  (conflict.createdAt < candidate.createdAt ||
+                   (conflict.createdAt == candidate.createdAt && conflict.id < candidate.id)) else { return false }
+            return conflict.deliveryOrigin != candidate.deliveryOrigin ||
+                !candidate.supersededConflictRequests.contains { conflictReference($0, matches: conflict) }
+        }
+    }
+
+    private func hasUnscopedConflict(projectId: String, ownerUserId: String) -> Bool {
+        entries.contains { conflict in
+            conflict.ownerUserId == ownerUserId && conflict.projectId == projectId &&
+            conflict.initialization == nil && !hasValidDeliveryScope(conflict) &&
+            ((conflict.status == .parked && isWriterDecisionParked(conflict)) ||
+             ((conflict.status == .pending || conflict.status == .inflight) &&
+              conflict.source == "studio_conflict_resolve"))
+        }
+    }
+
+    func hasValidDeliveryScope(_ entry: ScreenplayDraftSaveOutboxEntry) -> Bool {
+        guard entry.initialization == nil, let origin = entry.deliveryOrigin else { return false }
+        return (try? validateScope(projectId: entry.projectId, ownerUserId: entry.ownerUserId,
+                                   deliveryOrigin: origin)) != nil
+    }
+
+    // Parking retains words; it does not authorize later destructive retirement.
+    // A missing origin is accepted only for an exact row already on disk.
+    private func validateConflictRequest(_ entry: ScreenplayDraftSaveOutboxEntry) throws {
+        guard entry.initialization == nil, entry.loadServerRetirement == nil,
+              validIdentifier(entry.id, limit: 96), validIdentifier(entry.projectId) else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        if entry.ownerUserId.isEmpty {
+            // Anonymous legacy work may only be parked if the exact row is
+            // already durable. It still cannot authorize a destructive choice.
+            guard entry.deliveryOrigin == nil,
+                  let existing = entries.first(where: { $0.id == entry.id }),
+                  sameImmutableRequest(existing, entry) else { throw BackendMemoryAPIError.invalidResponse }
+            return
+        }
+        guard validIdentifier(entry.ownerUserId) else { throw BackendMemoryAPIError.invalidResponse }
+        if let origin = entry.deliveryOrigin {
+            try validateScope(projectId: entry.projectId, ownerUserId: entry.ownerUserId,
+                              deliveryOrigin: origin)
+        }
+    }
+
+    private func validateRetirableRequest(_ entry: ScreenplayDraftSaveOutboxEntry) throws {
+        guard entry.initialization == nil, entry.loadServerRetirement == nil,
+              validIdentifier(entry.id, limit: 96), let origin = entry.deliveryOrigin else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        try validateScope(projectId: entry.projectId, ownerUserId: entry.ownerUserId,
+                          deliveryOrigin: origin)
+    }
+
+    private func validate(_ selection: ScreenplayDraftLoadServerSelection) throws {
+        try validateScope(projectId: selection.projectId, ownerUserId: selection.ownerUserId,
+                          deliveryOrigin: selection.deliveryOrigin)
+        guard !selection.requests.isEmpty,
+              Set(selection.requests.map(\.id)).count == selection.requests.count,
+              Set(selection.deferredRequests.map(\.id)).count == selection.deferredRequests.count,
+              Set(selection.requests.map(\.id)).isDisjoint(with: selection.deferredRequests.map(\.id)),
+              selection.isInteractive || selection.deferredRequests.isEmpty else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        for request in selection.requests + selection.deferredRequests {
+            try validateRetirableRequest(request)
+            guard exactScope(request, projectId: selection.projectId,
+                             ownerUserId: selection.ownerUserId,
+                             deliveryOrigin: selection.deliveryOrigin) else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+        }
+    }
+
+    private func hasUncapturedActiveLoadServerEntry(
+        in selection: ScreenplayDraftLoadServerSelection
+    ) -> Bool {
+        let captured = Set(selection.deferredRequests.map(\.id))
+        return entries.contains { entry in
+            entry.initialization == nil &&
+                exactScope(entry, projectId: selection.projectId,
+                           ownerUserId: selection.ownerUserId,
+                           deliveryOrigin: selection.deliveryOrigin) &&
+                (entry.status == .inflight ||
+                 (entry.status == .pending && !captured.contains(entry.id)))
+        }
+    }
+
+    private func validateRetirementMarker(_ marker: ScreenplayDraftSaveOutboxEntry) throws {
+        guard let retirement = marker.loadServerRetirement,
+              let requestDigest = retirement.requestDigest,
+              validRequestDigest(requestDigest),
+              marker.id == retirement.requestID,
+              marker.projectId == Self.retirementProjectID,
+              marker.ownerUserId == Self.retirementOwnerID,
+              marker.source == Self.retirementSource,
+              try decodedRetirementNotes(marker.notes) == retirement,
+              marker.initialization == nil,
+              marker.requestAuthority == retirement.requestAuthority,
+              retirement.source == nil,
+              retirement.notes == nil,
+              marker.draft.isEmpty,
+              marker.title.isEmpty,
+              marker.phase.isEmpty,
+              marker.studioWriteAnchors.isEmpty,
+              marker.screenplayBindings.isEmpty,
+              marker.baseVersionId.isEmpty,
+              let sentinel = marker.deliveryOrigin,
+              sentinel.backendURL == retirement.deliveryOrigin.backendURL,
+              sentinel.documentID == retirementDocumentID(requestDigest) else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        try validateScope(projectId: retirement.projectId, ownerUserId: retirement.ownerUserId,
+                          deliveryOrigin: retirement.deliveryOrigin)
+    }
+
+    private func isRetirementMarkerLike(_ entry: ScreenplayDraftSaveOutboxEntry) -> Bool {
+        entry.projectId == Self.retirementProjectID || entry.ownerUserId == Self.retirementOwnerID ||
+            entry.source == Self.retirementSource || entry.notes.hasPrefix(Self.retirementNotesPrefix) ||
+            entry.notes.hasPrefix(Self.legacyRetirementNotesPrefix) || entry.loadServerRetirement != nil
+    }
+
+    private func isRetirementMarkerCandidate(_ entry: ScreenplayDraftSaveOutboxEntry) -> Bool {
+        entry.projectId == Self.retirementProjectID &&
+            entry.ownerUserId == Self.retirementOwnerID &&
+            entry.source == Self.retirementSource &&
+            (entry.notes.hasPrefix(Self.retirementNotesPrefix) ||
+                entry.notes.hasPrefix(Self.legacyRetirementNotesPrefix))
+    }
+
+    private func hydratedRetirementMarker(
+        _ stored: ScreenplayDraftSaveOutboxEntry
+    ) throws -> ScreenplayDraftSaveOutboxEntry {
+        let decoded = try decodedRetirementNotes(stored.notes)
+        if let embedded = stored.loadServerRetirement, embedded != decoded {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        if decoded.requestDigest == nil {
+            guard stored.notes.hasPrefix(Self.legacyRetirementNotesPrefix),
+                  let source = decoded.source,
+                  let notes = decoded.notes else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+            var request = ScreenplayDraftSaveOutboxEntry(
+                id: decoded.requestID,
+                projectId: decoded.projectId,
+                ownerUserId: decoded.ownerUserId,
+                draft: stored.draft,
+                title: stored.title,
+                phase: stored.phase,
+                notes: notes,
+                source: source,
+                studioWriteAnchors: stored.studioWriteAnchors,
+                screenplayBindings: stored.screenplayBindings,
+                baseVersionId: stored.baseVersionId,
+                createdAt: stored.createdAt,
+                updatedAt: stored.updatedAt,
+                status: .parked,
+                retries: stored.retries,
+                nextAttemptAt: 0,
+                lastError: Self.conflictReason
+            )
+            request.deliveryOrigin = decoded.deliveryOrigin
+            request.requestAuthority = decoded.requestAuthority
+            return try makeRetirementMarker(for: request)
+        }
+        var marker = stored
+        marker.requestAuthority = decoded.requestAuthority
+        marker.loadServerRetirement = decoded
+        try validateRetirementMarker(marker)
+        return marker
+    }
+
+    private func encodedRetirementNotes(
+        _ retirement: ScreenplayDraftLoadServerRetirement
+    ) throws -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return Self.retirementNotesPrefix + (try encoder.encode(retirement)).base64EncodedString()
+    }
+
+    private func decodedRetirementNotes(_ notes: String) throws -> ScreenplayDraftLoadServerRetirement {
+        let encoded: Substring
+        if notes.hasPrefix(Self.retirementNotesPrefix) {
+            encoded = notes.dropFirst(Self.retirementNotesPrefix.count)
+        } else if notes.hasPrefix(Self.legacyRetirementNotesPrefix) {
+            encoded = notes.dropFirst(Self.legacyRetirementNotesPrefix.count)
+        } else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard let data = Data(base64Encoded: String(encoded)) else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        return try JSONDecoder().decode(ScreenplayDraftLoadServerRetirement.self, from: data)
+    }
+
+    private func makeRetirementMarker(
+        for request: ScreenplayDraftSaveOutboxEntry
+    ) throws -> ScreenplayDraftSaveOutboxEntry {
+        try validateRetirableRequest(request)
+        guard let origin = request.deliveryOrigin else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        let digest = try requestDigest(request)
+        let retirement = ScreenplayDraftLoadServerRetirement(
+            requestID: request.id,
+            projectId: request.projectId,
+            ownerUserId: request.ownerUserId,
+            deliveryOrigin: origin,
+            requestAuthority: request.requestAuthority,
+            requestDigest: digest,
+            source: nil,
+            notes: nil
+        )
+        var marker = ScreenplayDraftSaveOutboxEntry(
+            id: request.id,
+            projectId: Self.retirementProjectID,
+            ownerUserId: Self.retirementOwnerID,
+            draft: "",
+            title: "",
+            phase: "",
+            notes: try encodedRetirementNotes(retirement),
+            source: Self.retirementSource,
+            studioWriteAnchors: [],
+            screenplayBindings: [],
+            baseVersionId: "",
+            createdAt: 0,
+            updatedAt: 0,
+            status: .parked,
+            retries: 0,
+            nextAttemptAt: 0,
+            lastError: Self.retirementReason
+        )
+        marker.deliveryOrigin = ScreenplayDraftSaveOrigin(
+            documentID: retirementDocumentID(digest),
+            backendURL: origin.backendURL
+        )
+        marker.requestAuthority = request.requestAuthority
+        marker.loadServerRetirement = retirement
+        try validateRetirementMarker(marker)
+        return marker
+    }
+
+    private func retirementMarker(
+        _ marker: ScreenplayDraftSaveOutboxEntry,
+        matches request: ScreenplayDraftSaveOutboxEntry
+    ) -> Bool {
+        guard let retirement = marker.loadServerRetirement,
+              retirement.requestID == request.id,
+              retirement.projectId == request.projectId,
+              retirement.ownerUserId == request.ownerUserId,
+              retirement.deliveryOrigin == request.deliveryOrigin,
+              retirement.requestAuthority == request.requestAuthority,
+              let digest = retirement.requestDigest else {
+            return false
+        }
+        return (try? requestDigest(request)) == digest
+    }
+
+    private func sameImmutableRequest(
+        _ lhs: ScreenplayDraftSaveOutboxEntry,
+        _ rhs: ScreenplayDraftSaveOutboxEntry
+    ) -> Bool {
+        // Conflict authorization compares the exact serialized request, not
+        // Swift's canonically equivalent String/model equality. The digest
+        // includes origin presence, UTF-8 fields, metadata and lineage.
+        guard lhs.initialization == nil, rhs.initialization == nil,
+              lhs.loadServerRetirement == nil, rhs.loadServerRetirement == nil,
+              let left = try? conflictRequestDigest(lhs),
+              let right = try? conflictRequestDigest(rhs) else { return false }
+        return left == right
+    }
+
+    private func exactScope(
+        _ entry: ScreenplayDraftSaveOutboxEntry,
+        projectId: String,
+        ownerUserId: String,
+        deliveryOrigin: ScreenplayDraftSaveOrigin
+    ) -> Bool {
+        entry.projectId == projectId && entry.ownerUserId == ownerUserId &&
+            entry.deliveryOrigin == deliveryOrigin
+    }
+
+    private func requestDigest(_ request: ScreenplayDraftSaveOutboxEntry) throws -> String {
+        var projection = Data()
+        appendCanonical(Data("io.them.screenplay-draft-save-retirement-v2".utf8), to: &projection)
+        for value in [request.id, request.projectId, request.ownerUserId] {
+            appendCanonical(Data(value.utf8), to: &projection)
+        }
+        guard let origin = request.deliveryOrigin else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        appendCanonical(Data(origin.documentID.utf8), to: &projection)
+        appendCanonical(Data(origin.backendURL.absoluteString.utf8), to: &projection)
+        if let authority = request.requestAuthority {
+            projection.append(1)
+            appendCanonical(Data(authority.id.uuidString.lowercased().utf8), to: &projection)
+            appendCanonicalInteger(authority.generation, to: &projection)
+        } else {
+            projection.append(0)
+        }
+        for value in [request.draft, request.title, request.phase, request.notes,
+                      request.source, request.baseVersionId] {
+            appendCanonical(Data(value.utf8), to: &projection)
+        }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        appendCanonical(try encoder.encode(request.studioWriteAnchors), to: &projection)
+        appendCanonical(try encoder.encode(request.screenplayBindings), to: &projection)
+        // Preserve every previously issued v2 digest when lineage is empty.
+        // Only lineage-bearing requests receive the additive digest suffix.
+        if !request.supersededConflictRequests.isEmpty {
+            appendCanonical(Data("conflict-lineage-v1".utf8), to: &projection)
+            appendCanonical(try encoder.encode(request.supersededConflictRequests), to: &projection)
+        }
+        if !request.deferredConflictRequests.isEmpty {
+            appendCanonical(Data("deferred-conflict-requests-v1".utf8), to: &projection)
+            appendCanonical(try encoder.encode(request.deferredConflictRequests), to: &projection)
+        }
+        if let ordering = request.saveOrderingVersion {
+            appendCanonical(Data("save-ordering-v1".utf8), to: &projection)
+            appendCanonicalInteger(UInt64(ordering), to: &projection)
+            appendCanonical(try encoder.encode(request.savePredecessor), to: &projection)
+            projection.append(request.hasExplicitBaseSelection ? 1 : 0)
+        }
+        return SHA256.hash(data: projection).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func makeConflictReference(
+        _ request: ScreenplayDraftSaveOutboxEntry
+    ) throws -> ScreenplayDraftConflictRequestReference {
+        ScreenplayDraftConflictRequestReference(
+            requestID: request.id,
+            projectId: request.projectId,
+            ownerUserId: request.ownerUserId,
+            deliveryOrigin: request.deliveryOrigin,
+            requestAuthority: request.requestAuthority,
+            requestDigest: try conflictRequestDigest(request)
+        )
+    }
+
+    private func conflictReference(
+        _ reference: ScreenplayDraftConflictRequestReference,
+        matches request: ScreenplayDraftSaveOutboxEntry
+    ) -> Bool {
+        reference.requestID == request.id &&
+            reference.projectId == request.projectId &&
+            reference.ownerUserId == request.ownerUserId &&
+            reference.deliveryOrigin == request.deliveryOrigin &&
+            reference.requestAuthority == request.requestAuthority &&
+            validRequestDigest(reference.requestDigest) &&
+            (try? conflictRequestDigest(request)) == reference.requestDigest
+    }
+
+    /// This projection deliberately records origin presence before origin data,
+    /// so a legacy nil-origin row remains exactly referencable without inventing
+    /// a document identity.
+    private func conflictRequestDigest(
+        _ request: ScreenplayDraftSaveOutboxEntry
+    ) throws -> String {
+        var projection = Data()
+        appendCanonical(Data("io.them.screenplay-draft-conflict-reference-v1".utf8), to: &projection)
+        for value in [request.id, request.projectId, request.ownerUserId] {
+            appendCanonical(Data(value.utf8), to: &projection)
+        }
+        if let origin = request.deliveryOrigin {
+            projection.append(1)
+            appendCanonical(Data(origin.documentID.utf8), to: &projection)
+            appendCanonical(Data(origin.backendURL.absoluteString.utf8), to: &projection)
+        } else {
+            projection.append(0)
+        }
+        if let authority = request.requestAuthority {
+            projection.append(1)
+            appendCanonical(Data(authority.id.uuidString.lowercased().utf8), to: &projection)
+            appendCanonicalInteger(authority.generation, to: &projection)
+        } else {
+            projection.append(0)
+        }
+        for value in [request.draft, request.title, request.phase, request.notes,
+                      request.source, request.baseVersionId] {
+            appendCanonical(Data(value.utf8), to: &projection)
+        }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        appendCanonical(try encoder.encode(request.studioWriteAnchors), to: &projection)
+        appendCanonical(try encoder.encode(request.screenplayBindings), to: &projection)
+        appendCanonical(try encoder.encode(request.supersededConflictRequests), to: &projection)
+        if !request.deferredConflictRequests.isEmpty {
+            appendCanonical(Data("deferred-conflict-requests-v1".utf8), to: &projection)
+            appendCanonical(try encoder.encode(request.deferredConflictRequests), to: &projection)
+        }
+        if let ordering = request.saveOrderingVersion {
+            appendCanonical(Data("save-ordering-v1".utf8), to: &projection)
+            appendCanonicalInteger(UInt64(ordering), to: &projection)
+            appendCanonical(try encoder.encode(request.savePredecessor), to: &projection)
+            projection.append(request.hasExplicitBaseSelection ? 1 : 0)
+        }
+        return SHA256.hash(data: projection).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func appendCanonical(_ bytes: Data, to projection: inout Data) {
+        appendCanonicalInteger(UInt64(bytes.count), to: &projection)
+        projection.append(bytes)
+    }
+
+    private func appendCanonicalInteger(_ value: UInt64, to projection: inout Data) {
+        var bigEndian = value.bigEndian
+        Swift.withUnsafeBytes(of: &bigEndian) { projection.append(contentsOf: $0) }
+    }
+
+    private func validRequestDigest(_ digest: String) -> Bool {
+        digest.utf8.count == 64 && digest.allSatisfy { $0.isHexDigit && !$0.isUppercase }
+    }
+
+    private func retirementDocumentID(_ digest: String) -> String {
+        "retired-\(digest)"
+    }
+
+    private func validIdentifier(_ value: String, limit: Int = 128) -> Bool {
+        !value.isEmpty && value.utf8.count <= limit &&
+            value == value.trimmingCharacters(in: .whitespacesAndNewlines) &&
+            value.rangeOfCharacter(from: .controlCharacters) == nil
+    }
+
     private func snapshotFor(
         _ entries: [ScreenplayDraftSaveOutboxEntry],
-        lastError: String = ""
+        lastError: String = "",
+        isStorageReadable: Bool = true
     ) -> ScreenplayDraftSaveOutboxSnapshot {
         let explicitError = lastError.trimmingCharacters(in: .whitespacesAndNewlines)
         return ScreenplayDraftSaveOutboxSnapshot(
-            pendingCount: entries.filter { $0.status == .pending }.count,
-            inflightCount: entries.filter { $0.status == .inflight }.count,
-            parkedCount: entries.filter { $0.status == .parked }.count,
+            pendingCount: entries.filter { $0.status == .pending && ($0.initialization != nil || hasValidDeliveryScope($0)) }.count,
+            inflightCount: entries.filter { $0.status == .inflight && ($0.initialization != nil || hasValidDeliveryScope($0)) }.count,
+            parkedCount: entries.filter { $0.status == .parked || ($0.initialization == nil && !hasValidDeliveryScope($0)) }.count,
             lastError: explicitError.isEmpty
                 ? entries.last(where: { !$0.lastError.isEmpty })?.lastError ?? ""
-                : explicitError
+                : explicitError,
+            isStorageReadable: isStorageReadable
         )
     }
 

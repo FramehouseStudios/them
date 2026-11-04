@@ -1,95 +1,51 @@
-// Chess-smart line edit: address page 25, line 4 by John → change + save + auto-fix in real time.
-// Like chess engine: evaluate board after move, fix continuity/format simultaneously.
-// D009 strangler, no backend/index.js growth.
-
+// Legacy line-edit preview adapter. Edit original source spans, never joined
+// rendered pages. Ambiguous wrapped / generated lines fail closed.
+import { paginateScreenplay, classifyLines } from "../screenplay_pagination.js";
+import { splitFountainDocument } from "../fountain_import.js";
 import { paginateFountainDraft } from "./page_flip.js";
-import { pushCharacterMemory, getCharacterContext } from "./short_film_character_context.js";
-
-function trimToString(v){ return v==null?"":String(v).trim(); }
 
 function findEditableLine(draft, { page, line, character } = {}) {
-  const pages = paginateFountainDraft(draft);
-  const p = Math.max(1, Math.min(pages.length||1, Number(page)||1));
-  const pageText = pages[p-1] || "";
-  const lines = pageText.split("\n");
-  const targetIdx = Math.max(0, Math.min(lines.length-1, (Number(line)||1)-1));
-  const char = trimToString(character);
-  // If character given, verify line belongs to that character header block
-  if (char) {
-    const headerIdx = lines.findIndex(l=> l.trim().toUpperCase()===char.toUpperCase());
-    if (headerIdx>=0) {
-      // line offset relative to header: header + 1 is dialogue
-      const absIdx = headerIdx + 1 + targetIdx;
-      // but for page-level, we simplify: line is absolute within page
-    }
+  if (typeof draft !== "string") throw new Error("draft required");
+  const layout = paginateScreenplay(draft);
+  const p = Number(page);
+  const row = Number(line);
+  if (!Number.isInteger(p) || !Number.isInteger(row) || p < 1 || row < 1) throw new Error("exact page and line required");
+  const selected = layout.pages[p - 1];
+  const sourceLine = selected?.sourceLineMap[row - 1];
+  if (!sourceLine) throw new Error("line is absent or generated; select an original source line");
+  const appearances = layout.pages.flatMap(page => page.sourceLineMap).filter(value => value === sourceLine).length;
+  if (appearances !== 1) throw new Error("wrapped source line is ambiguous; select it in the editor");
+  const physical = [...draft.matchAll(/([^\r\n\u0085\u2028\u2029]*)(\r\n|[\r\n\u0085\u2028\u2029]|$)/gu)];
+  const source = physical[sourceLine - 1];
+  const name = String(character ?? "").trim();
+  if (name) {
+    const document = splitFountainDocument(draft);
+    const lines = document.scriptText.replace(/\r\n?|[\u0085\u2028\u2029]/gu, "\n").split("\n");
+    const kinds = classifyLines(lines);
+    let index = sourceLine - 1 - document.documentLineOffset;
+    if (!["dialogue", "parenthetical"].includes(kinds[index])) throw new Error("line is not dialogue for that character");
+    while (index >= 0 && ["dialogue", "parenthetical"].includes(kinds[index])) index -= 1;
+    if (kinds[index] !== "character" || lines[index].trim().toUpperCase() !== name.toUpperCase()) throw new Error("character does not own this line");
   }
-  return { pages, p, pageText, lines, targetIdx, lineText: lines[targetIdx]||"" };
+  return { p, row, source, sourceLine, pages: layout.pages };
 }
 
-// Pure: apply edit to draft string, return new draft and patch meta
-export function applyChessEdit(draft, { page, line, character, newText } = {}) {
-  const txt = trimToString(newText);
-  if (!txt) throw new Error("newText required");
-  const { pages, p, lines, targetIdx } = findEditableLine(draft, { page, line, character });
-  const before = lines[targetIdx];
-  lines[targetIdx] = txt;
-  pages[p-1] = lines.join("\n");
-  const newDraft = pages.join("\n\n");
-  return {
-    newDraft,
-    patch: { page: p, line: targetIdx+1, character: trimToString(character)||null, before, after: txt },
-    pages,
-    totalPages: pages.length,
-  };
+export function applyChessEdit(draft, edit = {}) {
+  if (typeof edit.newText !== "string" || !edit.newText.trim() || /[\r\n\u0085\u2028\u2029]/u.test(edit.newText)) {
+    throw new Error("one non-empty replacement line required");
+  }
+  const { p, row, source, sourceLine } = findEditableLine(draft, edit);
+  const before = source[1];
+  const newDraft = draft.slice(0, source.index) + edit.newText + draft.slice(source.index + before.length);
+  const pages = paginateFountainDraft(newDraft);
+  return { newDraft, patch: { page: p, line: row, sourceLine, character: String(edit.character ?? "").trim() || null, before, after: edit.newText }, pages, totalPages: pages.length };
 }
 
-// Apply + persist + auto-fix (format continuity) — returns draft + memory update
-export async function chessEditAndSave({ project, draft, edit, commitScreenplayOwnerMutation } = {}) {
-  if (!project) throw new Error("project required");
-  if (!edit) throw new Error("edit required");
-  const { newDraft, patch, totalPages } = applyChessEdit(draft, edit);
-
-  // Push to per-character memory (chess: evaluate after move)
-  try {
-    if (edit.character) {
-      pushCharacterMemory(project, { name: edit.character, text: edit.newText, page: edit.page, role: "edit" });
-    }
-  } catch {}
-
-  // Quick auto-fix: if edit breaks Fountain caps, normalize character header to uppercase
-  let fixedDraft = newDraft;
-  try {
-    if (edit.character && fixedDraft.includes(edit.character)) {
-      const up = String(edit.character).toUpperCase();
-      if (edit.character !== up) fixedDraft = fixedDraft.split(edit.character).join(up);
-    }
-  } catch {}
-
-  // Persist via commitScreenplayOwnerMutation if provided (real-time save)
-  if (typeof commitScreenplayOwnerMutation === "function" && project.id) {
-    const ownerKey = project.ownerKey || "";
-    if (ownerKey) {
-      await commitScreenplayOwnerMutation({
-        ownerKey,
-        mutate: (owner) => {
-          const proj = (owner.projects||[]).find(pl=> String(pl.id)===String(project.id));
-          if (!proj) return { commit:false };
-          // mirror edit into persisted draft (latest version)
-          if (!Array.isArray(proj.versions)) proj.versions=[];
-          if (proj.versions[0]) proj.versions[0].draft = fixedDraft;
-          else proj.versions.push({ id:`v_${Date.now()}`, draft: fixedDraft, page: edit.page });
-          if (edit.character) {
-            try { pushCharacterMemory(proj, { name: edit.character, text: edit.newText, page: edit.page, role:"edit" }); } catch {}
-          }
-          proj.updatedAt = Date.now();
-          owner.updatedAt = Date.now();
-          return { commit:true };
-        }
-      });
-    }
-  }
-
-  return { draft: fixedDraft, patch, totalPages, projectId: String(project.id||"") };
+// Repository-wide import audit: this adapter has no production caller. Do not
+// revive its old in-place version overwrite / unscoped memory mutation. A future
+// voice-edit integration must use the authenticated, versioned mutation route.
+export async function chessEditAndSave() {
+  throw new Error("legacy chess persistence disabled; use the authenticated versioned project save route");
 }
 
 export default { applyChessEdit, chessEditAndSave, findEditableLine, paginateFountainDraft };

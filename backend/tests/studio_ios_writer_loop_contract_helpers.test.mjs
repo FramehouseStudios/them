@@ -4,6 +4,7 @@ import { dirname, basename, join } from "node:path";
 import { tmpdir } from "node:os";
 
 import {
+  assertPassedTestSummary,
   assertSinglePassedTestSummary,
   failureOutputTail,
   FAILURE_OUTPUT_LIMIT,
@@ -11,17 +12,30 @@ import {
   writerLoopResultBundlePath,
 } from "../evals/studio_ios_writer_loop_contract_helpers.mjs";
 
+test("[recovery-summary] requires all three real passes, with no failures or skips", () => {
+  assert.doesNotThrow(() => assertPassedTestSummary({
+    totalTestCount: 3, passedTests: 3, failedTests: 0, skippedTests: 0,
+  }, 3, "Incomplete recovery"));
+  for (const counts of [
+    {},
+    { totalTestCount: 0, passedTests: 0, failedTests: 0, skippedTests: 0 },
+    { totalTestCount: 3, passedTests: 2, failedTests: 0, skippedTests: 1 },
+    { totalTestCount: 3, passedTests: 2, failedTests: 1, skippedTests: 0 },
+    { totalTestCount: 1, passedTests: 1, failedTests: 0, skippedTests: 0 },
+  ]) assert.throws(() => assertPassedTestSummary(counts, 3, "Incomplete recovery"), /Incomplete recovery/);
+});
 for (const [name, environment, expectedDirectory] of [
   ["explicit artifact owner", { ARTIFACT_DIR: "/tmp/them-owned-evidence", RUNNER_TEMP: "/runner", TMPDIR: "/temporary" }, "/tmp/them-owned-evidence"],
-  ["existing CI upload glob", { RUNNER_TEMP: "/runner", TMPDIR: "/temporary" }, "/runner/them-v1-ui-smoke"],
-  ["local temporary owner", { TMPDIR: "/temporary" }, "/temporary/them-v1-ui-smoke"],
-  ["platform fallback", {}, join(tmpdir(), "them-v1-ui-smoke")],
+  ["existing CI upload glob", { RUNNER_TEMP: "/runner", TMPDIR: "/temporary" }, "/runner/them-studio-ios-writer-loop"],
+  ["local temporary owner", { TMPDIR: "/temporary" }, "/temporary/them-studio-ios-writer-loop"],
+  ["platform fallback", {}, join(tmpdir(), "them-studio-ios-writer-loop")],
 ]) {
   test(`[studio-ios-writer-loop] retains a unique native bundle under ${name}`, () => {
     const first = writerLoopResultBundlePath(environment);
     const second = writerLoopResultBundlePath(environment);
-    assert.equal(dirname(first), expectedDirectory);
-    assert.match(basename(first), /^writer-loop-[0-9a-f-]{36}\.xcresult$/);
+    assert.equal(dirname(dirname(first)), expectedDirectory);
+    assert.match(basename(dirname(first)), /^run-[0-9a-f-]{36}$/);
+    assert.equal(basename(first), "writer-loop.xcresult");
     assert.notEqual(first, second, "Runs must not overwrite an earlier result bundle.");
   });
 }

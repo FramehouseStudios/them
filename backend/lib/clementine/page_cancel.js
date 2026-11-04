@@ -165,7 +165,7 @@ function createPageReservationStore({
     for (const [id, entry] of reservations) {
       if (entry.sessionId !== sid) continue;
       if (entry.status === "cancelled") continue;
-      if (uid && entry.userId && entry.userId !== uid) continue;
+      if (uid && entry.userId !== uid) continue;
       entry.status = "cancelled";
       entry.cancelledAt = ts;
       entry.cancelReason = cancelReason;

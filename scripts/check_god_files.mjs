@@ -14,8 +14,10 @@
 //   PR checklists import this, not a duplicated inline `wc | awk`.
 // - Works locally and in CI (quality-gate.yml god-file-gate job).
 //   CI does `fetch-depth: 0` so merge-base is available; locally falls
-//   back to origin/main if present, else just reports absolute sizes.
-// - Strict by default; `--allow-growth` prints sizes without failing
+//   back to origin/main or local main. A missing comparison fails explicitly;
+//   absolute counts alone cannot establish that no god file grew.
+// - Strict by default; `--allow-growth` permits measured growth, not an
+//   unavailable comparison, and prints sizes without failing on growth
 //   (useful for deliberate strangler B/I steps that justify growth).
 //
 
@@ -72,6 +74,11 @@ function baseRef() {
 function baseLineCount(relPath, ref) {
   if (!ref) return null;
   try {
+    const tracked = execFileSync("git", ["-C", repoRoot, "ls-tree", "--name-only", ref, "--", relPath], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    if (!tracked) return 0;
     const out = execFileSync("git", ["-C", repoRoot, "show", `${ref}:${relPath}`], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
@@ -91,9 +98,12 @@ function main() {
   const allowGrowth = process.argv.includes("--allow-growth");
   const jsonOut = process.argv.includes("--json");
   const ref = baseRef();
-  const isPR = Boolean(String(process.env.GITHUB_BASE_REF || "").trim()) || gitOutput(["rev-parse", "--verify", ref]);
+  const baselineAvailable = Boolean(ref && gitOutput(["rev-parse", "--verify", `${ref}^{commit}`]));
+  const errors = baselineAvailable ? [] : [
+    `Comparison baseline ${ref || "(none)"} is unavailable. Fetch the actual PR parent or main before rerunning.`,
+  ];
 
-  let failed = false;
+  let failed = !baselineAvailable;
   const rows = [];
 
   for (const rel of GOD_FILES) {
@@ -103,31 +113,39 @@ function main() {
       rows.push({ file: rel, head: null, base: null, delta: null, status: "missing" });
       continue;
     }
-    const base = ref ? baseLineCount(rel, ref) : null;
+    const base = baselineAvailable ? baseLineCount(rel, ref) : null;
+    if (baselineAvailable && base === null) {
+      errors.push(`Could not read comparison content for ${rel} at ${ref}. Fetch the required objects before rerunning.`);
+      failed = true;
+    }
     const delta = base === null ? null : head - base;
     const grew = delta !== null && delta > 0;
     if (grew && !allowGrowth) failed = true;
-    rows.push({ file: rel, head, base, delta, status: grew ? "grew" : "ok", ref: ref || null });
+    rows.push({ file: rel, head, base, delta, status: base === null ? "unverified" : grew ? "grew" : "ok", ref: ref || null });
   }
 
   if (jsonOut) {
-    console.log(JSON.stringify({ ref: ref || null, allowGrowth, failed, rows }, null, 2));
+    console.log(JSON.stringify({ ref: ref || null, allowGrowth, failed, ...(errors.length ? { errors } : {}), rows }, null, 2));
   } else {
-    const label = ref ? `vs ${ref}` : "(no base — absolute sizes)";
+    const label = ref ? `vs ${ref}` : "(comparison unavailable — absolute sizes only)";
     console.log(`[god-file-gate] ${label} — D009: line count must not grow on feature work`);
     console.log(`[god-file-gate] docs: docs/engineering/god-file-strangler.md`);
     for (const r of rows) {
       if (r.head === null) {
         console.log(`  - ${r.file}: missing`);
       } else if (r.base === null) {
-        console.log(`  - ${r.file}: ${r.head} lines ${r.status === "missing" ? "(missing)" : ""}`);
+        console.log(`  - ${r.file}: ${r.head} lines (comparison unverified)`);
       } else {
         const sign = r.delta > 0 ? `+${r.delta}` : `${r.delta}`;
         const mark = r.status === "grew" ? "  ✗ GREW" : "  ✓";
         console.log(`${mark} ${r.file}: ${r.base} → ${r.head} (${sign})`);
       }
     }
-    if (failed) {
+    if (errors.length) {
+      console.log("");
+      console.log("Failing: god-file comparison could not be verified.");
+      for (const error of errors) console.log(error);
+    } else if (failed) {
       console.log("");
       console.log("Failing: one or more god files grew vs base.");
       console.log("Fix: extract the capability to backend/lib/... or them/<Child> per D009,");
