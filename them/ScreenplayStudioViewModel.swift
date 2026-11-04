@@ -4803,7 +4803,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
             let item: [String: Any]?
             switch slot {
             case .ordinary: item = payload
-            case .preservedConflict: item = payload["preservedConflict"] as? [String: Any]
+            case .preservedConflict:
+                if let snapshot = localDraftRecoveryStore.currentPreservedConflict(ownerUserId: owner.userID, projectId: projectID) {
+                    item = ["draft": snapshot.draft, "baseVersionId": snapshot.baseVersionId,
+                            "savedAt": snapshot.savedAt, "dirty": true]
+                } else { item = nil }
             }
             guard let item, item["dirty"] as? Bool == true,
                   let draft = item["draft"] as? String, let base = item["baseVersionId"] as? String,
@@ -4815,6 +4819,27 @@ final class ScreenplayStudioViewModel: ObservableObject {
             recoveryCandidate = candidate
             return
         }
+    }
+
+    var canReviewNextRecoveryCopy: Bool {
+        guard let candidate = recoveryCandidate, candidate.isPreservedConflict,
+              candidate.overflowSnapshot == nil, recoveryCandidateIsCurrent(candidate) else { return false }
+        return localDraftRecoveryStore.hasMultiplePreservedConflicts(ownerUserId: candidate.owner.userID,
+                                                                     projectId: candidate.projectId)
+    }
+
+    func reviewNextRecoveryCopy() {
+        guard let candidate = recoveryCandidate, canReviewNextRecoveryCopy,
+              localDraftRecoveryStore.advancePreservedConflict(ownerUserId: candidate.owner.userID,
+                projectId: candidate.projectId, draft: candidate.draft,
+                baseVersionId: candidate.baseVersionId, savedAt: candidate.savedAt),
+              let next = localDraftRecoveryStore.currentPreservedConflict(ownerUserId: candidate.owner.userID,
+                                                                            projectId: candidate.projectId) else {
+            errorText = "The recovery copies changed or could not be confirmed. Your stored work was kept."
+            return
+        }
+        recoveryCandidate = LocalDraftRecoveryCandidate(owner: candidate.owner, projectId: candidate.projectId,
+            draft: next.draft, baseVersionId: next.baseVersionId, savedAt: next.savedAt, isPreservedConflict: true)
     }
 
     func restoreDraftFromRecovery() {

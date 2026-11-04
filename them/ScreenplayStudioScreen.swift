@@ -9088,37 +9088,30 @@ Current draft version:
     ) -> some View {
         let recoveryAlreadyOnPage = vm.fountainDraft.utf8.elementsEqual(recovery.draft.utf8)
         let savedText = relativeTimestamp(dateFromTimestamp(recovery.savedAt) ?? .now)
+        let preview = recovery.draft.split(whereSeparator: \.isNewline)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+            .prefix(2).joined(separator: "\n")
 
         return draftAlertBanner(
             title: recoveryAlreadyOnPage ? "Recovery copy matches page" : "Unsaved local draft found",
             message: recoveryAlreadyOnPage
                 ? "This recovery copy matches the current page. Keep it or discard the copy."
                 : recovery.overflowSnapshot != nil
-                    ? "A newer page was kept separately while earlier recovery copies wait. Recover it or keep the current page."
-                    : "Saved \(savedText). Recover it or keep the current page.",
+                    ? "A newer page was kept separately. Recover it or discard this copy and keep the current page."
+                    : "Saved \(savedText). Recover it or discard this copy and keep the current page.",
             hint: recoveryAlreadyOnPage
                 ? "Press 1 to keep the current page or 2 to discard the recovery copy."
-                : "Press 1 to recover local or 2 to keep the current page.",
+                : "Press 1 to recover local or 2 to discard this recovery copy.",
             tint: Color.orange.opacity(0.88),
-            excerpt: nil
+            excerpt: preview
         ) {
-            NumberedChoiceActionButton(
-                number: "1",
-                title: recoveryAlreadyOnPage ? "Keep Current" : "Recover Local",
-                prominence: .prominent
-            ) {
-                vm.restoreDraftFromRecovery()
-            }.accessibilityIdentifier("studio.draft-recovery.primary-action")
-            NumberedChoiceActionButton(
-                number: "2",
-                title: recoveryAlreadyOnPage ? "Discard Copy" : "Keep Current"
-            ) {
-                if recoveryAlreadyOnPage {
-                    vm.discardLocalRecoveryCopy()
-                } else {
-                    vm.keepServerDraft()
-                }
-            }.accessibilityIdentifier("studio.draft-recovery.secondary-action")
+            ScreenplayRecoveryActionButtons(
+                recoveryAlreadyOnPage: recoveryAlreadyOnPage,
+                canReviewNext: vm.canReviewNextRecoveryCopy,
+                onRecover: { vm.restoreDraftFromRecovery() },
+                onDiscard: { recoveryAlreadyOnPage ? vm.discardLocalRecoveryCopy() : vm.keepServerDraft() },
+                onNext: { vm.reviewNextRecoveryCopy() }
+            )
         }
     }
 
@@ -9206,6 +9199,7 @@ Current draft version:
             }
         }
         .padding(12)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(tint.opacity(0.10))

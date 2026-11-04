@@ -3367,7 +3367,7 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(preserved.utf8))
         let keep = app.buttons["studio.draft-recovery.secondary-action"]
         XCTAssertTrue(keep.waitForExistence(timeout: 10))
-        XCTAssertTrue(keep.label.contains("Keep Current"))
+        XCTAssertTrue(keep.label.contains("Discard Copy"))
         keep.tap()
         // The preserved copy was already reviewed in this session. Keeping
         // the current page must not loop that retained copy back into the
@@ -3387,6 +3387,45 @@ final class V1SmokeUITests: XCTestCase {
                 && stringValue(snapshot["recovery_base_version_id"]) == "recovery-base-b"
         }, "Synthetic relaunch recovery: \(relaunchState)")
         XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(originalPage.utf8))
+    }
+
+    @MainActor
+    func test_recovery_next_copy_keeps_page_and_both_copies() throws {
+        var app = launchApp(openStudio: true, structuralSeed: true, recoveryTwoSlotFixture: true,
+                            launchEnvironment: ["THEM_UITEST_MULTIPLE_PRESERVED_COPIES": "1"])
+        defer { app.terminate() }
+        XCTAssertTrue(app.otherElements["studio.surface"].waitForExistence(timeout: 15))
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 20) {
+            stringValue($0["recovery_base_version_id"]) == "recovery-base-c"
+        })
+        let page = accessibleDraftText(in: app)
+        let next = app.buttons["studio.draft-recovery.next-copy"]
+        XCTAssertTrue(next.waitForExistence(timeout: 10))
+        XCTAssertTrue(next.isHittable)
+        next.tap()
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 10) {
+            stringValue($0["recovery_base_version_id"]) == "recovery-base-b"
+        })
+        XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(page.utf8))
+        next.tap()
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 10) {
+            stringValue($0["recovery_base_version_id"]) == "recovery-base-c"
+        })
+        XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(page.utf8))
+        app.terminate()
+        app = launchApp(openStudio: true, structuralSeed: true, recoveryTwoSlotFixture: true,
+                        resetState: false, launchEnvironment: ["THEM_UITEST_MULTIPLE_PRESERVED_COPIES": "1"])
+        XCTAssertTrue(app.otherElements["studio.surface"].waitForExistence(timeout: 15))
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 20) {
+            stringValue($0["recovery_base_version_id"]) == "recovery-base-c"
+        })
+        let nextAfterRelaunch = app.buttons["studio.draft-recovery.next-copy"]
+        XCTAssertTrue(nextAfterRelaunch.waitForExistence(timeout: 10))
+        nextAfterRelaunch.tap()
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 10) {
+            stringValue($0["recovery_base_version_id"]) == "recovery-base-b"
+        })
+        XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(page.utf8))
     }
 
     @MainActor
