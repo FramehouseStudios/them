@@ -105,6 +105,20 @@ nonisolated struct ScreenplayDraftSaveOutboxEntry: Identifiable, Codable, Equata
             Self.exactEncoded(screenplayBindings, other.screenplayBindings)
     }
 
+    // A binding refresh timestamp alone does not add writer intent to a passive save.
+    func hasSameTargetIgnoringBindingUpdateTime(as other: Self) -> Bool {
+        func withoutUpdateTime(_ binding: BackendScreenplayBindingRecord) -> BackendScreenplayBindingRecord {
+            .init(draftSceneId: binding.draftSceneId, draftLine: binding.draftLine,
+                draftEndLine: binding.draftEndLine, draftSlugline: binding.draftSlugline,
+                draftShortLabel: binding.draftShortLabel, outlineSceneId: binding.outlineSceneId,
+                outlineSceneTitle: binding.outlineSceneTitle, outlineSceneSlugline: binding.outlineSceneSlugline,
+                outlineBeatIds: binding.outlineBeatIds, outlineBeatLabels: binding.outlineBeatLabels,
+                actTitle: binding.actTitle, matchedBy: binding.matchedBy, updatedAt: nil)
+        }
+        return hasSameWritingTarget(as: other) && Self.exactEncoded(studioWriteAnchors, other.studioWriteAnchors)
+            && Self.exactEncoded(screenplayBindings.map(withoutUpdateTime), other.screenplayBindings.map(withoutUpdateTime))
+    }
+
     private func hasSameWritingTarget(as other: Self) -> Bool {
         projectId.utf8.elementsEqual(other.projectId.utf8) &&
             ownerUserId.utf8.elementsEqual(other.ownerUserId.utf8) &&

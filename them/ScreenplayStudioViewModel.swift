@@ -7524,7 +7524,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                request.conflictTicket == nil, let active = activeDraftSaveRequest,
                active.conflictTicket == nil, active.deliveryOrigin != nil,
                ScreenplayStudioAuthContextPolicy.matches(expected: active.authContext, current: request.authContext),
-               request.outboxEntry.hasSameTarget(as: active.outboxEntry) { return }
+               request.outboxEntry.hasSameTargetIgnoringBindingUpdateTime(as: active.outboxEntry) { return }
             // The pending request can outlive the currently visible project.
             // Preserve its exact words without replacing another recovery copy.
             if authContextIsCurrent(request.authContext) {
