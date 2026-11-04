@@ -93,6 +93,50 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         XCTAssertEqual(fixture.peer.writes.count, 1)
     }
 
+    func testPassiveAutosaveWithTimestampOnlyBindingRefreshDoesNotDuplicateInflightSave() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base", dirty: true)
+        fixture.model.autosaveEnabled = true
+        let decoder = JSONDecoder()
+        let first = try decoder.decode(BackendScreenplayBindingRecord.self,
+            from: Data("{\"draftSceneId\":\"same-scene\",\"updatedAt\":100}".utf8))
+        let refreshed = try decoder.decode(BackendScreenplayBindingRecord.self,
+            from: Data("{\"draftSceneId\":\"same-scene\",\"updatedAt\":200}".utf8))
+        fixture.model.screenplayBindings = [first]
+        let save = fixture.startSave()
+        defer { fixture.peer.releaseFirst(.offline); save.cancel() }
+        try await fixture.waitForFirstSave()
+        fixture.model.screenplayBindings = [refreshed]
+        await fixture.model.handleDraftDebouncedChange(fixture.a)
+        let rows = try await fixture.reloadQueueEntries()
+        XCTAssertEqual(rows.count, 1, "A timestamp-only passive refresh must not create a second save request.")
+        fixture.peer.releaseFirst(.success)
+        try await fixture.waitForSave(save)
+        XCTAssertEqual(fixture.peer.writes.count, 1)
+        XCTAssertEqual(fixture.model.screenplayBindings, [refreshed], "The writer's current projection must remain visible.")
+    }
+
+    func testPassiveAutosaveWithMeaningfullyChangedBindingRemainsDurable() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base", dirty: true)
+        fixture.model.autosaveEnabled = true
+        let decoder = JSONDecoder()
+        fixture.model.screenplayBindings = [try decoder.decode(BackendScreenplayBindingRecord.self,
+            from: Data("{\"draftSceneId\":\"first-scene\",\"updatedAt\":100}".utf8))]
+        let save = fixture.startSave()
+        defer { fixture.peer.releaseFirst(.offline); save.cancel() }
+        try await fixture.waitForFirstSave()
+        fixture.model.screenplayBindings = [try decoder.decode(BackendScreenplayBindingRecord.self,
+            from: Data("{\"draftSceneId\":\"different-scene\",\"updatedAt\":200}".utf8))]
+        await fixture.model.handleDraftDebouncedChange(fixture.a)
+        let rows = try await fixture.reloadQueueEntries()
+        XCTAssertEqual(rows.count, 2, "A meaningful binding change must not be coalesced with an earlier save.")
+        fixture.peer.releaseFirst(.success)
+        try await fixture.waitForSave(save)
+    }
+
     func testPassiveAutosaveWithNewerWordsRemainsDurableBehindInflightSave() async throws {
         let fixture = try SaveCompletionFixture()
         defer { fixture.close() }
