@@ -10,7 +10,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 const script = path.join(repoRoot, "scripts", "run_screenplay_save_network_fault_smokes.sh");
 
-function runSmoke({ withXcconfig = true, destination = "platform=iOS Simulator,id=deterministic-save-fault-smoke", bootFailure = false, testIdentifier = "", includeMacOS = "1" } = {}) {
+function runSmoke({ withXcconfig = true, destination = "platform=iOS Simulator,id=deterministic-save-fault-smoke", bootFailure = false, testIdentifier = "", includeMacOS = "1", resultBundlePath = "" } = {}) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-save-network-fault-"));
   const log = path.join(tmp, "xcodebuild.calls");
   const fakeXcodebuild = path.join(tmp, "xcodebuild");
@@ -57,6 +57,7 @@ function runSmoke({ withXcconfig = true, destination = "platform=iOS Simulator,i
       XCODEBUILD_CALLS_LOG: log,
       IOS_SIMULATOR_DESTINATION: destination,
       THEM_UITEST_SCREENPLAY_SAVE_XCCONFIG_PATH: withXcconfig ? xcconfig : "",
+      SCREENPLAY_SAVE_RESULT_BUNDLE_PATH: resultBundlePath,
     },
     encoding: "utf8",
   });
@@ -144,4 +145,13 @@ test("[screenplay-save-network-fault-smokes] runs without an optional xcconfig u
     assert.ok(call.includes("test"));
     assert.equal(call.includes("-xcconfig"), false);
   }
+});
+
+test("[screenplay-save-network-fault-smokes] forwards the evaluator's exact result bundle path", () => {
+  const resultBundlePath = "/tmp/THEM Proof/custom recovery.xcresult";
+  const { calls, result } = runSmoke({ includeMacOS: "0", resultBundlePath });
+  assert.equal(result.status, 0, result.stderr);
+  const index = calls[0].indexOf("-resultBundlePath");
+  assert.ok(index >= 0);
+  assert.equal(calls[0][index + 1], resultBundlePath);
 });
