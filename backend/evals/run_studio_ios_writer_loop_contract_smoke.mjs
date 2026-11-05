@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { startBackend } from "../tests/helpers/backend_test_server.mjs";
@@ -56,6 +56,7 @@ try {
     env: {
       ...process.env,
       ONLY_TESTING: WRITER_LOOP_TEST,
+      ARTIFACT_DIR: dirname(RESULT_BUNDLE_PATH),
       THEM_UITEST_RESTORE_XCCONFIG_PATH: XCCONFIG_PATH,
     },
   });
@@ -113,5 +114,10 @@ try {
   console.log("studio-ios-writer-loop-contract-smoke: ok");
 } finally {
   if (existsSync(XCCONFIG_PATH)) unlinkSync(XCCONFIG_PATH);
+  // Keep native failure recordings/hierarchy in the existing artifact owner.
+  // A bounded stdout tail is not a substitute for the actual result bundle.
+  if (existsSync(RESULT_BUNDLE_PATH)) {
+    console.log(`studio-ios-writer-loop-contract-smoke: retained ${RESULT_BUNDLE_PATH}`);
+  }
   if (server) await server.stop();
 }
