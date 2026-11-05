@@ -1834,7 +1834,7 @@ final class V1SmokeUITests: XCTestCase {
                 queuedSnapshot = snapshot
                 return stringValue(snapshot["selected_project_id"]).lowercased() == fixture.projectID.lowercased()
                     && stringValue(snapshot["loaded_draft_project_id"]).lowercased() == fixture.projectID.lowercased()
-                    && stringValue(snapshot["draft_tail_preview"]) == String(expectedQueuedDraft.suffix(260))
+                    && (snapshot["draft_tail_preview"] as? String ?? "") == String(expectedQueuedDraft.suffix(260))
                     && intValue(snapshot["draft_character_count"]) == expectedQueuedDraft.count
                     && intValue(snapshot["queued_draft_save_count"]) == 1
                     && intValue(snapshot["parked_draft_save_count"]) == 0
@@ -1960,7 +1960,7 @@ final class V1SmokeUITests: XCTestCase {
                 queuedSnapshot = snapshot
                 return stringValue(snapshot["selected_project_id"]).lowercased() == fixture.projectID.lowercased()
                     && stringValue(snapshot["loaded_draft_project_id"]).lowercased() == fixture.projectID.lowercased()
-                    && stringValue(snapshot["draft_tail_preview"]) == String(expectedQueuedDraft.suffix(260))
+                    && (snapshot["draft_tail_preview"] as? String ?? "") == String(expectedQueuedDraft.suffix(260))
                     && intValue(snapshot["draft_character_count"]) == expectedQueuedDraft.count
                     && intValue(snapshot["queued_draft_save_count"]) == 1
                     && intValue(snapshot["parked_draft_save_count"]) == 0
