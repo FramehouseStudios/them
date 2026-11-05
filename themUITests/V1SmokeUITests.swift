@@ -2515,7 +2515,16 @@ final class V1SmokeUITests: XCTestCase {
         let confirmQueue = alert.buttons["Queue Request"]
         XCTAssertTrue(confirmQueue.waitForExistence(timeout: 5))
         XCTAssertTrue(confirmQueue.isHittable)
-        confirmQueue.tap()
+        // XCTest may handle this app alert as an interruption on hosted iOS.
+        // Match only this confirmation and trigger its monitor explicitly.
+        let monitor = addUIInterruptionMonitor(withDescription: "Confirm recovered request") { interruption in
+            guard interruption.label == "Queue Recovered Request?",
+                  interruption.buttons["Queue Request"].exists else { return false }
+            interruption.buttons["Queue Request"].tap()
+            return true
+        }
+        defer { removeUIInterruptionMonitor(monitor) }
+        app.staticTexts["Data Controls"].tap()
         XCTAssertTrue(alert.waitForNonExistence(timeout: 5))
         XCTAssertTrue(staticText(containing: "Recovered request queued with its original ID", in: app).waitForExistence(timeout: 5))
         XCTAssertEqual(reviews.count, 0)
