@@ -17,3 +17,7 @@ Rehearsal source: `63940922661e9ddfc9d0f2874e94c098cd76981c` on `codex/T-1270-st
 ## Holds and limits
 
 The local model and speech providers are simulated. These runs do not prove real microphone input, model quality, export opening outside THEM, physical iPhone behavior, production configuration, or release readiness. #987 previously failed its hosted stale-version recovery check twice; the fixes and diagnostics are in its current branch, but the new hosted recovery result is still pending. #964 remains blocked on independent review. Do not merge ahead of failed or required checks, alter original PR history, or bypass branch protections.
+
+## Receipt-protection integration
+
+After preserve-merging #987's `afc6574` as integration commit `eed7b38`, the full signed iPhone simulator unit bundle passed **1,483 tests, 0 failures, 0 skips** on the erased task-owned simulator. Result: `/private/tmp/them-t1270-units-eed.xcresult`. This updates the unit evidence for that source tree; the other proofs above remain tied to `6394092` until rerun on the new source.
