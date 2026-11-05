@@ -7,13 +7,29 @@ const migrationsCheck = readFileSync(new URL("../.github/workflows/migrations-ch
 const autoMerge = readFileSync(new URL("../.github/workflows/auto-merge-tier1.yml", import.meta.url), "utf8");
 
 test("[ci-merge-safety] quality gate runs on pull requests with secret-backed gates disabled", () => {
-  assert.match(qualityGate, /^\s+pull_request:\n\s+types: \[opened, synchronize, reopened, ready_for_review\]/m);
+  const prTrigger = qualityGate.match(/^  pull_request:\n(?:    #[^\n]*\n)*    types: \[([^\]]+)\]/m);
+  assert.ok(prTrigger, "Required PR gates must have an explicit trigger, including draft opens and every new head.");
+  assert.deepEqual(prTrigger[1].split(",").map(type => type.trim()), ["opened", "synchronize", "reopened"]);
   assert.match(qualityGate, /RUN_EVAL: \$\{\{ github\.event_name == 'pull_request' && '0'/);
   assert.match(qualityGate, /RUN_CANON: \$\{\{ github\.event_name == 'pull_request' && '1'/);
   assert.match(qualityGate, /RUN_SPECULATIVE_REUSE_GATE: \$\{\{ github\.event_name == 'pull_request' && '0'/);
   assert.match(qualityGate, /RUN_SMOKE: \$\{\{ github\.event_name == 'pull_request' && '0'/);
   assert.match(qualityGate, /RUN_TALK_RECOVERY_GATE: \$\{\{ github\.event_name == 'pull_request' && '0'/);
   assert.match(qualityGate, /RUN_ALERT: \$\{\{ github\.event_name == 'pull_request' && '0'/);
+});
+
+test("[ci-merge-safety] readiness does not duplicate gates or create a skipped-job green", () => {
+  const jobs = qualityGate.slice(qualityGate.indexOf("\njobs:\n"));
+  assert.doesNotMatch(qualityGate, /ready_for_review/);
+  assert.doesNotMatch(jobs, /pull_request\.draft|github\.event\.action/,
+    "Draft state or readiness must not skip required jobs/steps and manufacture a passing check.");
+  for (const name of ["God-file gate (D009)", "Backend tests", "Quality Gate"]) {
+    assert.ok(jobs.includes(`name: ${name}`), `Required check ${name} must remain.`);
+  }
+  assert.match(jobs, /Run iOS unit bundle themTests \(required\)/);
+  assert.match(jobs, /Run integrated iPhone writer loop \(required\)/);
+  assert.match(jobs, /Run iOS V1 UI smoke tests \(required\)/);
+  assert.match(jobs, /Run iPhone voice-fault smoke and macOS scaffold build \(required\)/);
 });
 
 test("[ci-merge-safety] complete backend tests gate pull requests and main pushes without provider secrets", () => {
