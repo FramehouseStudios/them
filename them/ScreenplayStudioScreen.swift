@@ -447,8 +447,8 @@ struct ScreenplayStudioScreen: View {
             "latest_ask_note_prompt": studioAskNoteHistory.first?.prompt ?? "",
             "latest_ask_note_inserted_text": studioAskNoteHistory.first?.insertedText ?? "",
             "draft_preview": String(normalizedDraft.prefix(260)),
-            "draft_tail_preview": String(normalizedDraft.suffix(260)),
-            "draft_character_count": normalizedDraft.count,
+            "draft_tail_preview": String(vm.fountainDraft.suffix(260)),
+            "draft_character_count": vm.fountainDraft.count,
             "draft_fingerprint": ScreenplayDraftIntegrityFingerprint.value(for: normalizedDraft),
             "has_unsaved_draft_changes": vm.hasUnsavedDraftChanges,
             "is_manual_draft_editing": vm.isManualDraftEditing,
@@ -2048,7 +2048,7 @@ Replace is best when this file should become the script you edit. Append is safe
                 .saturation(0.40)
                 .brightness(0.07)
                 .overlay(Color.black.opacity(0.03))
-                .ignoresSafeArea()
+                .ignoresSafeArea(.container)
 
                 VStack(spacing: 0) {
                     directionOneHeader(usesDrawers: usesDrawers)
@@ -2202,7 +2202,6 @@ Replace is best when this file should become the script you edit. Append is safe
         ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 12) {
-                    directionOneRightPanelTabs
                     if let preview = liveDraftBridge.pendingStudioActionPreview {
                         pendingStudioActionPreviewCard(preview)
                     }
@@ -2213,6 +2212,7 @@ Replace is best when this file should become the script you edit. Append is safe
                 }
                 .padding(12)
             }
+            .modifier(ScreenplayStudioPinnedInspectorTabs(tabs: directionOneRightPanelTabs, selection: directionOneRightPanelTab))
             .onChange(of: beatDropTargetID) { _, _ in
                 syncInspectorDropTargetScroll(proxy: proxy)
             }
