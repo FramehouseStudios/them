@@ -9403,10 +9403,9 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
                 ? .parenthetical
                 : currentElement
 
-            return FountainFormatter.normalizeEditorLine(
-                trimmed,
-                as: effectiveElement,
-                existingDraft: parent.text
+            return FountainFormatter.normalizeLiveEditorLine(
+                lineText,
+                as: effectiveElement
             )
         }
 
@@ -10808,7 +10807,6 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
         let previousPendingID = context.coordinator.parent.pendingReplacementTarget?.id
         let previousSubmittedID = context.coordinator.parent.submittedReplacementTarget?.id
         let previousInsertionID = context.coordinator.parent.insertionRequest?.id
-        let previousParentText = context.coordinator.parent.text
         let previousDocumentID = context.coordinator.parent.documentID
         context.coordinator.parent = self
         let currentPendingID = pendingReplacementTarget?.id
@@ -10841,11 +10839,9 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
         }
 
         if !context.coordinator.isApplyingProgrammaticChange,
-           ScreenplayEditorTextBindingPolicy.shouldApplyModelText(
+           context.coordinator.shouldApplyModelText(
                incomingText: text,
-               currentEditorText: uiView.text ?? "",
-               lastRenderedModelText: previousParentText,
-               isEditorFocused: uiView.isFirstResponder,
+               to: uiView,
                documentDidChange: previousDocumentID != documentID
            ) {
             let previousSelection = uiView.selectedRange
@@ -10954,6 +10950,8 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
         var explicitCurrentLineLocation: Int?
         var paragraphElements: [ScreenplayEditorElement?] = []
         var lastKnownTextSnapshot: String
+        var lastRenderedModelText: String
+        var pendingEditorPublications = ScreenplayEditorTextBindingPolicy.PendingPublications()
         private var representableUpdateDepth = 0
         private var representableUpdateGeneration = 0
         private var activeRepresentableUpdateGeneration: Int?
@@ -10975,6 +10973,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             self.parent = parent
             self.lastKnownActiveElement = parent.activeScreenplayElement
             self.lastKnownTextSnapshot = parent.text
+            self.lastRenderedModelText = parent.text
         }
 
         @objc func saveDraftFromKeyboard() {
@@ -11021,7 +11020,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
 
         private func publishText(_ value: String, requestID: UUID? = nil) {
             guard representableUpdateDepth > 0 else {
-                parent.text = value
+                publishEditorText(value)
                 return
             }
             coalesce(&deferredText, current: parent.text, value: value, requestID: requestID)
@@ -11216,7 +11215,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 if let text,
                    self.parent.text == text.expected,
                    requestIsCurrent(text.requestID) {
-                    self.parent.text = text.value
+                    self.publishEditorText(text.value)
                 }
                 if let activeElement,
                    generationIsAccepted(activeElement.generation),
@@ -11369,6 +11368,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             publishUserEdit(expectedText: next)
             updateCurrentCursorLine()
             refreshAnchoredTextRectSnapshot()
+            ScreenplayEditorViewport.followEditingCaret(in: textView)
         }
 
         private func interruptStreamingInsertForUserEditIfNeeded() {
@@ -11474,8 +11474,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             let targetLine = max(1, request.line)
             let content = textView.text ?? ""
             let targetRange = rangeForLine(targetLine, in: content)
-            textView.selectedRange = NSRange(location: targetRange.location, length: 0)
-            textView.scrollRangeToVisible(targetRange)
+            ScreenplayEditorViewport.jump(to: targetRange, in: textView)
             publishCurrentCursorLine(targetLine)
             refreshAnchoredTextRectSnapshot()
             lastAppliedLineJumpID = request.id
@@ -11519,8 +11518,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
 
         func applyEditorFocus(_ request: ScreenplayEditorFocusRequest) {
             guard let textView else { return }
-            textView.becomeFirstResponder()
-            textView.scrollRangeToVisible(textView.selectedRange)
+            ScreenplayEditorViewport.focus(textView)
             updateCurrentCursorLine()
             refreshAnchoredTextRectSnapshot()
             lastAppliedEditorFocusID = request.id
@@ -11638,6 +11636,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             publishUserEdit(expectedText: nextText)
             updateCurrentCursorLine()
             refreshAnchoredTextRectSnapshot()
+            ScreenplayEditorViewport.followEditingCaret(in: textView)
         }
 
         private func syncActiveElementFromSelection() {
@@ -11760,10 +11759,9 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 ? .parenthetical
                 : currentElement
 
-            return FountainFormatter.normalizeEditorLine(
-                trimmed,
-                as: effectiveElement,
-                existingDraft: parent.text
+            return FountainFormatter.normalizeLiveEditorLine(
+                lineText,
+                as: effectiveElement
             )
         }
 

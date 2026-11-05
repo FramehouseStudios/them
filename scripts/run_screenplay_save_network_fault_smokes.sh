@@ -8,15 +8,14 @@ IOS_CONFIGURATION="${IOS_CONFIGURATION:-Debug}"
 MACOS_SCHEME="${MACOS_SCHEME:-them-macOS-scaffold}"
 MACOS_CONFIGURATION="${MACOS_CONFIGURATION:-Mac Scaffold Debug}"
 XCODEBUILD_BIN="${XCODEBUILD:-xcodebuild}"
-XCRUN_BIN="${XCRUN:-xcrun}"
 INCLUDE_MACOS="${SCREENPLAY_SAVE_INCLUDE_MACOS:-1}"
-ARTIFACT_DIR="${ARTIFACT_DIR:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/them-screenplay-save-network-fault-smokes}"
 if [[ "${INCLUDE_MACOS}" != "0" && "${INCLUDE_MACOS}" != "1" ]]; then
   echo "screenplay-save-network-fault-smokes: SCREENPLAY_SAVE_INCLUDE_MACOS must be 0 or 1." >&2
   exit 2
 fi
+ARTIFACT_DIR="${ARTIFACT_DIR:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/them-screenplay-save-network-fault-smokes}"
 mkdir -p "${ARTIFACT_DIR}"
-result_bundle_path="${SCREENPLAY_SAVE_RESULT_BUNDLE_PATH:-${ARTIFACT_DIR}/screenplay-save-network-fault-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}-$$.xcresult}"
+result_bundle_path="${SCREENPLAY_SAVE_RESULT_BUNDLE_PATH:-${V1_UI_RESULT_BUNDLE_PATH:-${ARTIFACT_DIR}/screenplay-save-network-fault-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}-$$.xcresult}}"
 if [[ -n "${SCREENPLAY_SAVE_TEST_IDENTIFIER:-}" ]]; then
   test_identifiers=("${SCREENPLAY_SAVE_TEST_IDENTIFIER}")
 else
@@ -27,54 +26,6 @@ else
   )
 fi
 
-if [[ -n "${IOS_SIMULATOR_DESTINATION:-}" ]]; then
-  ios_destination="${IOS_SIMULATOR_DESTINATION}"
-elif [[ -n "${IOS_SIMULATOR_NAME:-}" ]]; then
-  ios_destination="platform=iOS Simulator,name=${IOS_SIMULATOR_NAME}"
-else
-  simulator_name="$(
-    "${XCRUN_BIN}" simctl list devices available \
-      | sed -n 's/^[[:space:]]*\(iPhone[^()]*\) (.*/\1/p' \
-      | head -n 1 \
-      | sed 's/[[:space:]]*$//'
-  )"
-  if [[ -z "${simulator_name}" ]]; then
-    echo "screenplay-save-network-fault-smokes: no available iPhone simulator found." >&2
-    echo "Set IOS_SIMULATOR_DESTINATION='platform=iOS Simulator,name=<device>' to override." >&2
-    exit 2
-  fi
-  ios_destination="platform=iOS Simulator,name=${simulator_name}"
-fi
-
-if [[ "${ios_destination}" == *"id="* ]]; then
-  simulator_udid="${ios_destination##*id=}"
-  simulator_udid="${simulator_udid%%,*}"
-elif [[ "${ios_destination}" == *"name="* ]]; then
-  simulator_name="${ios_destination##*name=}"
-  simulator_name="${simulator_name%%,*}"
-  simulator_udid="$(
-    "${XCRUN_BIN}" simctl list devices available \
-      | sed -n "s/^[[:space:]]*${simulator_name} (\\([0-9A-F-]*\\)) (.*/\\1/p" \
-      | head -n 1
-  )"
-else
-  echo "screenplay-save-network-fault-smokes: cannot resolve an erasable iPhone simulator from ${ios_destination}." >&2
-  exit 2
-fi
-
-if [[ -z "${simulator_udid}" ]]; then
-  echo "screenplay-save-network-fault-smokes: could not resolve an erasable iPhone simulator from ${ios_destination}." >&2
-  exit 2
-fi
-
-"${XCRUN_BIN}" simctl shutdown "${simulator_udid}" >/dev/null 2>&1 || true
-"${XCRUN_BIN}" simctl erase "${simulator_udid}"
-"${XCRUN_BIN}" simctl boot "${simulator_udid}" >/dev/null 2>&1 || true
-if ! "${XCRUN_BIN}" simctl bootstatus "${simulator_udid}" -b >/dev/null 2>&1; then
-  echo "screenplay-save-network-fault-smokes: simulator ${simulator_udid} did not finish booting." >&2
-  exit 2
-fi
-
 only_testing_args=()
 for test_identifier in "${test_identifiers[@]}"; do
   only_testing_args+=("-only-testing:${test_identifier}")
@@ -82,34 +33,17 @@ done
 
 echo "=== Screenplay Save Network-Fault Smokes ==="
 echo "Project:            ${PROJECT}"
-echo "iPhone destination: ${ios_destination}"
+echo "iPhone destination: resolved by the canonical clean-simulator runner"
 if [[ "${INCLUDE_MACOS}" == "1" ]]; then
   echo "macOS destination:  platform=macOS"
 fi
-
-ios_build_args=()
-if [[ -n "${THEM_UITEST_SCREENPLAY_SAVE_XCCONFIG_PATH:-}" ]]; then
-  ios_build_args+=("-xcconfig" "${THEM_UITEST_SCREENPLAY_SAVE_XCCONFIG_PATH}")
-fi
-ios_build_args+=(
-  test
-  -project "${PROJECT}"
-  -scheme "${IOS_SCHEME}"
-  -configuration "${IOS_CONFIGURATION}"
-  -destination "${ios_destination}"
-  "${only_testing_args[@]}"
-  -parallel-testing-enabled NO
-  -test-timeouts-enabled YES
-  -default-test-execution-time-allowance 900
-  -maximum-test-execution-time-allowance 1500
-  -resultBundlePath "${result_bundle_path}"
-)
 
 macos_build_args=()
 if [[ -n "${THEM_UITEST_SCREENPLAY_SAVE_XCCONFIG_PATH:-}" ]]; then
   macos_build_args+=("-xcconfig" "${THEM_UITEST_SCREENPLAY_SAVE_XCCONFIG_PATH}")
 fi
 macos_build_args+=(
+  -quiet
   test
   -project "${PROJECT}"
   -scheme "${MACOS_SCHEME}"
@@ -123,7 +57,17 @@ macos_build_args+=(
   REGISTER_APP_GROUPS=NO
 )
 
-"${XCODEBUILD_BIN}" "${ios_build_args[@]}"
+macos_build_args+=(-resultBundlePath "${result_bundle_path%.xcresult}-macos.xcresult")
+
+ios_runner_args=(-quiet)
+for ((index = 1; index < ${#test_identifiers[@]}; index++)); do
+  ios_runner_args+=("-only-testing:${test_identifiers[index]}")
+done
+PROJECT="${PROJECT}" SCHEME="${IOS_SCHEME}" CONFIGURATION="${IOS_CONFIGURATION}" \
+  XCODEBUILD="${XCODEBUILD_BIN}" ONLY_TESTING="${test_identifiers[0]}" \
+  V1_UI_RESULT_BUNDLE_PATH="${result_bundle_path}" \
+  THEM_UITEST_RESTORE_XCCONFIG_PATH="${THEM_UITEST_SCREENPLAY_SAVE_XCCONFIG_PATH:-}" \
+  bash "${ROOT}/scripts/run_v1_ui_smoke.sh" "${ios_runner_args[@]}"
 if [[ "${INCLUDE_MACOS}" == "1" ]]; then
   "${XCODEBUILD_BIN}" "${macos_build_args[@]}"
 fi
