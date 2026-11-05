@@ -2344,6 +2344,45 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     }
 
     @MainActor
+    func testInitialProjectReceiptCannotOverwriteDifferentDirtyRecovery() async throws {
+        let restoreOwner = try installAuthenticatedFixtureOwner()
+        defer { restoreOwner() }
+        let owner = ScreenplayStudioAuthContext.current()
+        let identity = BackendAuthRequestIdentity(sessionEpoch: 0, userID: owner.userID, clientToken: "", accessToken: "", sessionIntentGeneration: owner.sessionIntentGeneration)
+        let backend = BackendAuthClient.resolvedBackendBaseURL()
+        let current = "The current page is acknowledged."
+        let earlier = "Earlier unsynced writer words.  \n"
+        var entry = replacingOwner(of: makeEntry(id: "initial-receipt-copy", draft: current), with: owner.userID)
+        entry.deliveryOrigin = .init(documentID: "initial-receipt-document", backendURL: backend)
+        let bridge = ScreenplayLiveDraftBridge.shared
+        XCTAssertTrue(bridge.adoptLoadedProjectDraft(current, projectID: entry.projectId,
+            versionID: entry.baseVersionId, owner: owner, queuedEntry: entry))
+        entry.initialization = .init(documentID: "initial-receipt-document", backendURL: backend, sourceProjectID: entry.projectId)
+        let suite = "them.initial-receipt-existing-recovery.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        XCTAssertTrue(recovery.save(ownerUserId: owner.userID, projectId: entry.projectId,
+            draft: earlier, baseVersionId: "earlier-base", dirty: true))
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery)
+        model.selectedProjectID = entry.projectId
+        model.fountainDraft = current
+        let project = try JSONDecoder().decode(BackendScreenplayProjectSummary.self,
+            from: JSONSerialization.data(withJSONObject: ["id": entry.projectId, "title": entry.title]))
+        let receipt = ScreenplayInitialProjectReceipt(entry: entry, project: project,
+            versionID: "new-version", owner: identity, localDraft: current)
+        XCTAssertTrue(ScreenplayStudioAuthContextPolicy.matches(expected: identity.ownerContext, current: ScreenplayStudioAuthContext.current()), "owner scope")
+        XCTAssertTrue(OfflineTalkRecoveryScope.sameBackend(backend, BackendAuthClient.resolvedBackendBaseURL()), "backend scope")
+        XCTAssertEqual(bridge.draftOrigin.documentID, "initial-receipt-document", "document scope")
+        XCTAssertEqual(model.selectedProjectID, entry.projectId, "project scope")
+        XCTAssertTrue(model.fountainDraft.utf8.elementsEqual(current.utf8), "draft scope")
+        XCTAssertTrue(model.adoptInitialProjectReceipt(receipt), "Receipt must be accepted before checking recovery preservation")
+        let kept = recovery.dirtyOrdinarySnapshot(ownerUserId: owner.userID, projectId: entry.projectId)
+        XCTAssertEqual(kept.map { Data($0.draft.utf8) }, Data(earlier.utf8))
+        XCTAssertEqual(kept?.baseVersionId, "earlier-base")
+    }
+
+    @MainActor
     func testRelaunchRestoresExactSameOriginConflictAndWriterChoice() async throws {
         let restoreOwner = try installAuthenticatedFixtureOwner()
         defer { restoreOwner() }

@@ -224,6 +224,23 @@ struct ScreenplayLocalDraftRecoveryStore {
             stored["dirty"] as? Bool == dirty && stored["savedAt"] as? TimeInterval == savedAt
     }
 
+    /// An initial-project receipt cannot retire another writer recovery copy.
+    @MainActor
+    func saveInitialProjectReceipt(ownerUserId: String, projectId: String,
+                                   draft: String, baseVersionId: String, dirty: Bool) -> Bool {
+        if let existing = dirtyOrdinarySnapshot(ownerUserId: ownerUserId, projectId: projectId),
+           !existing.draft.utf8.elementsEqual(draft.utf8) {
+            guard dirty else { return true }
+            switch saveInVacantRecoverySlot(ownerUserId: ownerUserId, projectId: projectId,
+                                             draft: draft, baseVersionId: baseVersionId) {
+            case .present, .stored: return true
+            case .occupied, .unconfirmed: return false
+            }
+        }
+        return save(ownerUserId: ownerUserId, projectId: projectId, draft: draft,
+                    baseVersionId: baseVersionId, dirty: dirty)
+    }
+
     /// Keeps a dirty local draft separate from the ordinary recovery slot so
     /// a remote live-sync draft can be followed without overwriting the only
     /// copy of the writer's local text.
