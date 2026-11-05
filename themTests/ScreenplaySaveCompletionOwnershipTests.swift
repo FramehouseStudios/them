@@ -565,6 +565,62 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         XCTAssertFalse(fixture.model.debugIsDraftSaveInFlight)
     }
 
+    func testQueuedConflictAfterServerHydrationKeepsWriterDraftOnPage() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        let writerDraft = fixture.a + "\r\nWriter's exact queued words.  \t"
+        let serverDraft = "Other A words"
+        fixture.select("a", draft: serverDraft, base: "a-remote")
+        fixture.store.save(ownerUserId: fixture.owner, projectId: "a", draft: writerDraft,
+            baseVersionId: "a-base", dirty: true)
+        var queued = ScreenplayDraftSaveOutboxEntry(id: UUID().uuidString, projectId: "a", ownerUserId: fixture.owner,
+            draft: writerDraft, title: "A", phase: "draft", notes: "", source: "studio_manual",
+            studioWriteAnchors: [], screenplayBindings: [], baseVersionId: "a-base", createdAt: 1, updatedAt: 1,
+            status: .pending, retries: 0, nextAttemptAt: 0, lastError: "")
+        queued.deliveryOrigin = try fixture.currentOrigin()
+        try await fixture.queue.enqueue(queued)
+        let drain = Task { await fixture.model.resumeQueuedDraftSavesIfNeeded(force: true) }
+        defer { fixture.peer.releaseFirst(.offline); drain.cancel() }
+        try await fixture.waitForFirstSave()
+        fixture.peer.releaseFirst(.conflict)
+        await drain.value
+        XCTAssertEqual(Data(fixture.model.fountainDraft.utf8), Data(writerDraft.utf8),
+            "A stale queued save must not leave the server copy presented as the writer's local conflict page")
+        XCTAssertTrue(fixture.model.hasUnsavedDraftChanges)
+        let rows = try await fixture.reloadQueueEntries()
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.status, .parked)
+        XCTAssertEqual(rows.first.map { Data($0.draft.utf8) }, Data(writerDraft.utf8))
+        let recovery = fixture.store.dirtyOrdinarySnapshot(ownerUserId: fixture.owner, projectId: "a")
+        XCTAssertEqual(recovery.map { Data($0.draft.utf8) }, Data(writerDraft.utf8))
+    }
+
+    func testQueuedConflictNeverOverwritesDifferentDirtyRecoveryCopy() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        let queuedDraft = fixture.a + "\nEarlier queued words."
+        let newerDraft = queuedDraft + "\nNewer exact words.  \t"
+        fixture.select("a", draft: "Other A words", base: "a-remote")
+        fixture.store.save(ownerUserId: fixture.owner, projectId: "a", draft: newerDraft,
+            baseVersionId: "a-base", dirty: true)
+        var queued = ScreenplayDraftSaveOutboxEntry(id: UUID().uuidString, projectId: "a", ownerUserId: fixture.owner,
+            draft: queuedDraft, title: "A", phase: "draft", notes: "", source: "studio_manual",
+            studioWriteAnchors: [], screenplayBindings: [], baseVersionId: "a-base", createdAt: 1, updatedAt: 1,
+            status: .pending, retries: 0, nextAttemptAt: 0, lastError: "")
+        queued.deliveryOrigin = try fixture.currentOrigin()
+        try await fixture.queue.enqueue(queued)
+        let drain = Task { await fixture.model.resumeQueuedDraftSavesIfNeeded(force: true) }
+        defer { fixture.peer.releaseFirst(.offline); drain.cancel() }
+        try await fixture.waitForFirstSave()
+        fixture.peer.releaseFirst(.conflict)
+        await drain.value
+        let recovery = fixture.store.dirtyOrdinarySnapshot(ownerUserId: fixture.owner, projectId: "a")
+        XCTAssertEqual(recovery.map { Data($0.draft.utf8) }, Data(newerDraft.utf8))
+        let rows = try await fixture.reloadQueueEntries()
+        XCTAssertEqual(rows.first?.status, .parked)
+        XCTAssertEqual(rows.first.map { Data($0.draft.utf8) }, Data(queuedDraft.utf8))
+    }
+
     func testManualSaveBehindBackgroundDrainIsDispatchedExactlyOnce() async throws {
         try await assertPendingSaveFollowsBackgroundDrain(switchProject: false)
     }

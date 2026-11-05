@@ -8059,6 +8059,29 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 guard let retained = try await draftSaveOutbox.retainConflict(request.outboxEntry) else { return nil }
                 guard ownsCompletion() else { return nil }
+                let bridge = ScreenplayLiveDraftBridge.shared
+                let localRecovery = localDraftRecoveryStore.dirtyOrdinarySnapshot(
+                    ownerUserId: request.ownerUserId, projectId: request.projectId)
+                let serverIsVisible = result.payload.serverVersion?.draft.map {
+                    fountainDraft.utf8.elementsEqual($0.utf8) && bridge.draftText.utf8.elementsEqual($0.utf8)
+                } ?? false
+                // Only replace an untouched server page when the durable local
+                // copy proves this exact queued draft and its document origin.
+                if serverIsVisible, !isManualDraftEditing,
+                   let localRecovery, localRecovery.draft.utf8.elementsEqual(retained.draft.utf8),
+                   localRecovery.baseVersionId.utf8.elementsEqual(retained.baseVersionId.utf8),
+                   let origin = retained.deliveryOrigin, origin.documentID == bridge.draftOrigin.documentID,
+                   origin.permitsBackend(BackendAuthClient.resolvedBackendBaseURL()),
+                   bridge.adoptLoadedProjectDraft(retained.draft, projectID: retained.projectId,
+                       versionID: retained.baseVersionId, owner: request.authContext, queuedEntry: retained) {
+                    isHydratingDraft = true
+                    fountainDraft = retained.draft
+                    isHydratingDraft = false
+                    loadedDraftProjectID = retained.projectId
+                    latestVersionID = retained.baseVersionId
+                    isManualDraftEditing = true
+                    lastManualDraftEditAt = Date()
+                }
                 conflictState = SaveConflictState(
                     projectId: request.projectId,
                     baseVersionId: baseVersionId,
@@ -8071,12 +8094,17 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 hasUnsavedDraftChanges = true
                 autosaveStatusText = "Conflict detected"
                 infoText = "Another collaborator updated this draft. Choose keep mine or load server."
-                persistRecoveryForUnconfirmedSave(
-                    projectId: request.projectId,
-                    draft: fountainDraft,
-                    baseVersionId: baseVersionId.isEmpty ? latestVersionID : baseVersionId,
-                    surfaceCandidate: false
-                )
+                // Never replace a different dirty recovery copy with a server
+                // page merely because the queued conflict arrived late.
+                if !serverIsVisible || isManualDraftEditing || localRecovery == nil ||
+                    localRecovery?.draft.utf8.elementsEqual(fountainDraft.utf8) == true {
+                    persistRecoveryForUnconfirmedSave(
+                        projectId: request.projectId,
+                        draft: fountainDraft,
+                        baseVersionId: baseVersionId.isEmpty ? latestVersionID : baseVersionId,
+                        surfaceCandidate: false
+                    )
+                }
                 return nil
             }
             let nextVersionId = (result.payload.versionId ?? result.payload.version?.id ?? "")
