@@ -2258,24 +2258,9 @@ Replace is best when this file should become the script you edit. Append is safe
                     proxy.scrollTo("studio.pending-question.anchor", anchor: .top)
                 }
             }
-            .onChange(of: isDirectionOneComposerExpanded) { _, isExpanded in
-                guard isExpanded else { return }
-                Task { @MainActor in
-                    await Task.yield()
-                    withAnimation(.easeOut(duration: 0.20)) {
-                        proxy.scrollTo("studio.composer.anchor", anchor: .top)
-                    }
-                }
-            }
-            .onChange(of: studioPromptFocused) { _, isFocused in
-                guard isFocused else { return }
-                Task { @MainActor in
-                    await Task.yield()
-                    withAnimation(.easeOut(duration: 0.20)) {
-                        proxy.scrollTo("studio.prompt.anchor", anchor: .center)
-                    }
-                }
-            }
+            .modifier(ScreenplayStudioComposerVisibility(
+                proxy: proxy, expanded: isDirectionOneComposerExpanded, focused: studioPromptFocused
+            ))
             .onDisappear {
                 inspectorAutoScrollTask?.cancel()
                 inspectorAutoScrollTask = nil

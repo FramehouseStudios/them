@@ -179,6 +179,11 @@ final class V1SmokeUITests: XCTestCase {
             XCTFail("The Studio prompt field was not tappable."); return
         }
         field.tap()
+        guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
+        field.typeText("Help me shape this scene")
+        XCTAssertTrue(waitForHittability(of: field, timeout: 8),
+            "The focused prompt must remain visible above the keyboard while writing.")
+        XCTAssertEqual(field.value as? String, "Help me shape this scene")
 
         let inlineSend = app.buttons["studio.prompt.send"]
         XCTAssertTrue(inlineSend.exists, "The composer must retain its single visible Send action.")
