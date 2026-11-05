@@ -430,6 +430,7 @@ struct ScreenplayStudioScreen: View {
             "latest_version_id": vm.latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines),
             "conflict_project_id": vm.conflictState?.projectId ?? "",
             "conflict_server_version_id": vm.conflictState?.serverVersionId ?? "",
+            "conflict_recovery_stage": vm.debugConflictRecoveryStage,
             "conflict_fixture_applied": didApplyUITestDraftConflictFixture,
             "recovery_present": vm.recoveryCandidate != nil,
             "recovery_slot": vm.recoveryCandidate.map { $0.isPreservedConflict ? "preservedConflict" : "ordinary" } ?? "",

@@ -1507,6 +1507,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
         case canonicalVersion(BackendScreenplayProjectSummary, BackendScreenplayVersion, URL?)
     }
 
+#if DEBUG
+    private(set) var debugConflictRecoveryStage = "not_checked"
+#endif
+
     private enum RelaunchedConflictRecovery {
         case none
         case restore(ScreenplayDraftSaveOutboxEntry, BackendScreenplayVersion)
@@ -2308,15 +2312,32 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private func relaunchedConflictRecovery(project: BackendScreenplayProjectSummary,
         owner: ScreenplayStudioAuthContext, backend: URL,
         parked: [ScreenplayDraftSaveOutboxEntry]) async throws -> RelaunchedConflictRecovery {
-        guard !parked.isEmpty else { return .none }
+        func held(_ stage: String) -> RelaunchedConflictRecovery {
+#if DEBUG
+            debugConflictRecoveryStage = stage
+#endif
+            return .held
+        }
+        guard !parked.isEmpty else {
+#if DEBUG
+            debugConflictRecoveryStage = "no_parked_conflict"
+#endif
+            return .none
+        }
         guard case .current(let serverVersion) = ScreenplaySaveHeadPreflight.evaluate(project),
-              let serverDraft = serverVersion.draft else { return .held }
+              let serverDraft = serverVersion.draft else { return held("unverified_server") }
         guard let recovery = localDraftRecoveryStore.recoverySnapshot(
-            ownerUserId: owner.userID, projectId: project.id, serverDraft: serverDraft) else { return .held }
+            ownerUserId: owner.userID, projectId: project.id, serverDraft: serverDraft) else { return held("no_recovery_snapshot") }
         let matching = parked.filter { row in
             row.draft.utf8.elementsEqual(recovery.draft.utf8) &&
                 row.baseVersionId.utf8.elementsEqual(recovery.baseVersionId.utf8) &&
                 row.deliveryOrigin?.permitsBackend(backend) == true
+        }
+        if matching.isEmpty {
+            let sameDraft = parked.filter { $0.draft.utf8.elementsEqual(recovery.draft.utf8) }
+            guard !sameDraft.isEmpty else { return held("recovery_draft_mismatch") }
+            guard sameDraft.contains(where: { $0.baseVersionId.utf8.elementsEqual(recovery.baseVersionId.utf8) }) else { return held("recovery_base_mismatch") }
+            return held("recovery_backend_mismatch")
         }
         var origins: [ScreenplayDraftSaveOrigin] = []
         for row in matching {
@@ -2328,9 +2349,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 projectId: project.id, ownerUserId: owner.userID,
                 deliveryOrigin: origin, draft: recovery.draft) { tips.append(tip) }
         }
-        guard tips.count == 1, let retainedOrigin = tips[0].deliveryOrigin,
-              ScreenplayLiveDraftBridge.shared.draftOrigin.documentID == retainedOrigin.documentID,
-              retainedOrigin.permitsBackend(backend) else { return .held }
+        guard tips.count == 1, let retainedOrigin = tips[0].deliveryOrigin else { return held("no_unique_lineage") }
+        guard ScreenplayLiveDraftBridge.shared.draftOrigin.documentID == retainedOrigin.documentID,
+              retainedOrigin.permitsBackend(backend) else { return held("document_or_backend_mismatch") }
+#if DEBUG
+        debugConflictRecoveryStage = "verified"
+#endif
         return .restore(tips[0], serverVersion)
     }
 
