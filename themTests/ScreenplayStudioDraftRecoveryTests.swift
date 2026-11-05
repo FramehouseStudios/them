@@ -1551,6 +1551,28 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     }
 
     @MainActor
+    func testServerDraftObserverCannotOverwriteWriterRecoveryDuringConflict() async {
+        let projectID = "server-observer-conflict-\(UUID().uuidString)"
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let server = "Collaborator server page"
+        let writer = "Writer offline page with exact trailing spaces.  \n"
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.autosaveEnabled = false
+        model.selectedProjectID = projectID
+        model.applyServerDraft(server, versionId: "remote")
+        XCTAssertTrue(store.save(ownerUserId: owner, projectId: projectID, draft: writer,
+            baseVersionId: "base", dirty: true))
+        model.conflictState = .init(projectId: projectID, baseVersionId: "base", serverVersionId: "remote",
+            serverDraft: server, serverDraftExcerpt: server, serverUpdatedAt: 0)
+        model.hasUnsavedDraftChanges = true
+        await model.handleDraftDebouncedChange(server)
+        let recovery = store.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: projectID)
+        XCTAssertEqual(recovery.map { Data($0.draft.utf8) }, Data(writer.utf8))
+        XCTAssertEqual(recovery?.baseVersionId, "base")
+        XCTAssertNotNil(model.conflictState)
+    }
+
+    @MainActor
     func testStaleBlankObserverCannotClearActiveWriterRecoveryOrDirtyState() async {
         // Adapt 636ddfc4 to the existing injected recovery owner at this
         // earlier boundary; no later queue-injection framework is required.

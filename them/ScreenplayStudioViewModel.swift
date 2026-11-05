@@ -7102,8 +7102,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let projectID = selectedProjectID
         let authContext = currentStudioAuthContext()
         func isCurrentDraft() -> Bool {
-            !Task.isCancelled && !isHydratingDraft && selectedProjectID == projectID
-                && authContextIsCurrent(authContext) && fountainDraft.utf8.elementsEqual(draft.utf8)
+            guard !Task.isCancelled, !isHydratingDraft, selectedProjectID == projectID,
+                  authContextIsCurrent(authContext), fountainDraft.utf8.elementsEqual(draft.utf8) else { return false }
+            // Recheck after every suspension: a server-page observer cannot
+            // replace an independent writer copy while conflict is unresolved.
+            if let conflict = conflictState, conflict.projectId == projectID, !isManualDraftEditing,
+               draft.utf8.elementsEqual(conflict.serverDraft.utf8),
+               let recovery = localDraftRecoveryStore.dirtyOrdinarySnapshot(ownerUserId: authContext.userID, projectId: projectID),
+               !recovery.draft.utf8.elementsEqual(draft.utf8) { return false }
+            return true
         }
         // The debounce's Task may start after a newer edit, and layout calls
         // suspend. An old snapshot must not retire or persist the writer's page.
