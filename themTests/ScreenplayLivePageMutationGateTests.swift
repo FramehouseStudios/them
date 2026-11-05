@@ -150,6 +150,201 @@ final class ScreenplayLivePageMutationGateTests: XCTestCase {
         try await proveNativeInsertion(mode: .insert)
     }
 
+    func testNativeStaleReplacementDoesNotOverwriteChangedLine() {
+        let current = "INT. ROOM - DAY\nJOHN\nThe writer changed this line.\n"
+        let target = ScreenplayPendingReplacementTarget(id: UUID(), sourceWriteID: "old", startLine: 3, endLine: 3, currentText: "The original line.")
+        for mode in [ScreenplayInsertionRequest.Mode.insert, .streamPreview, .streamCommit,
+                     .streamInsertProgress, .streamInsertFinalize, .voiceRevealPrepare] {
+            let request = ScreenplayInsertionRequest(text: "An unrelated replacement.", mode: mode, replacementTarget: target)
+            var model = current
+            var pending: ScreenplayInsertionRequest? = request
+            let editor = UITextView(); editor.text = current
+            let coordinator = IOSCursorInsertTextEditor(text: Binding(get: { model }, set: { model = $0 }),
+                activeScreenplayElement: .constant(.action), insertionRequest: Binding(get: { pending }, set: { pending = $0 }),
+                lineJumpRequest: .constant(nil), lineHighlightRequest: .constant(nil), anchoredTextRectRequest: .constant(nil),
+                anchoredTextRectSnapshot: .constant(nil), editorFocusRequest: .constant(nil), editorActionRequest: .constant(nil),
+                editorSelection: .constant(nil), currentCursorLine: .constant(1), lastCommittedWrite: .constant(nil),
+                pendingReplacementTarget: .constant(nil), submittedReplacementTarget: .constant(nil)).makeCoordinator()
+            coordinator.textView = editor
+            coordinator.primeParagraphElements(for: current, attributedText: editor.attributedText)
+            coordinator.applyInsertion(request)
+            XCTAssertEqual(editor.text, current, "A changed target must never be overwritten by a stale rewrite.")
+            XCTAssertEqual(pending?.text, request.text, "The rejected request must remain available for recovery.")
+        }
+    }
+
+    func testRejectedLiveRewriteKeepsReceivedReplyInReopenedOutbox() async throws {
+        let bridge = ScreenplayLiveDraftBridge.shared
+        bridge.reconcileAccountStorage()
+        let saved = (bridge.draftText, bridge.preferredProjectID, bridge.preferredVersionID, bridge.pendingInsertion)
+        defer {
+            bridge.pendingInsertion = saved.3
+            _ = bridge.adoptLoadedProjectDraft(saved.0, projectID: saved.1, versionID: saved.2, owner: .current())
+        }
+        let current = "INT. ROOM - DAY\nJOHN\nThe writer changed this line.\n"
+        _ = bridge.adoptLoadedProjectDraft(current, projectID: "native-a", versionID: "v1", owner: .current())
+        let document = try XCTUnwrap(bridge.captureLiveTalkDocument())
+        let nativeBackend = BackendAuthClient.resolvedBackendBaseURL(), box = queue(backendURL: nativeBackend)
+        let live = try await context(box, document: document, backendURL: nativeBackend)
+        let audio = Data("ID3 retained reply".utf8)
+        let receipt = try await box.completeLiveTalk(live.request.admission,
+            response: .init(statusCode: 200, headers: ["content-type": "audio/mpeg", "x-reply": "A better line.", "x-turn-id": "stale-rewrite"], body: audio),
+            responseURL: nativeBackend.appendingPathComponent("talk"))
+        let target = ScreenplayPendingReplacementTarget(id: UUID(), sourceWriteID: "old", startLine: 3, endLine: 3, currentText: "The original line.")
+        let request = ScreenplayInsertionRequest(text: "A better line.", replacementTarget: target, requiresLivePageContext: true, livePageContext: live)
+        bridge.pendingInsertion = request
+        var model = current
+        let editor = UITextView(); editor.text = current
+        let coordinator = IOSCursorInsertTextEditor(text: Binding(get: { model }, set: { model = $0 }),
+            activeScreenplayElement: .constant(.action), insertionRequest: Binding(get: { bridge.pendingInsertion }, set: { bridge.pendingInsertion = $0 }),
+            lineJumpRequest: .constant(nil), lineHighlightRequest: .constant(nil), anchoredTextRectRequest: .constant(nil),
+            anchoredTextRectSnapshot: .constant(nil), editorFocusRequest: .constant(nil), editorActionRequest: .constant(nil),
+            editorSelection: .constant(nil), currentCursorLine: .constant(1), lastCommittedWrite: .constant(nil),
+            pendingReplacementTarget: .constant(nil), submittedReplacementTarget: .constant(nil)).makeCoordinator()
+        coordinator.textView = editor
+        coordinator.primeParagraphElements(for: current, attributedText: editor.attributedText)
+        XCTAssertTrue(live.permitsDelivery(in: bridge), "Fixture must pass the real live-document authority check.")
+        coordinator.applyInsertion(request)
+        XCTAssertEqual(coordinator.lastAppliedInsertionID, request.id, "The native stale-target guard must handle this request.")
+        XCTAssertEqual(editor.text, current)
+        let retained = try await queue(backendURL: nativeBackend).receivedReply(receipt.entryID, initiatingIdentity: owner, backendURL: nativeBackend)
+        XCTAssertEqual(retained.response.body, audio)
+        XCTAssertEqual(retained.response.headers["x-reply"], "A better line.")
+        XCTAssertNil(retained.pageDelivery, "A rejected target must not be recorded as a delivered page mutation.")
+    }
+
+    func testRejectedRewriteCannotPublishStatusOverNewerRequest() async throws {
+        let bridge = ScreenplayLiveDraftBridge.shared
+        let oldStatus = bridge.autoInsertStatusText
+        defer { bridge.autoInsertStatusText = oldStatus }
+        bridge.autoInsertStatusText = "Newer request status"
+        let current = "JOHN\nChanged line.\n"
+        let target = ScreenplayPendingReplacementTarget(id: UUID(), sourceWriteID: "old", startLine: 2, endLine: 2, currentText: "Original line.")
+        let rejected = ScreenplayInsertionRequest(text: "Old reply", replacementTarget: target)
+        var pending: ScreenplayInsertionRequest? = rejected
+        var model = current
+        let editor = UITextView(); editor.text = current
+        let coordinator = IOSCursorInsertTextEditor(text: Binding(get: { model }, set: { model = $0 }),
+            activeScreenplayElement: .constant(.action), insertionRequest: Binding(get: { pending }, set: { pending = $0 }),
+            lineJumpRequest: .constant(nil), lineHighlightRequest: .constant(nil), anchoredTextRectRequest: .constant(nil),
+            anchoredTextRectSnapshot: .constant(nil), editorFocusRequest: .constant(nil), editorActionRequest: .constant(nil),
+            editorSelection: .constant(nil), currentCursorLine: .constant(1), lastCommittedWrite: .constant(nil),
+            pendingReplacementTarget: .constant(nil), submittedReplacementTarget: .constant(nil)).makeCoordinator()
+        coordinator.textView = editor
+        coordinator.applyInsertion(rejected)
+        pending = ScreenplayInsertionRequest(text: "New reply")
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(bridge.autoInsertStatusText, "Newer request status")
+    }
+
+    func testNativeCurrentReplacementChangesOnlyTargetLine() {
+        let current = "INT. ROOM - DAY\nJOHN\nThe original line.\nNext line.\n"
+        let target = ScreenplayPendingReplacementTarget(id: UUID(), sourceWriteID: "old", startLine: 3, endLine: 3, currentText: "The original line.")
+        let request = ScreenplayInsertionRequest(text: "A better line.", replacementTarget: target)
+        var model = current
+        let editor = UITextView(); editor.text = current
+        let coordinator = IOSCursorInsertTextEditor(text: Binding(get: { model }, set: { model = $0 }),
+            activeScreenplayElement: .constant(.action), insertionRequest: .constant(request),
+            lineJumpRequest: .constant(nil), lineHighlightRequest: .constant(nil), anchoredTextRectRequest: .constant(nil),
+            anchoredTextRectSnapshot: .constant(nil), editorFocusRequest: .constant(nil), editorActionRequest: .constant(nil),
+            editorSelection: .constant(nil), currentCursorLine: .constant(1), lastCommittedWrite: .constant(nil),
+            pendingReplacementTarget: .constant(nil), submittedReplacementTarget: .constant(nil)).makeCoordinator()
+        coordinator.textView = editor
+        coordinator.primeParagraphElements(for: current, attributedText: editor.attributedText)
+        coordinator.applyInsertion(request)
+        XCTAssertEqual(editor.text, "INT. ROOM - DAY\nJOHN\nA better line.\nNext line.\n")
+    }
+
+    func testPreviewCancelDoesNotOverwriteWriterEdit() {
+        let current = "JOHN\nOriginal line.\n"
+        let target = ScreenplayPendingReplacementTarget(id: UUID(), sourceWriteID: "old", startLine: 2, endLine: 2, currentText: "Original line.")
+        let request = ScreenplayInsertionRequest(text: "Preview line.", mode: .streamPreview, replacementTarget: target)
+        var model = current
+        let editor = UITextView(); editor.text = current
+        let coordinator = IOSCursorInsertTextEditor(text: Binding(get: { model }, set: { model = $0 }),
+            activeScreenplayElement: .constant(.action), insertionRequest: .constant(request),
+            lineJumpRequest: .constant(nil), lineHighlightRequest: .constant(nil), anchoredTextRectRequest: .constant(nil),
+            anchoredTextRectSnapshot: .constant(nil), editorFocusRequest: .constant(nil), editorActionRequest: .constant(nil),
+            editorSelection: .constant(nil), currentCursorLine: .constant(1), lastCommittedWrite: .constant(nil),
+            pendingReplacementTarget: .constant(nil), submittedReplacementTarget: .constant(nil)).makeCoordinator()
+        coordinator.textView = editor
+        coordinator.primeParagraphElements(for: current, attributedText: editor.attributedText)
+        coordinator.applyInsertion(request)
+        XCTAssertEqual(editor.text, "JOHN\nPreview line.\n")
+        editor.text = "JOHN\nWriter's own.\n"
+        coordinator.textViewDidChange(editor)
+        coordinator.applyInsertion(ScreenplayInsertionRequest(text: "", mode: .streamCancel))
+        XCTAssertEqual(editor.text, "JOHN\nWriter's own.\n", "Cancel must not roll back a newer writer edit.")
+    }
+
+    func testUneditedPreviewCancelRestoresOriginalLine() {
+        let current = "JOHN\nOriginal line.\n"
+        let target = ScreenplayPendingReplacementTarget(id: UUID(), sourceWriteID: "old", startLine: 2, endLine: 2, currentText: "Original line.")
+        let request = ScreenplayInsertionRequest(text: "Preview line.", mode: .streamPreview, replacementTarget: target)
+        var model = current
+        let editor = UITextView(); editor.text = current
+        let coordinator = IOSCursorInsertTextEditor(text: Binding(get: { model }, set: { model = $0 }),
+            activeScreenplayElement: .constant(.action), insertionRequest: .constant(request),
+            lineJumpRequest: .constant(nil), lineHighlightRequest: .constant(nil), anchoredTextRectRequest: .constant(nil),
+            anchoredTextRectSnapshot: .constant(nil), editorFocusRequest: .constant(nil), editorActionRequest: .constant(nil),
+            editorSelection: .constant(nil), currentCursorLine: .constant(1), lastCommittedWrite: .constant(nil),
+            pendingReplacementTarget: .constant(nil), submittedReplacementTarget: .constant(nil)).makeCoordinator()
+        coordinator.textView = editor
+        coordinator.primeParagraphElements(for: current, attributedText: editor.attributedText)
+        coordinator.applyInsertion(request)
+        XCTAssertEqual(editor.text, "JOHN\nPreview line.\n")
+        coordinator.applyInsertion(ScreenplayInsertionRequest(text: "", mode: .streamCancel))
+        XCTAssertEqual(editor.text, current, "Cancel should restore the original line when no writer edit occurred.")
+    }
+
+    func testNativePartialReplacementStaysWithinCapturedLine() {
+        let current = "JOHN\nStay.\nPlease Stay. here.\n"
+        let target = ScreenplayPendingReplacementTarget(id: UUID(), sourceWriteID: "old", startLine: 3, endLine: 3, currentText: "Stay.")
+        let request = ScreenplayInsertionRequest(text: "Wait.", replacementTarget: target)
+        var model = current
+        let editor = UITextView(); editor.text = current
+        let coordinator = IOSCursorInsertTextEditor(text: Binding(get: { model }, set: { model = $0 }),
+            activeScreenplayElement: .constant(.action), insertionRequest: .constant(request),
+            lineJumpRequest: .constant(nil), lineHighlightRequest: .constant(nil), anchoredTextRectRequest: .constant(nil),
+            anchoredTextRectSnapshot: .constant(nil), editorFocusRequest: .constant(nil), editorActionRequest: .constant(nil),
+            editorSelection: .constant(nil), currentCursorLine: .constant(1), lastCommittedWrite: .constant(nil),
+            pendingReplacementTarget: .constant(nil), submittedReplacementTarget: .constant(nil)).makeCoordinator()
+        coordinator.textView = editor
+        coordinator.primeParagraphElements(for: current, attributedText: editor.attributedText)
+        coordinator.applyInsertion(request)
+        XCTAssertEqual(editor.text, "JOHN\nStay.\nPlease Wait. here.\n")
+    }
+
+    func testNativeReplacementPreservesSurroundingWhitespace() {
+        let current = "INT. ROOM - DAY\nJOHN\n  The original line.  \n"
+        let target = ScreenplayPendingReplacementTarget(id: UUID(), sourceWriteID: "old", startLine: 3, endLine: 3, currentText: "The original line.")
+        let request = ScreenplayInsertionRequest(text: "A better line.", replacementTarget: target)
+        var model = current
+        let editor = UITextView(); editor.text = current
+        let coordinator = IOSCursorInsertTextEditor(text: Binding(get: { model }, set: { model = $0 }),
+            activeScreenplayElement: .constant(.action), insertionRequest: .constant(request),
+            lineJumpRequest: .constant(nil), lineHighlightRequest: .constant(nil), anchoredTextRectRequest: .constant(nil),
+            anchoredTextRectSnapshot: .constant(nil), editorFocusRequest: .constant(nil), editorActionRequest: .constant(nil),
+            editorSelection: .constant(nil), currentCursorLine: .constant(1), lastCommittedWrite: .constant(nil),
+            pendingReplacementTarget: .constant(nil), submittedReplacementTarget: .constant(nil)).makeCoordinator()
+        coordinator.textView = editor
+        coordinator.primeParagraphElements(for: current, attributedText: editor.attributedText)
+        coordinator.applyInsertion(request)
+        XCTAssertEqual(editor.text, "INT. ROOM - DAY\nJOHN\n  A better line.  \n")
+    }
+
+    func testReplacementTargetRequiresExactOrUniqueText() {
+        let target = ScreenplayPendingReplacementTarget(id: UUID(), sourceWriteID: "old", startLine: 2, endLine: 2, currentText: "Stay.")
+        XCTAssertTrue(screenplayReplacementTargetIsCurrent(target, in: "JOHN\nStay.\n"))
+        XCTAssertFalse(screenplayReplacementTargetIsCurrent(target, in: "New line\nJOHN\nStay.\n"))
+        XCTAssertFalse(screenplayReplacementTargetIsCurrent(target, in: "JOHN\nChanged.\nStay.\n"))
+        XCTAssertTrue(screenplayReplacementTargetIsCurrent(target, in: "JOHN\nPlease stay here.\n".replacingOccurrences(of: "stay", with: "Stay.")))
+        XCTAssertFalse(screenplayReplacementTargetIsCurrent(target, in: "JOHN\nChanged.\n"))
+        XCTAssertFalse(screenplayReplacementTargetIsCurrent(target, in: "Stay.\nChanged.\nStay.\n"))
+        let accent = ScreenplayPendingReplacementTarget(id: UUID(), sourceWriteID: "old", startLine: 1, endLine: 1, currentText: "Café")
+        XCTAssertFalse(screenplayReplacementTargetIsCurrent(accent, in: "Cafe\u{0301}"))
+    }
+
     func testActualNativeVoiceRevealPrepareWaitsForDurableIntent() async throws {
         try await proveNativeInsertion(mode: .voiceRevealPrepare)
     }
