@@ -17,7 +17,7 @@ async function fixture(t, options = {}) {
     if (req.url === '/screenplay/projects/initialize') {
       return res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ project_id: 'fixture-created' }));
     }
-    const body = Buffer.from(`data: {"reply":"café 🌙 ${payload.screenplay_project_id || ''}"}\n\ndata: {"done":true}\n\n  `);
+    const body = Buffer.from(payload.progressive ? 'event: meta\ndata: {}\n\nevent: delta\ndata: {"delta":"café 🌙"}\n\nevent: done\ndata: {}\n\n' : `data: {"reply":"café 🌙 ${payload.screenplay_project_id || ''}"}\n\ndata: {"done":true}\n\n  `);
     res.writeHead(200, { 'content-type': 'text/event-stream' }).end(body);
   });
   upstream.listen(0, '127.0.0.1');
@@ -120,4 +120,27 @@ test('same-document resubmissions have independent barriers; rejected output is 
   assert.equal((await fetch(f.base + '/screenplay/projects/initialize', {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
   })).status, 200, 'render mode must not hold setup/project creation');
+});
+
+
+test('partial barrier delivers the first real SSE delta and holds the remaining exact bytes', async t => {
+  const f = await fixture(t, { holdCreations: false, holdStudioRenders: true, holdAfterFirstStudioDelta: true });
+  const response = await f.send('project-a', { progressive: true });
+  const reader = response.body.getReader();
+  const first = await reader.read();
+  assert.equal(new TextDecoder().decode(first.value), 'event: meta\ndata: {}\n\nevent: delta\ndata: {"delta":"café 🌙"}\n\n');
+  const state = await f.held(1);
+  assert.equal(state.renders[0].partial_sent, true);
+  const remainder = reader.read();
+  assert.equal(await Promise.race([remainder.then(() => 'delivered'), new Promise(resolve => setTimeout(() => resolve('held'), 40))]), 'held');
+  assert.equal((await f.release(state.renders[0].id)).status, 200);
+  assert.equal(new TextDecoder().decode((await remainder).value), 'event: done\ndata: {}\n\n');
+  assert.equal((await reader.read()).done, true);
+});
+
+test('partial barrier rejects a stream without a delta instead of presenting invented evidence', async t => {
+  const f = await fixture(t, { holdCreations: false, holdStudioRenders: true, holdAfterFirstStudioDelta: true });
+  const response = await f.send('ordinary');
+  assert.equal(response.status, 502);
+  assert.equal((await f.state()).renders[0].held, false);
 });

@@ -521,6 +521,11 @@ final class V1SmokeUITests: XCTestCase {
     }
 
     @MainActor
+    func test_home_raw_audio_manual_edit_interrupts_page() async throws {
+        try await assertHomeVoiceHandoff(rawAudio: true, editAfterFirstChunk: true)
+    }
+
+    @MainActor
     func test_studio_refused_write_preserves_saved_page_despite_page_selection() async throws {
 #if os(iOS)
         guard let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? ""),
@@ -565,7 +570,7 @@ final class V1SmokeUITests: XCTestCase {
     }
 
     @MainActor
-    private func assertHomeVoiceHandoff(rawAudio: Bool, stopAfterFirstChunk: Bool = false) async throws {
+    private func assertHomeVoiceHandoff(rawAudio: Bool, stopAfterFirstChunk: Bool = false, editAfterFirstChunk: Bool = false) async throws {
 #if os(iOS)
         // Fresh simulators can show this setup banner during the timed Stop tap.
         // Dismiss only the observed OS notice; do not wait out the active write.
@@ -595,6 +600,36 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(element(identifier: "studio.surface", in: app).waitForExistence(timeout: 20))
         XCTAssertTrue(waitForDraft(in: app, containing: marker, timeout: 45), "Confirmed Home speech did not reach the real page path")
         let editor = textInput("studio.draft.editor", in: app)
+        if editAfterFirstChunk {
+            let stop = app.buttons["studio.compact.talk"]
+            XCTAssertEqual(stop.label, "Stop talking", "The voice turn must be active during the edit")
+            guard waitForHittability(of: editor, timeout: 8) else {
+                throw NSError(domain: "themUITests.voiceTakeback", code: 1, userInfo: [NSLocalizedDescriptionKey: "Voice page was not editable"])
+            }
+            editor.tap(); editor.typeText(" WRITER OWNS THIS EDIT ")
+            let accepted = XCTNSPredicateExpectation(predicate: NSPredicate { object, _ in
+                ((object as? XCUIElement)?.value as? String ?? "").contains("WRITER OWNS THIS EDIT")
+            }, object: editor)
+            await fulfillment(of: [accepted], timeout: 8)
+            let edited = editor.value as? String ?? ""
+            guard edited.contains("WRITER OWNS THIS EDIT") else {
+                throw NSError(domain: "themUITests.voiceTakeback", code: 2, userInfo: [NSLocalizedDescriptionKey: "Writer edit was not observed"])
+            }
+            let deadline = Date().addingTimeInterval(20)
+            var cancelled = false
+            repeat {
+                let response = try await requestJSON(baseURL: baseURL, path: "/__test/page-cancel-state", method: "GET", headers: [:], body: nil)
+                let events = response.payload["events"] as? [[String: Any]] ?? []
+                cancelled = events.contains { intValue($0["status"]) == 200 && boolValue($0["cancelled"]) && boolValue($0["byReservation"]) }
+                if !cancelled { try await Task.sleep(nanoseconds: 100_000_000) }
+            } while !cancelled && Date() < deadline
+            XCTAssertTrue(cancelled, "The writer edit must cancel the authenticated page reservation")
+            // This fixture's audio is measured at 7.704 seconds; this checks
+            // for late page updates, not real microphone or playback quality.
+            try await Task.sleep(nanoseconds: 9_000_000_000)
+            XCTAssertEqual(Data((editor.value as? String ?? "").utf8), Data(edited.utf8), "Voice completion must not alter the writer edit")
+            return
+        }
         if stopAfterFirstChunk {
             let stop = app.buttons["studio.compact.talk"]
             XCTAssertTrue(waitForHittability(of: stop, timeout: 10))
@@ -2515,7 +2550,17 @@ final class V1SmokeUITests: XCTestCase {
         let confirmQueue = alert.buttons["Queue Request"]
         XCTAssertTrue(confirmQueue.waitForExistence(timeout: 5))
         XCTAssertTrue(confirmQueue.isHittable)
-        confirmQueue.tap()
+        // XCTest can treat this app alert as an interruption and dismiss it
+        // with Cancel before a direct button tap reaches it on hosted iOS.
+        // Handle only this confirmation, then trigger the monitor deliberately.
+        let monitor = addUIInterruptionMonitor(withDescription: "Confirm recovered request") { interruption in
+            guard interruption.label == "Queue Recovered Request?",
+                  interruption.buttons["Queue Request"].exists else { return false }
+            interruption.buttons["Queue Request"].tap()
+            return true
+        }
+        defer { removeUIInterruptionMonitor(monitor) }
+        app.staticTexts["Data Controls"].tap()
         XCTAssertTrue(alert.waitForNonExistence(timeout: 5))
         XCTAssertTrue(staticText(containing: "Recovered request queued with its original ID", in: app).waitForExistence(timeout: 5))
         XCTAssertEqual(reviews.count, 0)
@@ -2638,6 +2683,179 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(before.utf8))
         let project = try await writerLoopProject(id: projectID, fixture: fixture)
         XCTAssertEqual((project["versions"] as? [[String:Any]])?.count, 1, "Review must never save or regenerate a page")
+    }
+
+    // Synthetic provider and authenticated local backend; this is not live-model proof.
+    @MainActor
+    func test_studio_partial_render_writer_edit_survives_late_completion() async throws {
+#if os(iOS)
+        guard let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? ""),
+              let base = URL(string: "http://127.0.0.1:\(port)") else {
+            throw XCTSkip("Task-owned authenticated partial-render barrier required")
+        }
+        let fixture = try await createWriterLoopAuthenticationFixture(baseURL: base)
+        let project = "partial-edit-\(UUID().uuidString.lowercased())"
+        let initial = "INT. CABIN - NIGHT\n\nOriginal writer words.\n"
+        let seed = try await requestJSON(baseURL: base, path: "/screenplay/projects/initialize", method: "POST",
+            headers: fixture.authorizedHeaders, body: ["project_id": project, "title": "Partial edit proof",
+                "initial_draft": ["draft": initial, "client_request_id": UUID().uuidString]])
+        try assertHTTP(seed, context: "Partial edit initial draft")
+        let version = try firstNonEmptyString(seed.payload["version_id"], message: "Initial version missing")
+        var app = launchApp(openStudio: true, restoreProjectID: project, restoreVersionID: version,
+            restoreLoadToken: Int(Date().timeIntervalSince1970), submitTransportMode: "live-backend", launchEnvironment: fixture.appLaunchEnvironment)
+        defer { app.terminate() }
+        XCTAssertTrue(waitForExactWriterLoopDraft(initial, in: app, timeout: 20))
+        guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
+        try submitStudioWriterBlockPrompt("Write a story about two astronauts who discover the observatory sky is a painted set. Put HOME VOICE HANDOFF on the panel.", in: app, pageRouting: true)
+        let held = try await waitForHeldStudioRender(projectID: project, excluding: [], baseURL: base)
+        let barrier = try await requestJSON(baseURL: base, path: "/__them-proof/render", method: "GET", headers: [:], body: nil)
+        try assertHTTP(barrier, context: "Inspect partial render barrier")
+        let renders = barrier.payload["renders"] as? [[String: Any]] ?? []
+        let heldRender = try XCTUnwrap(renders.first { intValue($0["id"]) == held })
+        XCTAssertEqual(stringValue(heldRender["route"]), "/realtime/studio_render_stream")
+        XCTAssertTrue(boolValue(heldRender["partial_sent"]), "The actual stream must deliver a delta before editing")
+        XCTAssertTrue(boolValue(heldRender["first_delta_has_fixture_marker"]), "The released delta must contain the synthetic screenplay marker")
+        XCTAssertTrue(dismissKeyboardIfPresent(in: app))
+        if element(identifier: "studio.sidebar.right.drawer", in: app).exists {
+            app.buttons["studio.sidebar.right.toggle"].tap()
+        }
+        let editor = textInput("studio.draft.editor", in: app)
+        let preview = XCTNSPredicateExpectation(predicate: NSPredicate { object, _ in
+            (object as? XCUIElement)?.value as? String != nil && (((object as? XCUIElement)?.value as? String) ?? "").contains("HOME VOICE HANDOFF")
+        }, object: editor)
+        await fulfillment(of: [preview], timeout: 15)
+        guard ((editor.value as? String) ?? "").contains("HOME VOICE HANDOFF") else {
+            throw NSError(domain: "themUITests.partialRender", code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "The first streamed preview did not reach the page; no editor action was attempted"])
+        }
+        guard waitForHittability(of: editor, timeout: 8) else {
+            throw NSError(domain: "themUITests.partialRender", code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "The screenplay editor was not hittable; no edit was attempted"])
+        }
+        editor.tap(); editor.typeText(" WRITER OWNS THIS EDIT ")
+        let acceptedEdit = XCTNSPredicateExpectation(predicate: NSPredicate { object, _ in
+            ((object as? XCUIElement)?.value as? String ?? "").contains("WRITER OWNS THIS EDIT")
+        }, object: editor)
+        await fulfillment(of: [acceptedEdit], timeout: 8)
+        let edited = editor.value as? String ?? ""
+        guard edited.contains("WRITER OWNS THIS EDIT") else {
+            throw NSError(domain: "themUITests.partialRender", code: 3,
+                userInfo: [NSLocalizedDescriptionKey: "The editor did not expose the writer's exact edit; the held response was not released"])
+        }
+        let released = try await requestJSON(baseURL: base, path: "/__them-proof/render/release", method: "POST", headers: [:], body: ["id": held])
+        try assertHTTP(released, context: "Release late partial render completion")
+        let inspector = app.buttons["studio.sidebar.right.toggle"]
+        guard waitForHittability(of: inspector, timeout: 8) else {
+            throw NSError(domain: "themUITests.partialRender", code: 4,
+                userInfo: [NSLocalizedDescriptionKey: "The inspector toggle was not available after the writer edit"])
+        }
+        inspector.tap()
+        try revealStudioOwnerPromptComposer(in: app)
+        let send = app.buttons["studio.prompt.send"]
+        let idle = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "Send"), object: send)
+        await fulfillment(of: [idle], timeout: 20)
+        // Check the page before inspecting recovery so a missing receipt
+        // cannot obscure a changed or lost writer edit.
+        XCTAssertEqual(Data((editor.value as? String ?? "").utf8), Data(edited.utf8), "Late completion must not alter the writer's edited page")
+        // A durable held receipt establishes that the app processed the late
+        // result, rather than only that the proxy wrote it to a socket.
+        try await waitForStudioHeldRenderCount(1, in: app)
+        _ = try await waitForWriterLoopSavedVersion(projectID: project, draft: edited, fixture: fixture, app: app, timeout: 25)
+        app.terminate()
+        app = launchApp(openStudio: true, resetState: false, launchEnvironment: fixture.appLaunchEnvironment)
+        // The debug snapshot is capped at 1,000 characters; compare the
+        // complete native editor value for this longer synthetic screenplay.
+        let restoredEditor = textInput("studio.draft.editor", in: app)
+        let restored = XCTNSPredicateExpectation(predicate: NSPredicate { object, _ in
+            Data(((object as? XCUIElement)?.value as? String ?? "").utf8) == Data(edited.utf8)
+        }, object: restoredEditor)
+        await fulfillment(of: [restored], timeout: 20)
+        XCTAssertEqual(Data((restoredEditor.value as? String ?? "").utf8), Data(edited.utf8), "Relaunch must restore the exact writer edit")
+#else
+        throw XCTSkip("iPhone partial-render writer-edit workflow")
+#endif
+    }
+
+    // Synthetic provider and authenticated local backend; this is not live-model proof.
+    @MainActor
+    func test_studio_delayed_render_early_writer_edit_survives_late_completion() async throws {
+#if os(iOS)
+        guard let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? ""),
+              let base = URL(string: "http://127.0.0.1:\(port)") else {
+            throw XCTSkip("Task-owned authenticated partial-render barrier required")
+        }
+        let fixture = try await createWriterLoopAuthenticationFixture(baseURL: base)
+        let project = "partial-edit-\(UUID().uuidString.lowercased())"
+        let initial = "INT. CABIN - NIGHT\n\nOriginal writer words.\n"
+        let seed = try await requestJSON(baseURL: base, path: "/screenplay/projects/initialize", method: "POST",
+            headers: fixture.authorizedHeaders, body: ["project_id": project, "title": "Partial edit proof",
+                "initial_draft": ["draft": initial, "client_request_id": UUID().uuidString]])
+        try assertHTTP(seed, context: "Partial edit initial draft")
+        let version = try firstNonEmptyString(seed.payload["version_id"], message: "Initial version missing")
+        var app = launchApp(openStudio: true, restoreProjectID: project, restoreVersionID: version,
+            restoreLoadToken: Int(Date().timeIntervalSince1970), submitTransportMode: "live-backend", launchEnvironment: fixture.appLaunchEnvironment)
+        defer { app.terminate() }
+        XCTAssertTrue(waitForExactWriterLoopDraft(initial, in: app, timeout: 20))
+        guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
+        try submitStudioWriterBlockPrompt("Write a story about two astronauts who discover the observatory sky is a painted set. Put HOME VOICE HANDOFF on the panel.", in: app, pageRouting: true)
+        let held = try await waitForHeldStudioRender(projectID: project, excluding: [], baseURL: base)
+        let barrier = try await requestJSON(baseURL: base, path: "/__them-proof/render", method: "GET", headers: [:], body: nil)
+        try assertHTTP(barrier, context: "Inspect partial render barrier")
+        let renders = barrier.payload["renders"] as? [[String: Any]] ?? []
+        let heldRender = try XCTUnwrap(renders.first { intValue($0["id"]) == held })
+        XCTAssertEqual(stringValue(heldRender["route"]), "/realtime/studio_render_stream")
+        XCTAssertFalse(boolValue(heldRender["partial_sent"]), "The response must remain held before any page preview")
+        XCTAssertTrue(dismissKeyboardIfPresent(in: app))
+        if element(identifier: "studio.sidebar.right.drawer", in: app).exists {
+            app.buttons["studio.sidebar.right.toggle"].tap()
+        }
+        let editor = textInput("studio.draft.editor", in: app)
+        guard waitForHittability(of: editor, timeout: 8) else {
+            throw NSError(domain: "themUITests.partialRender", code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "The screenplay editor was not hittable; no edit was attempted"])
+        }
+        editor.tap(); editor.typeText(" WRITER OWNS THIS EDIT ")
+        let acceptedEdit = XCTNSPredicateExpectation(predicate: NSPredicate { object, _ in
+            ((object as? XCUIElement)?.value as? String ?? "").contains("WRITER OWNS THIS EDIT")
+        }, object: editor)
+        await fulfillment(of: [acceptedEdit], timeout: 8)
+        let edited = editor.value as? String ?? ""
+        guard edited.contains("WRITER OWNS THIS EDIT") else {
+            throw NSError(domain: "themUITests.partialRender", code: 3,
+                userInfo: [NSLocalizedDescriptionKey: "The editor did not expose the writer's exact edit; the held response was not released"])
+        }
+        let released = try await requestJSON(baseURL: base, path: "/__them-proof/render/release", method: "POST", headers: [:], body: ["id": held])
+        try assertHTTP(released, context: "Release late partial render completion")
+        let inspector = app.buttons["studio.sidebar.right.toggle"]
+        guard waitForHittability(of: inspector, timeout: 8) else {
+            throw NSError(domain: "themUITests.partialRender", code: 4,
+                userInfo: [NSLocalizedDescriptionKey: "The inspector toggle was not available after the writer edit"])
+        }
+        inspector.tap()
+        try revealStudioOwnerPromptComposer(in: app)
+        let send = app.buttons["studio.prompt.send"]
+        let idle = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "Send"), object: send)
+        await fulfillment(of: [idle], timeout: 20)
+        // Check the page before inspecting recovery so a missing receipt
+        // cannot obscure a changed or lost writer edit.
+        XCTAssertEqual(Data((editor.value as? String ?? "").utf8), Data(edited.utf8), "Late completion must not alter the writer's edited page")
+        // A durable held receipt establishes that the app processed the late
+        // result, rather than only that the proxy wrote it to a socket.
+        try await waitForStudioHeldRenderCount(1, in: app)
+        _ = try await waitForWriterLoopSavedVersion(projectID: project, draft: edited, fixture: fixture, app: app, timeout: 25)
+        app.terminate()
+        app = launchApp(openStudio: true, resetState: false, launchEnvironment: fixture.appLaunchEnvironment)
+        // The debug snapshot is capped at 1,000 characters; compare the
+        // complete native editor value for this longer synthetic screenplay.
+        let restoredEditor = textInput("studio.draft.editor", in: app)
+        let restored = XCTNSPredicateExpectation(predicate: NSPredicate { object, _ in
+            Data(((object as? XCUIElement)?.value as? String ?? "").utf8) == Data(edited.utf8)
+        }, object: restoredEditor)
+        await fulfillment(of: [restored], timeout: 20)
+        XCTAssertEqual(Data((restoredEditor.value as? String ?? "").utf8), Data(edited.utf8), "Relaunch must restore the exact writer edit")
+#else
+        throw XCTSkip("iPhone partial-render writer-edit workflow")
+#endif
     }
 
     @MainActor

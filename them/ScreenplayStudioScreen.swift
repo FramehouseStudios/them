@@ -2911,7 +2911,7 @@ private var directionOneScriptEditor: some View {
                     lastCommittedWrite: $liveDraftBridge.lastCommittedWrite,
                     pendingReplacementTarget: $liveDraftBridge.pendingReplacementTarget,
                     submittedReplacementTarget: $liveDraftBridge.submittedReplacementTarget,
-                    onUserEdit: vm.noteManualDraftEdit, canSaveDraft: vm.selectedProject != nil &&
+                    onUserEdit: { vm.noteManualDraftEdit(); liveDraftBridge.onManualEditorEdit?() }, canSaveDraft: vm.selectedProject != nil &&
                         vm.hasUnsavedDraftChanges && !vm.isSaving && !vm.fountainDraft.isEmpty,
                     onSaveDraft: { triggerStudioManualSave() }
                 )
@@ -2944,31 +2944,16 @@ private var directionOneScriptEditor: some View {
 
 
     private var studioPerceivedPageSkeleton: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 7) {
-                ProgressView()
-                    .controlSize(.small)
-                Text(perceivedSpeedState.statusText)
-                    .font(.system(size: 11, weight: .semibold, design: .default))
-                    .foregroundStyle(Color.herText.opacity(0.72))
-            }
-
-            ForEach(perceivedSpeedState.skeletonLines, id: \.self) { line in
-                Text(line)
-                    .font(.system(size: line == line.uppercased() ? 9 : 10, weight: line == line.uppercased() ? .semibold : .regular, design: .monospaced))
-                    .foregroundStyle(Color.herText.opacity(line == line.uppercased() ? 0.54 : 0.42))
-                    .lineLimit(1)
-            }
+        HStack(spacing: 7) {
+            ProgressView().controlSize(.small)
+            Text(perceivedSpeedState.statusText)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Color.herText.opacity(0.72))
         }
-        .padding(12)
-        .frame(width: 238, alignment: .leading)
-        .background(Color.white.opacity(0.72))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.herText.opacity(0.10), lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .shadow(color: Color.black.opacity(0.08), radius: 14, x: 0, y: 8)
+        .padding(8)
+        .background(Color.white.opacity(0.9))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .allowsHitTesting(false)
     }
 
     private func studioCompanionMetaPill(_ label: String, value: String) -> some View {

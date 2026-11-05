@@ -8,6 +8,8 @@ if (process.env.NODE_ENV !== 'test' || process.env.HOST !== '127.0.0.1' || proce
 const fetchReal = globalThis.fetch;
 if (process.env.THEM_PAGE_CANCEL_PROOF === '1') {
   const { app } = await import('../app.js');
+  const cancelEvents = [];
+  app.get('/__test/page-cancel-state', (_req, res) => res.json({ events: cancelEvents }));
   app.use((req, res, next) => {
     if (req.method === 'POST' && req.path === '/talk') {
       res.once('finish', () => process.stdout.write(`[proof-provider] page_cancel_talk_response=${JSON.stringify({status:res.statusCode, hasReservation:Boolean(res.getHeader('x-clementine-page-reservation')), lane:res.getHeader('x-clementine-lane') || ''})}\n`));
@@ -22,7 +24,7 @@ if (process.env.THEM_PAGE_CANCEL_PROOF === '1') {
         return json.call(this, body);
       };
       res.once('finish', () => process.stdout.write(`[proof-provider] page_cancel_status=${res.statusCode}\n`));
-      res.once('finish', () => process.stdout.write(`[proof-provider] page_cancel_result=${JSON.stringify({ status:res.statusCode, ...facts })}\n`));
+      res.once('finish', () => { const event = { status:res.statusCode, ...facts }; cancelEvents.push(event); process.stdout.write(`[proof-provider] page_cancel_result=${JSON.stringify(event)}\n`); });
     }
     next();
   });

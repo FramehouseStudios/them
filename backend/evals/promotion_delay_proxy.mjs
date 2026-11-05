@@ -6,7 +6,8 @@ import { once } from 'node:events';
 // by default. Opt-in render barriers delay complete successful responses by
 // request ordinal, including two same-project submissions independently.
 // These prove late delivery, not progressive-prefix custody or live AI quality.
-export async function startPromotionDelayProxy(targetURL, { holdCreations = true, holdStudioRenders = false } = {}) {
+export async function startPromotionDelayProxy(targetURL, { holdCreations = true, holdStudioRenders = false, holdAfterFirstStudioDelta = false } = {}) {
+  if (holdAfterFirstStudioDelta && !holdStudioRenders) throw new Error('Partial render barrier requires render barriers');
   const target = new URL(targetURL);
   if (target.protocol !== 'http:' || target.hostname !== '127.0.0.1') throw new Error('Loopback proof target required');
   let released = false;
@@ -84,13 +85,48 @@ export async function startPromotionDelayProxy(targetURL, { holdCreations = true
               || (pathname === '/screenplay/projects' && (!requestPayload.project_id || requestPayload.initial_draft)));
         if (isCreation && !heldProjectID) heldProjectID = responsePayload.project_id || responsePayload.project?.id || '';
         if (render) render.status = response.statusCode;
+        let partialSent = false;
+        let remainingBody = body;
+        if (render && response.statusCode === 200 && holdAfterFirstStudioDelta && pathname === '/realtime/studio_render_stream') {
+          // Only release a complete actual delta event; never invent provider output.
+          let offset = 0, boundary = -1;
+          while (offset < body.length) {
+            const end = body.indexOf('\n\n', offset);
+            if (end < 0) break;
+            const event = body.subarray(offset, end).toString('utf8');
+            if (/^event: delta$/m.test(event)) {
+              const line = event.split('\n').find(value => value.startsWith('data: '));
+              let delta = '';
+              try { delta = JSON.parse(line.slice(6)).delta || ''; } catch {}
+              // This opt-in harness is used only with the synthetic fixture.
+              // Expose length and a fixture marker, never screenplay contents.
+              render.first_delta_characters = delta.length;
+              render.first_delta_has_fixture_marker = delta.includes('HOME VOICE HANDOFF');
+              boundary = end + 2; break;
+            }
+            offset = end + 2;
+          }
+          if (boundary < 0 || boundary === body.length) {
+            render.status = 502;
+            res.writeHead(502).end('Proof stream had no delta followed by remaining events');
+            return;
+          }
+          const headers = { ...response.headers };
+          delete headers['content-length'];
+          res.writeHead(response.statusCode, headers);
+          res.write(body.subarray(0, boundary));
+          remainingBody = body.subarray(boundary);
+          partialSent = true;
+          render.partial_sent = true;
+        }
         const deliver = () => {
           pending.delete(deliver);
           if (render) { renderDeliveries.delete(render.id); render.held = false; }
           if (res.destroyed || res.writableEnded) return;
           if (isCreation) delivered += 1;
           if (render) render.delivered = true;
-          res.writeHead(response.statusCode, response.headers).end(body);
+          if (!partialSent) res.writeHead(response.statusCode, response.headers);
+          res.end(remainingBody);
         };
         if (render && response.statusCode === 200) {
           render.held = true;

@@ -4113,6 +4113,9 @@ final class BackendClient {
                     continue
                 }
                 if line.hasPrefix("event:") {
+                    // AsyncBytes.lines can omit blank SSE delimiters; do not
+                    // let the next event relabel an undispatched payload.
+                    if !dataLines.isEmpty { try await dispatchEvent() }
                     eventName = line.dropFirst("event:".count).trimmingCharacters(in: .whitespacesAndNewlines)
                     continue
                 }
@@ -4156,6 +4159,13 @@ final class BackendClient {
                         throw BackendError.stage(stage.isEmpty ? "studio_render" : stage, message.isEmpty ? "Studio render stream failed." : message)
                     }
                     dataLines.append(payloadText)
+                    // The Studio endpoint emits a complete JSON delta per data
+                    // line. Publish it after durable custody without waiting
+                    // for a delimiter that AsyncBytes.lines may suppress.
+                    if eventName == "delta", let data = dataLines.joined(separator: "\n").data(using: .utf8),
+                       (try? JSONDecoder().decode(BackendRealtimeStudioRenderStreamEvent.self, from: data)) != nil {
+                        try await dispatchEvent()
+                    }
                 }
             }
             try await dispatchEvent()

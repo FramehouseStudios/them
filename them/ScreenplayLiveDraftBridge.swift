@@ -2282,9 +2282,9 @@ private func shouldNormalizeScreenplayLineDuringTyping(
     guard !trimmed.isEmpty else { return false }
 
     switch element {
-    case .sceneHeading, .character, .transition:
+    case .character, .transition:
         return true
-    case .action, .dialogue, .parenthetical:
+    case .sceneHeading, .action, .dialogue, .parenthetical:
         return false
     }
 }
@@ -3020,6 +3020,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     var onSyncedInsertLifecycleEvent: ((String, ScreenplayVoiceInsertPlan, Int, ScreenplaySyncedInsertInterruptionReason?) -> Void)?
     /// Fired for barge-in / manual typing / cancel so clients can POST /talk/page-cancel.
     var onPageGenerationInterrupted: ((ScreenplaySyncedInsertInterruptionReason) -> Void)?
+    var onManualEditorEdit: (() -> Void)?
 
 #if DEBUG
     private let debugReplacementTraceStorageKey = "studio_debug_replacement_trace_json"

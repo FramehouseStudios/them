@@ -19,6 +19,7 @@ const allowedTests = [
   'themUITests/V1SmokeUITests/test_confirmed_home_voice_turn_opens_studio_writes_and_restores',
   'themUITests/V1SmokeUITests/test_home_raw_audio_uses_current_server_transcript_writes_and_restores',
   'themUITests/V1SmokeUITests/test_home_raw_audio_studio_stop_ends_capture_and_cancels_page',
+  'themUITests/V1SmokeUITests/test_home_raw_audio_manual_edit_interrupts_page',
   'themUITests/V1SmokeUITests/test_integrated_iphone_writer_loop_creates_saves_exports_and_restores',
   'themUITests/V1SmokeUITests/test_coverage_read_labels_earlier_snapshot_and_refreshes_current_draft',
   'themUITests/V1SmokeUITests/test_restored_unbound_draft_keeps_title_and_exact_bytes_after_promotion_and_relaunch',
@@ -37,6 +38,8 @@ const allowedTests = [
   'themUITests/V1SmokeUITests/test_render_response_is_reviewed_without_audio_or_page_mutation_after_relaunch',
   'themUITests/V1SmokeUITests/test_studio_delayed_render_project_switch_preserves_newer_submission',
   'themUITests/V1SmokeUITests/test_studio_delayed_render_stop_preserves_resubmission',
+  'themUITests/V1SmokeUITests/test_studio_partial_render_writer_edit_survives_late_completion',
+  'themUITests/V1SmokeUITests/test_studio_delayed_render_early_writer_edit_survives_late_completion',
 ];
 const tests = process.argv.length > 2 ? process.argv.slice(2)
   : process.env.ONLY_TESTING ? [process.env.ONLY_TESTING] : allowedTests.slice(1, 3);
@@ -44,7 +47,7 @@ if (tests.some(test => !allowedTests.includes(test))) throw new Error('Unsupport
 if (process.env.THEM_HOME_VOICE_LONG_AUDIO === '1' && (tests.length !== 1 || !tests[0].includes('home_raw_audio'))) throw new Error('Long audio regression requires the raw-audio case alone');
 // Reuse the measured audio asset so Stop interrupts an active turn, rather
 // than racing the short silence fixture; production timing is unchanged.
-const needsInterruptibleAudio = tests.some(test => test.endsWith('/test_home_raw_audio_studio_stop_ends_capture_and_cancels_page'));
+const needsInterruptibleAudio = tests.some(test => test.endsWith('/test_home_raw_audio_studio_stop_ends_capture_and_cancels_page') || test.endsWith('/test_home_raw_audio_manual_edit_interrupts_page'));
 if (needsInterruptibleAudio && tests.length !== 1) throw new Error('Stop cancellation proof requires an isolated interruptible-audio run; normal writing must use its normal audio fixture');
 // These workflows intentionally start from an empty account. This runner's
 // funded identity is shared within a batch, so earlier voice/recovery cases
@@ -90,9 +93,11 @@ try {
   });
   server = await startBackend({ ...backendOptions, dataDir, port });
   const holdsCreations = tests.some(test => test.includes('test_delayed_project_creation') || test.includes('test_initial_project_relaunch'));
-  const holdsRenders = tests.some(test => test.includes('test_studio_delayed_render_'));
+  const holdsPartial = tests.some(test => test.includes('test_studio_partial_render_writer_edit_'));
+  if (holdsPartial && tests.length !== 1) throw new Error('Partial render proof requires an isolated run');
+  const holdsRenders = holdsPartial || tests.some(test => test.includes('test_studio_delayed_render_'));
   if (holdsCreations || holdsRenders) promotionProxy = await startPromotionDelayProxy(server.baseUrl,
-    { holdCreations: holdsCreations, holdStudioRenders: holdsRenders });
+    { holdCreations: holdsCreations, holdStudioRenders: holdsRenders, holdAfterFirstStudioDelta: holdsPartial });
   writeFileSync(config, `THEM_UITEST_WRITER_LOOP_BACKEND_PORT = ${promotionProxy?.port || server.port}\n`, {mode: 0o600});
   const child = spawn('bash', ['scripts/run_v1_ui_smoke.sh', '-quiet', '-resultBundlePath', bundle, ...tests.slice(1).map(test => '-only-testing:' + test)], {
     cwd: root, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env,
@@ -125,10 +130,17 @@ try {
       throw new Error('Studio Stop never cancelled its actual authenticated Page reservation');
     }
   }
+  if (holdsPartial && status !== 0) {
+    const state = await (await fetch(`http://127.0.0.1:${promotionProxy.port}/__them-proof/render`)).json();
+    console.log(JSON.stringify({ partialRenderDiagnostics: state.renders.map(r => ({ route: r.route, status: r.status,
+      held: r.held, delivered: r.delivered, closed: r.closed, partial_sent: r.partial_sent === true,
+      fixture_marker: r.first_delta_has_fixture_marker === true, has_project: Boolean(r.project_id) })) }));
+  }
   if (status !== 0 || summary.passedTests !== tests.length || summary.failedTests !== 0 || summary.skippedTests !== 0) throw new Error('UI proof failed');
   if (tests.some(test => test.includes('home_raw_audio')) && counts.stt < 1) throw new Error('Raw audio test never reached mocked server ASR');
   if (tests.some(test => test.includes('home_')) && counts.chat < 1) throw new Error('Home test never reached mocked generation');
-  if (tests.some(test => test.includes('test_studio_delayed_render_')) && counts.chat < 2) throw new Error('Delayed render proof never reached two canonical generations');
+  if (holdsPartial && counts.chat < 1) throw new Error('Partial render proof never reached canonical generation');
+  if (tests.some(test => test.includes('test_studio_delayed_render_project_switch_') || test.includes('test_studio_delayed_render_stop_')) && counts.chat < 2) throw new Error('Delayed render proof never reached two canonical generations');
   if (tests.some(test => test.includes('test_render_response_is_reviewed')) && counts.chat < 1) throw new Error('Render recovery never reached canonical generation');
   if (tests.some(test => test.includes('studio_refused_write')) && counts.chat < 1) throw new Error('Refusal test never reached mocked generation');
   if (needsInterruptibleAudio) {
