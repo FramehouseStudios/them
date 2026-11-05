@@ -1551,6 +1551,24 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     }
 
     @MainActor
+    func testCleanServerObserverDoesNotOverwriteDifferentDirtyRecovery() async {
+        let projectID = "server-observer-pending-\(UUID().uuidString)"
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let server = "Collaborator server page"
+        let writer = "Offline writer page with exact trailing spaces.  \n"
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.autosaveEnabled = false
+        model.selectedProjectID = projectID
+        model.applyServerDraft(server, versionId: "remote")
+        XCTAssertTrue(store.save(ownerUserId: owner, projectId: projectID, draft: writer,
+            baseVersionId: "base", dirty: true))
+        await model.handleDraftDebouncedChange(server)
+        let recovery = store.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: projectID)
+        XCTAssertEqual(recovery.map { Data($0.draft.utf8) }, Data(writer.utf8))
+        XCTAssertEqual(recovery?.baseVersionId, "base")
+    }
+
+    @MainActor
     func testServerDraftObserverCannotOverwriteWriterRecoveryDuringConflict() async {
         let projectID = "server-observer-conflict-\(UUID().uuidString)"
         let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""

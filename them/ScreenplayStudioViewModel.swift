@@ -8910,8 +8910,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
             }
             return
         }
+        let ownerID = currentStudioAuthContext().userID
+        // A clean server observation is not authority to replace a different
+        // dirty writer copy, even before its queued conflict has surfaced.
+        if !dirty, let existing = localDraftRecoveryStore.dirtyOrdinarySnapshot(ownerUserId: ownerID, projectId: normalizedProjectId),
+           !existing.draft.utf8.elementsEqual(draft.utf8) { return }
         localDraftRecoveryStore.save(
-            ownerUserId: currentStudioAuthContext().userID,
+            ownerUserId: ownerID,
             projectId: normalizedProjectId,
             draft: draft,
             baseVersionId: baseVersionId,
