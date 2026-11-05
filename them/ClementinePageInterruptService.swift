@@ -15,6 +15,7 @@ final class ClementinePageInterruptService: ObservableObject {
     private let dependencies: Dependencies
     private var activePageReservationId: String?
     private var pageTalkInFlight = false
+    private var pageTalkGeneration: UInt64 = 0
     private var lastCancelDedupKey: String?
     private var lastCancelAt: Date = .distantPast
     private let cancelDedupWindow: TimeInterval = 1.5
@@ -53,6 +54,11 @@ final class ClementinePageInterruptService: ObservableObject {
     }
 
     func markPageTalkInFlight(_ inFlight: Bool) {
+        if inFlight {
+            pageTalkGeneration &+= 1
+            activePageReservationId = nil
+            lastCancelDedupKey = nil
+        }
         pageTalkInFlight = inFlight
     }
 
@@ -88,6 +94,7 @@ final class ClementinePageInterruptService: ObservableObject {
         lastCancelDedupKey = dedupKey
         lastCancelAt = now
 
+        let cancelGeneration = pageTalkGeneration
         inFlightCancelTask?.cancel()
         inFlightCancelTask = Task { [weak self] in
             guard let self else { return }
@@ -98,7 +105,7 @@ final class ClementinePageInterruptService: ObservableObject {
                     hasReservation ? nil : (sessionHint.isEmpty ? nil : sessionHint),
                     normalizedReason
                 )
-                if result.ok {
+                if result.ok && self.pageTalkGeneration == cancelGeneration {
                     self.clearActivePageReservation()
                 }
                 HerLog.talk.info(
