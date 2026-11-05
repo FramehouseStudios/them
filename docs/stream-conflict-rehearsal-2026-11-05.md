@@ -21,3 +21,5 @@ The local model and speech providers are simulated. These runs do not prove real
 ## Receipt-protection integration
 
 After preserve-merging #987's `afc6574` as integration commit `eed7b38`, the full signed iPhone simulator unit bundle passed **1,483 tests, 0 failures, 0 skips** on the erased task-owned simulator. Result: `/private/tmp/them-t1270-units-eed.xcresult`. This updates the unit evidence for that source tree; the other proofs above remain tied to `6394092` until rerun on the new source.
+
+The same receipt-protection source also passed the signed local iPhone recovery workflow: **3 passed, 0 failed, 0 skipped** for queued reconnect, expired authentication, and stale-version conflict. Result: `/var/folders/27/kqhcss0n7t1dh_fj2wn98ynm0000gn/T/them-save-recovery-1u9Mei/recovery-ios.xcresult`. This does not resolve the earlier hosted-only mismatch or prove a physical device.
