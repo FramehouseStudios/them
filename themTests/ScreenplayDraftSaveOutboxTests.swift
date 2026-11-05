@@ -4645,6 +4645,22 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: manifest), beforeBytes)
     }
 
+    func testConfirmedManualSaveRetiresIdenticalDeclaredPassiveFollower() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let authority = ScreenplayDraftSaveRequestAuthority(id: UUID(), generation: 1)
+        let first = try makeOrderedManualEntry(id: "manual-predecessor", draft: "Exact writer words", createdAt: 100, authority: authority)
+        _ = try await store.admitPendingSave(first, following: nil)
+        guard case .deliver(let active) = try await store.beginDelivery(first) else {
+            return XCTFail("Expected the manual save to begin delivery")
+        }
+        var passive = makeEntry(id: "passive-follower", draft: "Exact writer words", createdAt: 101, source: "studio_autosave", origin: first.deliveryOrigin, authority: authority)
+        passive.saveOrderingVersion = 1
+        _ = try await store.admitPendingSave(passive, following: active)
+        try await store.markSucceeded(id: active.id, serverVersionId: "verified-v2", mayRebaseDeclaredFollowers: true)
+        let rows = try await store.entriesForTesting()
+        XCTAssertFalse(rows.contains { $0.id == passive.id }, "The exact passive follower should not create a second server version")
+    }
+
     func testDeclaredFollowerRebasesButIndependentAndExplicitBaseRequestsDoNot() async throws {
         let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         var first = makeDeliverableEntry(id: "ordered-first", draft: "First", createdAt: 100)
