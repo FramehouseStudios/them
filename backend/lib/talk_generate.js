@@ -118,7 +118,7 @@ async function runTalkGenerate({
             return repaired.draft;
           },
         });
-        if (qualityResult && typeof qualityResult.reply === "string") {
+        if (qualityResult && typeof qualityResult.reply === "string" && qualityResult.reply.trim()) {
           draft = qualityResult.reply;
           // usage stays from first generation; quality gate does not change token count
           if (qualityResult.quality && !qualityResult.ok) {
@@ -128,7 +128,11 @@ async function runTalkGenerate({
       } catch (_) {
         // Non-blocking: return draft even if quality gate throws
       }
-      // Commit wallet like normal path (~127, ~201) — beta pages are not free
+      if (!String(draft || "").trim()) {
+        throw createTalkFailureError({ requestId: rid, providerStage: "chat", status: 502,
+          message: "Short-film generation returned an empty draft.", errorClass: "response_invalid" });
+      }
+      // Commit only after a non-empty draft survives the quality stage.
       if (typeof req.clementine?.commitWallet === "function") {
         try {
           req.clementine.commitWallet(Math.max(0, Number(usage.outputTokens || 0)));
@@ -333,18 +337,6 @@ async function runTalkGenerate({
     chatModelFallbackUsed = Boolean(chatResult.fallbackUsed);
     effectiveChatUsage = chatResult.usage || effectiveChatUsage;
     chatMs = Date.now() - chatStart;
-    if (typeof req.clementine?.commitWallet === "function") {
-      try {
-        req.clementine.commitWallet(
-          Math.max(0, Number(effectiveChatUsage.outputTokens || 0))
-        );
-      } catch (walletErr) {
-        logger?.warn?.(
-          `[${rid}] wallet_commit_failed ${walletErr?.message || walletErr}`
-        );
-      }
-    }
-
     if (!chatResp.ok) {
       const diagnostic = buildTalkFailureDiagnostics(
         { stage: "chat", status: chatResp.status, rawBody: chatText },
@@ -387,6 +379,16 @@ async function runTalkGenerate({
       message: "Chat completion returned an empty reply.",
       errorClass: "response_invalid",
     });
+  }
+
+  // Streaming commits its successful reply above. Failed non-stream responses
+  // must pass HTTP, JSON and non-empty-output validation before any charge.
+  if (!streamChatUsed && typeof req.clementine?.commitWallet === "function") {
+    try {
+      req.clementine.commitWallet(Math.max(0, Number(effectiveChatUsage.outputTokens || 0)));
+    } catch (walletErr) {
+      logger?.warn?.(`[${rid}] wallet_commit_failed ${walletErr?.message || walletErr}`);
+    }
   }
 
   return {
