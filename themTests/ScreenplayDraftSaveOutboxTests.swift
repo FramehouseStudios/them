@@ -3,6 +3,224 @@ import XCTest
 
 final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     @MainActor
+    func testStaleBlankObserverCannotClearQueuedWriterAuthorityOrRecovery() async throws {
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let suite = "them.stale-draft-observer.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery, draftSaveOutbox: queue)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "project-1"
+        model.applyStructuralUITestDraft("", versionID: "server-v1")
+        let writer = "INT. ROOM - NIGHT\n\nThe writer's exact offline words."
+        model.fountainDraft = writer
+        model.noteManualDraftEdit()
+        try await queue.enqueue(replacingOwner(of: makeEntry(id: "writer", draft: writer), with: owner))
+
+        // A queued Combine callback can start after a newer manual edit.
+        // Exercise the production observer, not a duplicate policy/fake save.
+        await model.handleDraftDebouncedChange("")
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertTrue(model.isManualDraftEditing)
+        XCTAssertEqual(recovery.payloads(ownerUserId: owner)["project-1"]?["draft"] as? String, writer)
+        let data = try JSONSerialization.data(withJSONObject: ["id": "project-1", "title": "Script",
+            "activeVersionId": "server-v1", "versions": [["id": "server-v1", "draft": ""]]])
+        model.hydrateDraft(from: try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: data))
+        XCTAssertEqual(model.fountainDraft, writer)
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        let retained = try await queue.entriesForTesting()
+        XCTAssertEqual(retained.map(\.draft), [writer])
+        try? await Task.sleep(for: .milliseconds(1_100))
+    }
+
+    @MainActor
+    func testParkedConflictRestoresChoiceWhenNewerRecoveryAlreadyNamesServerHead() async throws {
+        // Adapt original #962's authority regression to this earlier model's
+        // existing injected queue; no later transport framework is required.
+        for textRestoredFirst in [false, true] {
+            let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+            let directory = storageDirectory.appendingPathComponent("metadata-\(textRestoredFirst)", isDirectory: true)
+            let queue = ScreenplayDraftSaveOutbox(storageDirectory: directory)
+            let submitted = "Earlier submitted writer words"
+            try await queue.enqueue(replacingOwner(of: makeEntry(id: "retained", draft: submitted), with: owner))
+            _ = try await queue.retainConflict(projectId: "project-1", ownerUserId: owner)
+            let suite = "them.parked-authority.\(UUID().uuidString)"
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+            defer { defaults.removePersistentDomain(forName: suite) }
+            let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+            let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery, draftSaveOutbox: queue)
+            model.autosaveEnabled = false
+            model.selectedProjectID = "project-1"
+            model.applyStructuralUITestDraft("Collaborator words", versionID: "remote")
+            let raw = "  Newer writer words cafe\u{0301}\r\n\t "
+            if textRestoredFirst {
+                model.fountainDraft = raw
+                model.noteManualDraftEdit()
+            }
+            // The structural setup clears ordinary recovery; install it after.
+            recovery.save(ownerUserId: owner, projectId: "project-1", draft: raw,
+                baseVersionId: "remote", dirty: true, savedAt: 200)
+            let data = try JSONSerialization.data(withJSONObject: ["id": "project-1", "title": "Script",
+                "activeVersionId": "remote", "versions": [["id": "remote", "draft": "Collaborator words"]]])
+            let applied = await model.hydrateDraftRestoringQueuedSaves(from:
+                try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: data))
+            XCTAssertTrue(applied)
+            XCTAssertEqual(Array(model.fountainDraft.utf8), Array(raw.utf8))
+            XCTAssertEqual(model.conflictState?.projectId, "project-1")
+            XCTAssertEqual(model.conflictState?.baseVersionId, "server-v1")
+            XCTAssertEqual(model.conflictState?.serverVersionId, "remote")
+            XCTAssertTrue(model.hasUnsavedDraftChanges)
+            await model.resumeQueuedDraftSavesIfNeeded(force: true)
+            let retained = try await ScreenplayDraftSaveOutbox(storageDirectory: directory).entriesForTesting()
+            XCTAssertEqual(retained.count, 1)
+            XCTAssertEqual(retained.first?.draft, submitted)
+            XCTAssertEqual(retained.first?.baseVersionId, "server-v1")
+            XCTAssertEqual(retained.first?.status, .parked)
+            try? await Task.sleep(nanoseconds: 1_100_000_000)
+        }
+    }
+
+    @MainActor
+    func testConflictChoiceSurvivesOrdinaryHydrationUntilExplicitServerChoice() async throws {
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let local = "  Submitted writer words\r\n"
+        try await queue.enqueue(replacingOwner(of: makeEntry(id: "submitted", draft: local), with: owner))
+        let suite = "them.conflict-refresh-choice.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore:
+            ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery"), draftSaveOutbox: queue)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "project-1"
+        model.applyStructuralUITestDraft("Collaborator words", versionID: "remote")
+        let conflict = ScreenplayStudioViewModel.SaveConflictState(projectId: "project-1",
+            baseVersionId: "server-v1", serverVersionId: "remote", serverDraft: "Collaborator words",
+            serverDraftExcerpt: "Collaborator words", serverUpdatedAt: 0)
+        await model.handleDraftSaveConflict(conflict, ownerUserId: owner)
+        XCTAssertEqual(model.conflictState, conflict)
+        let data = try JSONSerialization.data(withJSONObject: ["id": "project-1", "title": "Script",
+            "activeVersionId": "remote", "versions": [["id": "remote", "draft": "Collaborator words"]]])
+        let applied = await model.hydrateDraftRestoringQueuedSaves(from:
+            try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: data))
+        XCTAssertTrue(applied)
+        XCTAssertEqual(Array(model.fountainDraft.utf8), Array(local.utf8))
+        XCTAssertEqual(model.conflictState, conflict, "A metadata refresh is not a writer's resolution.")
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        model.applyServerVersionFromConflict()
+        XCTAssertEqual(model.fountainDraft, "Collaborator words")
+        XCTAssertEqual(model.latestVersionID, "remote")
+        XCTAssertNil(model.conflictState)
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+        let remaining = try await queue.entriesForTesting()
+        XCTAssertTrue(remaining.isEmpty, "Only the explicit server choice should discard this conflict.")
+    }
+
+    @MainActor
+    func testProjectHydrationRestoresParkedWriterSaveBeforeRemoteDraft() async throws {
+        // Original #928's real-model regression, seeded through the existing
+        // parked-entry API so it also executes before #925 is ported here.
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let local = "  Writer words cafe\u{0301}\r\n"
+        try await queue.enqueue(replacingOwner(of: makeEntry(id: "parked", draft: local), with: owner))
+        try await queue.markParked(id: "parked", error: ScreenplayDraftSaveOutbox.conflictReason)
+        let suite = "them.parked-project-hydration.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore:
+            ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery"), draftSaveOutbox: queue)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "project-1"
+        model.applyStructuralUITestDraft("Collaborator words", versionID: "remote")
+        let data = try JSONSerialization.data(withJSONObject: ["id": "project-1", "title": "Test",
+            "activeVersionId": "remote", "versions": [["id": "remote", "draft": "Collaborator words"]]])
+        await model.hydrateDraftRestoringQueuedSaves(from:
+            try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: data))
+        XCTAssertEqual(Array(model.fountainDraft.utf8), Array(local.utf8))
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertNotNil(model.conflictState)
+        let copies = try await queue.entriesForTesting()
+        XCTAssertEqual(copies.map(\.draft), [local])
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+    }
+
+    @MainActor
+    func testUnreadableQueueBlocksHydrationWithoutDiscardingPageAndValidRetryRecovers() async throws {
+        try FileManager.default.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
+        let manifestURL = storageDirectory.appendingPathComponent("queue.json")
+        let corruptData = Data("{not-json".utf8)
+        try corruptData.write(to: manifestURL)
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let suite = "them.unreadable-hydration.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = ScreenplayStudioViewModel(
+            localDraftRecoveryStore: ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery"),
+            draftSaveOutbox: queue
+        )
+        model.autosaveEnabled = false
+        model.selectedProjectID = "project-1"
+        let visible = "INT. ROOM - NIGHT\n\nThe visible writer words.\n"
+        model.applyStructuralUITestDraft(visible, versionID: "visible-base")
+        let data = try JSONSerialization.data(withJSONObject: ["id": "project-1", "title": "Test",
+            "activeVersionId": "remote", "versions": [["id": "remote", "draft": "Collaborator words"]]])
+        let project = try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: data)
+        for _ in 0..<2 {
+            let applied = await model.hydrateDraftRestoringQueuedSaves(from: project)
+            XCTAssertFalse(applied, "An unreadable queue is not evidence that no local saves exist.")
+            XCTAssertEqual(Array(model.fountainDraft.utf8), Array(visible.utf8))
+            XCTAssertEqual(model.latestVersionID, "visible-base")
+            XCTAssertFalse(model.errorText.isEmpty, "The writer must be told why server text was not loaded.")
+            XCTAssertEqual(try Data(contentsOf: manifestURL), corruptData)
+        }
+
+        // Only this test repairs its owned fixture. Production must never
+        // replace an unreadable manifest with an empty queue automatically.
+        try Data("[]".utf8).write(to: manifestURL, options: .atomic)
+        let recovered = await model.hydrateDraftRestoringQueuedSaves(from: project)
+        XCTAssertTrue(recovered)
+        XCTAssertEqual(model.fountainDraft, "Collaborator words")
+        XCTAssertEqual(model.latestVersionID, "remote")
+        XCTAssertTrue(model.errorText.isEmpty, "A successful retry must clear the queue-read warning.")
+        model.errorText = "Unrelated failure"
+        let repeated = await model.hydrateDraftRestoringQueuedSaves(from: project)
+        XCTAssertTrue(repeated)
+        XCTAssertEqual(model.errorText, "Unrelated failure")
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+    }
+
+    @MainActor
+    func testProjectHydrationRestoresQueuedWriterSaveBeforeRemoteDraft() async throws {
+        // Adapt original #928's parked-copy regression to this earlier
+        // parent's active outbox, alongside the parked-conflict regression above.
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let local = "Writer words cafe\u{0301}\n"
+        try await queue.enqueue(replacingOwner(of: makeEntry(id: "queued", draft: local), with: owner))
+        let suite = "them.project-hydration.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery, draftSaveOutbox: queue)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "project-1"
+        let data = try JSONSerialization.data(withJSONObject: ["id": "project-1", "title": "Test",
+            "activeVersionId": "remote", "versions": [["id": "remote", "draft": "Collaborator words"]]])
+        let applied = await model.hydrateDraftRestoringQueuedSaves(from:
+            try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: data))
+        XCTAssertTrue(applied)
+        XCTAssertEqual(Array(model.fountainDraft.utf8), Array(local.utf8))
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertNotNil(model.conflictState)
+        let copies = try await queue.entriesForTesting()
+        XCTAssertEqual(copies.map(\.draft), [local])
+        try? await Task.sleep(nanoseconds: 1_100_000_000)
+    }
+
+    @MainActor
     func testRevertingToSavedRawTextDoesNotBecomeDirtyAfterDebounce() async throws {
         let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let suite = "them.save-revert.\(UUID().uuidString)"
@@ -348,6 +566,59 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         try await store.discardConflicts(projectId: "project-1", ownerUserId: "user-1", through: 150)
         let after = try await store.entriesForTesting()
         XCTAssertEqual(Set(after.map(\.id)), ["private", "later"])
+    }
+
+    func testHeldSaveIsPersistedSeparatelyFromAnIdenticalRunnableSave() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let active = makeEntry(id: "active", draft: "Exact writer words", createdAt: 100)
+        var held = makeEntry(id: "held", draft: active.draft, createdAt: 101)
+        held.status = .parked
+        held.nextAttemptAt = 0
+        held.lastError = "Writer choice required"
+        try await queue.enqueue(active)
+        try await queue.enqueue(held)
+
+        let reopened = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let stored = try await reopened.entriesForTesting()
+        XCTAssertEqual(stored, [active, held], "Same text is not permission to drop a separate held intent.")
+        let next = try await reopened.beginNext(projectId: active.projectId, ownerUserId: active.ownerUserId, force: true)
+        XCTAssertEqual(next?.id, active.id)
+        try await reopened.remove(id: active.id)
+        let replay = try await reopened.beginNext(projectId: held.projectId, ownerUserId: held.ownerUserId, force: true)
+        XCTAssertNil(replay, "Even force-reconnect must not automatically submit held writer words.")
+    }
+
+    func testExistingIdentifierCanBeHeldInOneDurableWrite() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        var held = makeEntry(id: "existing")
+        try await queue.enqueue(held)
+        held.status = .parked
+        held.nextAttemptAt = 0
+        held.lastError = "Writer choice required"
+        try await queue.enqueue(held)
+        let reopened = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let stored = try await reopened.entriesForTesting()
+        XCTAssertEqual(stored, [held])
+        let replay = try await reopened.beginNext(projectId: held.projectId, ownerUserId: held.ownerUserId, force: true)
+        XCTAssertNil(replay)
+    }
+
+    func testFailedHeldWriteDoesNotLeaveAnInMemorySaveThatWasNeverPersisted() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let active = makeEntry(id: "active")
+        try await queue.enqueue(active)
+        let manifest = storageDirectory.appendingPathComponent("queue.json")
+        // Break only this test's owned destination; exercise a real write failure.
+        try FileManager.default.removeItem(at: manifest)
+        try FileManager.default.createDirectory(at: manifest, withIntermediateDirectories: false)
+        var held = makeEntry(id: "held", draft: "Held writer words")
+        held.status = .parked
+        do {
+            try await queue.enqueue(held)
+            XCTFail("A failed disk write must not report durable retention.")
+        } catch {}
+        let stored = try await queue.entriesForTesting()
+        XCTAssertEqual(stored, [active], "Memory must roll back when durable admission fails.")
     }
 
     private var storageDirectory: URL!
