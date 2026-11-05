@@ -80,6 +80,9 @@ struct ScreenplayStudioHistoryMigrationPolicy {
 }
 
 struct ScreenplayDraftSaveRecoveryPresentationPolicy {
+    static let unreadableQueueStatus = "Local saves need attention"
+    static let unreadableQueueError = "Local saves cannot be read. Your current page was kept. Export it before retrying."
+
     static func failureStatus(source: String) -> String {
         switch normalizedSource(source) {
         case "studio_manual", "studio_conflict_resolve":
@@ -310,6 +313,17 @@ struct ScreenplayLocalDraftRecoveryStore {
         var nextPayloads = payloads(ownerUserId: ownerUserId)
         nextPayloads.removeValue(forKey: normalizedProjectId)
         defaults.set(nextPayloads, forKey: ownerScopedKey(ownerUserId))
+    }
+
+    func dirtyOrdinarySnapshot(ownerUserId: String, projectId: String) -> ScreenplayLocalDraftRecoverySnapshot? {
+        let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let stored = payloads(ownerUserId: ownerUserId)[project],
+              stored["dirty"] as? Bool == true,
+              let draft = stored["draft"] as? String,
+              !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return ScreenplayLocalDraftRecoverySnapshot(projectId: project, draft: draft,
+            baseVersionId: stored["baseVersionId"] as? String ?? "",
+            savedAt: stored["savedAt"] as? TimeInterval ?? 0, isPreservedConflict: false)
     }
 
     func recoverySnapshot(

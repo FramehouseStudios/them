@@ -1,6 +1,22 @@
 import SwiftUI
 import ScreenplayStudio
 
+/// Navigation belongs to the drawer viewport, not the scrolling panel body.
+struct ScreenplayStudioPinnedInspectorTabs<Tabs: View>: ViewModifier {
+    let tabs: Tabs
+    let selection: ScreenplayStudioScreen.DirectionOneRightPanelTab
+
+    func body(content: Content) -> some View {
+        VStack(spacing: 0) {
+            tabs
+                .padding(.horizontal, 12)
+                .padding(.top, 12)
+            content.id(selection)
+                .accessibilityIdentifier("studio.sidebar.right.content-scroll")
+        }
+    }
+}
+
 struct ScreenplayStudioRightPanelTabs: View {
     @Binding var selection: ScreenplayStudioScreen.DirectionOneRightPanelTab
     let textColor: Color
@@ -51,6 +67,7 @@ struct ScreenplayStudioRightPanelTabs: View {
                     }
                     .foregroundStyle(isActive ? textColor.opacity(0.96) : secondaryTextColor)
                     .frame(maxWidth: .infinity, minHeight: 48)
+                    .contentShape(Rectangle())
                     .background(
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
                             .fill(isActive ? Color.white.opacity(0.96) : panelColor)
