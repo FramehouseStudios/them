@@ -103,7 +103,10 @@ final class V1SmokeUITests: XCTestCase {
         let app = launchApp(openStudio: true, openCommandBar: true)
         defer { app.terminate() }
         let prompt = element(identifier: "studio.prompt.field", in: app)
-        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+        guard waitForHittability(of: prompt, timeout: 8) else {
+            return XCTFail("The prompt field was not available to focus.")
+        }
+        prompt.tap()
         guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
         let keyboardSend = app.buttons["studio.prompt.keyboard-send"]
         XCTAssertTrue(keyboardSend.waitForExistence(timeout: 5))
