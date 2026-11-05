@@ -1866,7 +1866,7 @@ final class V1SmokeUITests: XCTestCase {
             let panel = element(identifier: route.panel, in: app)
             XCTAssertTrue(
                 revealInStudioDrawer(panel, drawer: drawer, scrollingUp: true, maxSwipes: 16),
-                "The \(route.tab) tab did not reveal its working panel"
+                "The \(route.tab) tab did not reveal its working panel. Drawer: \(drawer.frame); scroll views: \(drawer.scrollViews.allElementsBoundByIndex.map { $0.frame }); target: \(panel.frame); window: \(app.frame)"
             )
 
             if route.tab == "outline" {
@@ -2223,11 +2223,18 @@ final class V1SmokeUITests: XCTestCase {
             "Try this ask did not report that it loaded the live prompt."
         )
 
+        guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
         let promptField = element(identifier: "studio.prompt.field", in: app)
-        for _ in 0..<24 where !promptField.isHittable {
-            drawer.swipeDown()
-        }
-        XCTAssertTrue(waitForHittability(of: promptField, timeout: 5))
+        XCTAssertTrue(
+            waitForHittability(of: promptField, timeout: 5),
+            "The loaded live ask did not become reachable automatically after keyboard layout. "
+                + "Field: \(promptField.frame); drawer: \(drawer.frame); "
+                + "content: \(studioDrawerContentViewport(drawer)); keyboard: \(app.keyboards.firstMatch.frame)."
+        )
+        let focusedComposer = XCTAttachment(screenshot: app.screenshot())
+        focusedComposer.name = "Loaded live ask above the keyboard"
+        focusedComposer.lifetime = .keepAlways
+        add(focusedComposer)
         XCTAssertTrue(
             waitForTextInputValue(
                 in: promptField,
@@ -2339,7 +2346,8 @@ final class V1SmokeUITests: XCTestCase {
         let toPage = app.buttons["studio.them.voice-pin.latest.to-page"]
         XCTAssertTrue(
             revealFullyInStudioDrawer(toPage, drawer: drawer, maxSwipes: 12),
-            "To Page was not fully visible in the inspector."
+            "To Page was not fully visible in the inspector. "
+                + "Target: \(toPage.frame); content viewport: \(studioDrawerContentViewport(drawer))."
         )
 #if os(macOS)
         toPage.click()
@@ -5358,6 +5366,7 @@ final class V1SmokeUITests: XCTestCase {
 
     private func submitFocusedPrompt(in app: XCUIApplication, field: XCUIElement) {
 #if os(iOS)
+        guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
         let toolbarSend = app.buttons["studio.prompt.keyboard-send"]
         if toolbarSend.waitForExistence(timeout: 5), toolbarSend.isHittable {
             toolbarSend.tap()
@@ -5694,37 +5703,6 @@ final class V1SmokeUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
         return element.exists && element.isHittable
-    }
-
-    @discardableResult
-    /// The inspector tab grid sits at the top of a lazy drawer, so revealing a
-    /// panel can scroll it out of the accessibility hierarchy. Swiping down
-    /// normally brings it back; in the full scripted smoke those swipes were
-    /// once swallowed while the drawer was still settling ("Missing craft
-    /// inspector tab" after 16 swipes, 44 s instead of 34 s). Closing and
-    /// reopening the drawer puts the grid back at the top, so do that once
-    /// before giving up. Callers keep their own assertion and message.
-    private func revealInspectorTab(
-        _ tab: XCUIElement,
-        drawer: XCUIElement,
-        in app: XCUIApplication
-    ) -> Bool {
-        if tab.waitForExistence(timeout: 8)
-            || revealInStudioDrawer(tab, drawer: drawer, scrollingUp: false, maxSwipes: 16) {
-            return true
-        }
-        XCTContext.runActivity(
-            named: "Inspector tab grid did not come back after 16 swipes; reopening the drawer"
-        ) { _ in }
-        let toggle = app.buttons["studio.sidebar.right.toggle"]
-        guard waitForHittability(of: toggle, timeout: 4) else { return false }
-        toggle.tap()
-        _ = waitForDisappearance(of: drawer, timeout: 4)
-        guard waitForHittability(of: toggle, timeout: 4) else { return false }
-        toggle.tap()
-        guard drawer.waitForExistence(timeout: 5) else { return false }
-        return tab.waitForExistence(timeout: 8)
-            || revealInStudioDrawer(tab, drawer: drawer, scrollingUp: false, maxSwipes: 16)
     }
 
     private func revealInStudioDrawer(

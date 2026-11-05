@@ -8371,3 +8371,233 @@ rebase on current main after #273, rerun backend auth tests, and keep
 `do-not-merge`/tier-3 until human auth-route clearance.
 
 <!-- END AUTOGEN active-tasks -->
+
+## Preserved incoming billing-branch task records
+
+These records preserve the incoming branch wording for review.
+
+### T-993 — Re-prove original failed-generation billing fix on current main
+
+- **Owner:** codex. **Branch:** `codex/T-993-billing-main-proof`.
+- **Status:** in-progress. **Pillar:** trustworthy voice-to-page and wallet.
+- **Root verified:** current rehearsal's actual generation stage returned
+  zero reply bytes after two injected provider calls while proposing123
+  output tokens for billing. No live provider or real wallet used.
+- **Scope:** preserve original #625 head795f14fc and current main deac1a6d
+  with a normal merge. Read all seven original files and follow-up commits;
+  asked_repeat/continue_listening release is already in the original head.
+  Do not reimplement it, create a replacement PR or move main.
+- **Done when:** original generation/supplier/real-HTTP/lifecycle regressions,
+  full Node20 suite, signed erased units, D009/diff pass; adversarial limits
+  recorded; fresh original PR/head checks and independent review still needed.
+- **Human hold:** production blocked until App Store credentials exist.
+- **Verified:** focused33/0/0 after auth enforcement; full pinned Node20
+  backend2761/0/2; signed erased units624/0/0; D009 all five deltas0 and diff
+  clean. Unit source7f6159d and backend129d22c differ only by a Node test.
+  No new writer UI/macOS/live-provider claim. Manifest:
+  `docs/billing-main-proof-2026-10-19.md`.
+
+
+### T-1042 — Promote the minimal original dependency-security correction
+
+- **Owner:** codex. **Branch:** `codex/T-1042-dependency-boundary-refresh`.
+- **Status:** review; minimal current-main integration locally proven.
+  **Pillar:** trustworthy screenplay service.
+- **Scope:** original #909 `788e0107` + actual main `deac1a6d`, preserving
+  merge `c111f711`; no unrelated #964 runner work from the older proof branch.
+- **Root:** yesterday's zero registry audit missed four freshly disclosed
+  URI normalization defects. Preserve existing Multer/proxy fixes and update
+  only the compatible locked fast-uri patch to3.1.9. Exact tested backend
+  comes from preserved preparation `a0abd56`; no copied product/UI changes.
+- **Done when:** scoped before/after regressions, exact integrated-tree pinned
+  Node20 full backend, locked install/audit, D009 and diff pass; advance only
+  original #909 normally with fresh hosted checks and independent review.
+- **Holds:** no production/main change, paid call or personal-device action.
+  This is not live exploitability, whole-app security or writer-loop proof.
+- **Verified:** corrected before0/4/0, patched focused5/0/0; exact minimal
+  integrated-tree full Node20 backend2744/0/2, native exit0. Registry scans0
+  are bounded metadata, not security certification. All five D009 deltas0,
+  whitespace/syntax pass; no client, script or workflow delta versus main.
+- **Evidence:** `docs/dependency-boundary-refresh-2026-10-20.md`. Original
+  #909 requires fresh exact-head hosted checks and independent review.
+
+
+### T-969 — Truthful required checks on original #906
+
+- **Owner:** codex. **Task branch:** `codex/T-969-truthful-906-gate`.
+- **Status:** review. **Pillar:** trustworthy writer/recovery proof.
+- **Landing:** original #906, not a replacement PR. Preserve #904's CI prefix
+  and its remaining later recovery/inspector work separately.
+- **Done when:** signed units/failing UI cases, canonical erased voice entry,
+  Node20 runner contracts, macOS, D009 and diff pass; fresh hosted gate required.
+- **Evidence:** signed units624 + UI2 all pass; final voice1/0/0 and macOS pass;
+  Node20 contracts11/0/0, D009 deltas0. Original hidden hosted reds retained.
+  `docs/906-required-gate-repair-2026-10-16.md`.
+- **Hold:** changed head requires fresh independent approval and real green CI.
+
+## Branch conventions
+- `codex/<task-id>-<short-name>`
+- `support/backend-<short-name>`
+
+---
+
+## Active work — quick view
+
+| ID   | Title                                              | Owner  | Status            |
+|------|----------------------------------------------------|--------|-------------------|
+| T01  | Triage 409-file uncommitted snapshot               | human  | ready             |
+| T04  | Apply canonical product name `io.them` end-to-end  | codex  | merged            |
+| T05  | Add `first_page_written` client telemetry event    | codex  | merged            |
+| T07  | Promote backend persistence to Postgres canonical  | support | merged            |
+| T07a | Wire `outbox_store` diagnostic snapshots           | support | merged            |
+| T07-eval-gate | Verify eval gate against Postgres          | support | merged            |
+| T07-cutover | Drop dual-write JSON paths after Postgres soak | support | blocked-T07-eval |
+| T08  | Centralize prompt assembly + first memory tier (backend) | support | merged            |
+| T08w-triggers | Fire creative-memory write triggers from `/talk` | support | merged            |
+| T08-postgres | Move creative memory store to persistence adapter | support | merged            |
+| T10  | Codify single design system (color/typo/spacing)   | codex  | merged            |
+| T11  | 60-second magic-moment onboarding                  | codex  | merged            |
+| T12  | Adopt perceived-speed primitives system-wide       | codex  | merged            |
+| T13  | Add second realtime supplier behind interface      | support | merged            |
+| T13-client | Add iOS realtime supplier selection            | codex  | merged            |
+| T29  | Hook iOS reply-side character mentions             | codex  | merged            |
+| T14  | Triage G3 backend feature snapshot                 | codex  | merged            |
+| T23  | Add craft completeness RC release gate             | support | merged            |
+| T24  | Consolidate iOS ScreenplayPromptBuilder path      | codex  | merged            |
+| T25  | Add Story Circle + Hero's Journey craft frameworks | codex  | merged            |
+| T26  | Polish Craft tab framework and drift UX            | codex  | merged            |
+| T-format-linter | Hollywood format linter (rules v1)        | support | merged            |
+| T27  | Add Codex-to-support agent live handoff ledger            | codex  | merged            |
+| T28  | Surface format lint cards in iOS Studio            | codex  | merged            |
+| T30  | Backend `/memory/record-character-mention` endpoint | support | merged            |
+| T-logline-distiller | Distill, persist, and drift-score loglines | support | merged            |
+| T-block-detector | Detect writer-block patterns from talk telemetry | support | merged            |
+| T-trait-library | Build per-character trait and voice inventory | support | merged            |
+| T-twist-engine | Beat-aware reversal suggestion engine         | support | merged            |
+| T31  | Refresh coordination statuses after merge stack    | codex  | merged            |
+| T32  | Enable reply-side character mention memory flag | codex  | merged            |
+| T33  | Add support agent command center and prompt printer      | codex  | merged            |
+| T-codex-inbox | Add Codex inbox + prompt printer (support agent→Codex)    | support | merged         |
+| T34  | Build iOS logline rail consumer                   | codex  | merged            |
+| T35  | Build iOS block-signal nudge surface              | codex  | merged            |
+| T36  | Build iOS character-traits side-rail consumer      | codex  | merged            |
+| T37  | Build iOS twist-card consumer                     | codex  | merged            |
+| T-accepted-twist-log | Persist accepted twist cards for prompt context | support | merged         |
+| T-coordination-state | Fast-path coordination.json + CLI helper        | support | merged         |
+| T-auto-merge-tier1 | Auto-merge workflow for Tier 1 PRs              | support | merged         |
+| T-decisions-queue | One-file queue for human decisions               | support | merged         |
+| T-strict-auto-merge | Require explicit Codex approval; drop 4h quiet path | support | merged |
+| T-tasks-per-row | Per-row task files + TASKS.md regenerator        | support | merged    |
+| T-build-tasks-md-anchors | Add AUTOGEN anchors to TASKS.md + harden anchor matcher | support | merged |
+| T-archetype-engine | Character archetype classifier (hero/mentor/shadow/etc) | support | merged |
+| T-archetype-engine-canon-eval | Pin canonical archetype set + per-entry shape | support | merged |
+| T-screenplay-import-fountain | POST /screenplay/import/fountain (parser)        | support | merged |
+| T-coverage-simulator | What-a-reader-sees coverage report + endpoint           | support | merged |
+| T-fdx-export-endpoint | POST /screenplay/export/fdx (Final Draft XML)   | support | merged |
+| T-payoff-tracker | Setup → payoff detection + endpoint                          | support | merged |
+| T-talk-turn-meta-stats | GET /talk/stats — aggregate /talk health (safe-public)   | support | merged |
+| T-talk-error-rate-tracker | In-memory error counter + GET /talk/errors (safe-public) | support | merged |
+| T-realtime-supplier-health | Supplier shape + live probe + /realtime/health   | support | merged |
+| T-block-signal-clears-on-completion | Behavioral tests lock block-signal recovery | support | merged |
+| T-craft-frameworks-eval | Eval that runs analyzer against all frameworks   | support | merged     |
+| T-fountain-export-endpoint | POST /screenplay/export/fountain (Fountain text) | support | merged |
+| T-backend-surface-smoke | Whole-surface smoke eval for every iOS-facing route | support | merged |
+| T-genre-classifier | Deterministic genre + tone classifier + endpoint | support | merged |
+| T-realtime-supplier-failover | Transparent stub fallback when primary mint fails | support | merged |
+| T-block-signal-system-prompt | Inject coaching block when writer is stuck    | support | merged     |
+| T-block-signal-history-tracking | Persist block-signal samples to creative memory habits | support | merged |
+| T-block-signal-history-route | GET /memory/block-signal/history read endpoint        | support | merged |
+| T-block-signal-history-bounds-eval | Pathological-input guard on the BS history buffer | support | merged |
+| T-prompt-assembly-block-signal-cap-eval | Cap on `<block_signal>` block size under pathological inputs | support | merged |
+| T-talk-turn-meta-contract-snapshot | Pin /talk/turn/:turnId response key set + error codes  | support | merged |
+| T-talk-turn-rate-limit-route | Optional rate-limit middleware on talk-turn reads | support | merged |
+| T-screenplay-export-markdown | POST /screenplay/export format=md|markdown            | support | merged |
+| T-decisions-queue-fixture-template | docs/decisions-queue-template.md entry skeleton | support | merged |
+| T-coordination-state-cli-validate | Add validate subcommand to coordination_state.mjs | support | merged |
+| T-coordination-state-mutate-eval | Round-trip eval over coordination_state.mjs mutators | support | merged |
+| T-creative-memory-version-check-eval | Pin creative-memory snapshot version field | support | merged |
+| T-creative-memory-store-eviction-eval | Guard creative-memory character roster growth | support | merged |
+| T-known-domains-startup-check | Validate KNOWN_DOMAINS at backend startup | support | merged |
+| T-screenplay-export-pdf-error-clarity | Add helpful PDF rejection payload | support | merged |
+| T-ops-routes-list-route | GET /ops/routes curated manifest of optional surfaces    | support | merged |
+| T-decisions-queue-md-lint | Lint docs/decisions-queue.md format                       | support | merged |
+| T-block-signal-atms-zero-fix | Honor atMs=0 in recordBlockSignalSample (falsy-coerce bug)    | support | merged |
+| T-known-domains-runtime-check | KNOWN_DOMAINS invariants (frozen, snake_case, roundtrip) | support | merged |
+| T-prompt-assembly-snapshot-eval | Pin canonical buildModelPrompt block order            | support | merged |
+| T-prompt-size-eval | Char-budget guard on assembled model prompts             | support | merged |
+| T-memory-quality-eval | Multi-turn creative-memory recall eval                   | support | merged |
+| T-tasks-sync-check | CI script to detect tasks/_active vs TASKS.md drift      | support | merged |
+| T-decisions-queue-route | GET /coordination/decisions-queue as JSON                | support | merged |
+| T-creative-memory-stats-route | GET /memory/stats content-free summary                  | support | merged |
+| T-coordination-state-eval | Schema check on docs/coordination.json                | support | merged |
+| T38  | Wire iOS accepted twist-card actions              | codex  | merged            |
+| T39  | Fix missing Studio SF Symbol warning              | codex  | merged            |
+| T40  | Fix app UserDefaults suite warning                | codex  | merged            |
+| T41  | Defer Studio debug-state publishing               | codex  | merged            |
+| T-trust-tiers | Trust tiers + standing pre-approvals (AGENTS.md)              | support | review            |
+| T42-supervisor-merge-protocol | Codex self-merge authority + agent handoff fast lane | codex | merged |
+| T43-refresh-support-queue | Refresh support agent queue after supervisor protocol merge      | codex | merged |
+| T44-creative-memory-export-triage | Triage creative-memory export privacy gate       | codex | merged |
+| T45-craft-route-json-parser | Parse Craft route JSON in production                   | codex | merged |
+| T46-post-review-queue-refresh | Refresh queue after Codex PR reviews                  | codex | merged |
+| T47-refresh-after-new-support-prs | Refresh queue after new support agent PR triage           | codex | merged |
+| T48-ios-archetype-traits | Surface character archetypes in the Studio traits rail   | codex | merged |
+| T49-post-t48-coordination-refresh | Post-T48 coordination refresh                     | codex | merged |
+| T50-refresh-after-pr103-merge | Refresh coordination after PR #103 merge              | codex | merged |
+| T51-refresh-after-new-eval-prs | Refresh queue for eval PR blockers                   | codex | merged |
+| T52-refresh-after-pr114-merge | Refresh coordination after PR #114 merge              | codex | merged |
+| T53-ios-block-signal-history | Add iOS block-signal history surface                   | codex | merged |
+| T54-refresh-after-block-history-merge | Refresh queue after block-history eval merge | codex | merged |
+| T55-close-stale-handoff-prs | Close stale handoff PRs                                | codex | merged |
+| T56-refresh-after-talk-contract | Refresh queue after talk contract merge            | codex | merged |
+| T-task-files-cleanup | Add TASKS.md rows for orphan task files                     | support | merged |
+| T60  | Consume screenplay export formats in Studio       | codex  | merged            |
+| T61  | Refresh coordination after T60 merge              | codex  | merged            |
+| T62  | Quiet offline Studio export-format refresh        | codex  | merged            |
+| T63  | Refresh coordination after T62 merge              | codex  | merged            |
+| T64  | Quiet offline session-evolution launch probe      | codex  | merged            |
+| T65  | Refresh coordination after T64 merge              | codex  | merged            |
+| T66  | Refresh queue after support agent PR triage              | codex  | merged            |
+| T67  | Refresh queue after PR #148 triage                | codex  | merged            |
+| T68  | Refresh queue after PR #150/#151 merges           | codex  | merged            |
+| T69  | Refresh queue after PR #134 merge                 | codex  | merged            |
+| T70  | Refresh queue after PR #154/#155/#156/#158 merges | codex  | merged            |
+| T71  | Add agent throughput protocol and next-action CLI | codex  | merged            |
+| T72  | Refresh queue after supervisor merge train        | codex  | merged            |
+| T73  | Build iOS Fountain import surface                 | codex  | merged            |
+| T74  | Surface ops route manifest in diagnostics         | codex  | merged            |
+| T75  | Surface talk-turn rate-limit retry affordance     | codex  | merged            |
+| T76  | Refresh coordination after efficiency merge train | codex  | merged            |
+| T77  | Refresh coordination after PR #180/#181           | codex  | merged            |
+| T-decompose-phase0-health-route | Extract `/health` + `/bridge` from backend index | support | merged |
+| T78  | Refresh coordination after PR #183                | codex  | merged            |
+| T79  | Codify second-pass agent efficiency protocol      | codex  | merged            |
+| T80  | Refresh coordination after PR #191/#192           | codex  | merged            |
+| T81  | Refresh coordination after PR #193/#194           | codex  | review            |
+| T-decompose-phase1-ops-routes | Extract `/ops/metrics` + `/ops/alerts` from backend index | support | merged |
+| T-decompose-phase2a-screenplay-projects-reads | Extract 5 `/screenplay/projects/*` GET routes from backend index | support | merged |
+| T-decompose-phase2b-screenplay-projects-writes | Extract 7 `/screenplay/projects/*` write routes from backend index | support | merged |
+| T-decompose-phase3-screenplay-companion | Extract `/screenplay/companion/state` + `/paginate` + `/revision-colors` from backend index | support | merged |
+| T-decompose-phase5a-realtime-reads | Extract 2 read-only `/realtime/*` routes from backend index | support | review |
+| T-logline-drift-alert | Structured drift alert (level + recommendation)  | support | review      |
+| T-first-page-telemetry-sink | Server-side magic-moment SLA event sink         | support | merged     |
+| T-prompt-wire-traits-and-twists | Prompt-assembly consumes traits + accepted twists | support | merged |
+
+---
+
+## Current next-10 checklist (2026-05-13 after round-17 merge train)
+
+1. Current: PR #33 is merged; the Postgres eval gate passed in GitHub Actions on 2026-05-17.
+2. Historical: PR #63 was closed instead of shipping trust-policy changes beyond D005.
+3. Historical: PR #94 merged as V1 core-only memory export after the unsafe project-scoped expansion was removed.
+4. Historical: PR #99 was closed/out of V1; destructive memory delete needs a post-V1 product decision.
+5. Start the iOS consumer for `POST /craft/coverage/simulate`.
+6. Start the iOS consumer for `POST /screenplay/export/fdx`.
+7. Start the iOS payoff-tracker surface for `POST /craft/payoff/track`.
+8. Start the iOS talk stats / health surface for `GET /talk/stats` and the ops route extractions.
+9. Wire first-page telemetry from the app into `POST /telemetry/first-page-written`.
+10. Use PR #84's fallback-aware `/realtime/client_secret` response to show a realtime degraded-mode affordance.
+
+---
+
+## Active work — full detail
