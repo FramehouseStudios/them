@@ -1156,7 +1156,7 @@ nonisolated final class LiveDraftBackendTransport: LiveDraftTransport {
                     )
                     request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
                     request.timeoutInterval = 24 * 60 * 60
-                    let (bytes, response) = try await session.bytes(for: request)
+                    let (bytes, response) = try await session.bytes(for: request, delegate: BackendHTTPRedirectGuard.shared)
                     guard let http = response as? HTTPURLResponse else {
                         throw LiveDraftTransportError.invalidResponse
                     }
@@ -1200,7 +1200,7 @@ nonisolated final class LiveDraftBackendTransport: LiveDraftTransport {
 
     func fetchSnapshot(projectID: String) async throws -> LiveDraftSnapshotPayload {
         let request = try Self.makeRequest(projectID: projectID, path: "snapshot", method: "GET", query: [])
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else { throw LiveDraftTransportError.invalidResponse }
         guard http.statusCode == 200 else { throw LiveDraftTransportError.http(http.statusCode) }
         return try JSONDecoder().decode(LiveDraftSnapshotPayload.self, from: data)
@@ -1245,7 +1245,7 @@ nonisolated final class LiveDraftBackendTransport: LiveDraftTransport {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         request.timeoutInterval = requestTimeout
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else { throw LiveDraftTransportError.invalidResponse }
         let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
         let seq = (json["seq"] as? NSNumber)?.intValue ?? 0
