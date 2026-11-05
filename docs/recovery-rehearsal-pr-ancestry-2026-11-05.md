@@ -35,3 +35,11 @@ A current PR head being an ancestor proves only Git reachability. It does not pr
 | [#986](https://github.com/FramehouseStudios/them/pull/986) | `6453169ea9b80fb363e253b386c7a4cf3c964f1e` | `codex/T-1262-recovery-slot-validation` | `codex/T-1260-empty-version-contract` |
 
 Method: retrieve all open PR pages from GitHub; compare each current `head.sha` to the exact set returned by `git rev-list` for the verified rehearsal commit. Both local refs were checked against GitHub. Recheck heads and bases before any action. The rehearsal parent of #987 has no matching open or closed PR by its branch name; a separate landing plan is required without skipping original work, creating replacement PRs, or bypassing protection.
+
+## Recovery base chains checked on 2026-11-05
+
+- `#919 → #904 → #964 → main`. #964 head `5faa43d6c087813be926246be14f3425ad651880` reported all three required checks successful and `REVIEW_REQUIRED`; #904 was draft and reported `CLEAN`; #919 was draft and reported `DIRTY` against its current base. `DIRTY` is a GitHub mergeability signal, not a diagnosis of the conflicting files. Recheck all heads, reviews and checks when acted upon.
+- `#982 → #981 → codex/T-1238-conflict-runtime-proof`; `#983 → #982` and `#984 → #983`; `#985 → #982` and `#986 → #985`. GitHub returned no PR by the `codex/T-1238-conflict-runtime-proof` head branch when querying all states. These are parallel descendants and must not be assumed to be a single linear chain.
+- `#988 → #987 → codex/T-1267-recovery-multicopy-rehearsal`, whose parent branch likewise had no PR by head name when queried. The prepared confirmation fix is separately preserved in `codex/T-1271-recovery-confirmation`; it does not replace #988.
+
+These are base relationships and current GitHub mergeability observations, not approval to merge, not evidence that any unlisted PR is irrelevant, and not proof that a rehearsal branch can be retargeted without review. Inspect original diffs and retained commits, reconcile missing boundaries, and stop at the first failing required check.
