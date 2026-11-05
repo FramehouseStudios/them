@@ -2247,7 +2247,18 @@ final class ScreenplayStudioViewModel: ObservableObject {
             let baseline = serverProject?.versions?.first { $0.id == entry.baseVersionId }?.draft
             let sameWords = bridge.draftText.utf8.elementsEqual(entry.draft.utf8)
             let cleanBaseline = baseline.map { bridge.draftText.utf8.elementsEqual($0.utf8) } ?? false
-            guard sameWords || cleanBaseline else {
+            let currentServerDraft: String? = serverProject.flatMap { project in
+                guard case .current(let version) = ScreenplaySaveHeadPreflight.evaluate(project) else { return nil }
+                return version.draft
+            }
+            let exactRecovery = localDraftRecoveryStore.dirtyOrdinarySnapshot(ownerUserId: context.userID, projectId: projectID)
+            let verifiedServerPage = conflictVersion != nil && !hasUnsavedDraftChanges && !isManualDraftEditing
+                && entry.deliveryOrigin?.documentID == bridge.draftOrigin.documentID
+                && entry.deliveryOrigin?.permitsBackend(backend) == true
+                && exactRecovery?.draft.utf8.elementsEqual(entry.draft.utf8) == true
+                && exactRecovery?.baseVersionId.utf8.elementsEqual(entry.baseVersionId.utf8) == true
+                && currentServerDraft.map { bridge.draftText.utf8.elementsEqual($0.utf8) && fountainDraft.utf8.elementsEqual($0.utf8) } == true
+            guard sameWords || cleanBaseline || verifiedServerPage else {
                 // The first load has no server baseline yet. Defer to the
                 // project read; never relabel newer persisted writer words.
                 if serverProject == nil { return true }
