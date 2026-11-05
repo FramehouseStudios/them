@@ -2303,6 +2303,47 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     }
 
     @MainActor
+    func testRelaunchRestoresExactParkedWriterAfterServerPageWasPersisted() async throws {
+        let restoreOwner = try installAuthenticatedFixtureOwner()
+        defer { restoreOwner() }
+        let owner = ScreenplayStudioAuthContext.current()
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let local = "Exact queued writer words cafe\u{0301}.  \r\n"
+        let server = "Server collaborator words."
+        var entry = replacingOwner(of: makeEntry(id: "server-first-conflict", draft: local), with: owner.userID)
+        entry.deliveryOrigin = .init(documentID: "server-first-document", backendURL: BackendAuthClient.resolvedBackendBaseURL())
+        let bridge = ScreenplayLiveDraftBridge.shared
+        XCTAssertTrue(bridge.adoptLoadedProjectDraft(local, projectID: entry.projectId,
+            versionID: entry.baseVersionId, owner: owner, queuedEntry: entry))
+        bridge.draftText = server
+        try await queue.enqueue(entry)
+        _ = try await queue.retainConflict(entry)
+        let suite = "them.conflict-server-first.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite); ScreenplayLiveDraftSyncService.shared.detach() }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        XCTAssertTrue(recovery.save(ownerUserId: owner.userID, projectId: entry.projectId, draft: local,
+            baseVersionId: entry.baseVersionId, dirty: true))
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery, draftSaveOutbox: queue)
+        model.autosaveEnabled = false
+        model.selectedProjectID = entry.projectId
+        ScreenplayLiveDraftSyncService.shared.attach(to: model)
+        let project = try JSONDecoder().decode(BackendScreenplayProjectSummary.self,
+            from: JSONSerialization.data(withJSONObject: ["id": entry.projectId, "title": entry.title,
+                "activeVersionId": "server-v2", "versions": [["id": "server-v2", "draft": server]]]))
+        let restored = await model.hydrateDraftRestoringQueuedSaves(from: project)
+        XCTAssertTrue(restored)
+        XCTAssertEqual(Data(model.fountainDraft.utf8), Data(local.utf8))
+        XCTAssertEqual(Data(bridge.draftText.utf8), Data(local.utf8))
+        XCTAssertEqual(model.conflictState?.retainedRequest?.id, entry.id)
+        XCTAssertEqual(model.conflictState?.serverVersionId, "server-v2")
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        let rows = try await queue.entriesForTesting()
+        XCTAssertEqual(rows.first?.status, .parked)
+        XCTAssertEqual(rows.first.map { Data($0.draft.utf8) }, Data(local.utf8))
+    }
+
+    @MainActor
     func testRelaunchRestoresExactSameOriginConflictAndWriterChoice() async throws {
         let restoreOwner = try installAuthenticatedFixtureOwner()
         defer { restoreOwner() }
