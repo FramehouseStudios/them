@@ -1682,6 +1682,10 @@ final class V1SmokeUITests: XCTestCase {
                 .waitForExistence(timeout: writerLoopWait(10)),
             "Markdown export did not confirm the native Files save.\n\(app.debugDescription)"
         )
+        guard waitForNativeFilesExporter(in: app, presented: false, timeout: writerLoopWait(10)) else {
+            XCTFail("The Files exporter did not dismiss after saving; the app was not relaunched.")
+            return
+        }
         app.terminate()
 
         app = launchApp(
