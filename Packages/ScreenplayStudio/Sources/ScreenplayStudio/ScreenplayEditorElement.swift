@@ -5,6 +5,7 @@ public enum ScreenplayEditorElement: String, CaseIterable, Identifiable, Codable
     case dialogue
     case parenthetical
     case transition
+    case centered
 
     public var id: String { rawValue }
 
@@ -16,6 +17,7 @@ public enum ScreenplayEditorElement: String, CaseIterable, Identifiable, Codable
         case .dialogue: return "Dialogue"
         case .parenthetical: return "Parenthetical"
         case .transition: return "Transition"
+        case .centered: return "Centered"
         }
     }
 
@@ -27,6 +29,7 @@ public enum ScreenplayEditorElement: String, CaseIterable, Identifiable, Codable
         case .dialogue: return "Dialogue"
         case .parenthetical: return "Paren"
         case .transition: return "Transition"
+        case .centered: return "Center"
         }
     }
 
@@ -38,6 +41,7 @@ public enum ScreenplayEditorElement: String, CaseIterable, Identifiable, Codable
         case .dialogue: return "text.quote"
         case .parenthetical: return "parentheses"
         case .transition: return "arrow.turn.down.right"
+        case .centered: return "text.aligncenter"
         }
     }
 
@@ -49,6 +53,7 @@ public enum ScreenplayEditorElement: String, CaseIterable, Identifiable, Codable
         case .dialogue: return "4"
         case .parenthetical: return "5"
         case .transition: return "6"
+        case .centered: return "7"
         }
     }
 
@@ -60,6 +65,7 @@ public enum ScreenplayEditorElement: String, CaseIterable, Identifiable, Codable
         case .dialogue: return "Dialogue under the character cue"
         case .parenthetical: return "Small performance note in parentheses"
         case .transition: return "Right-aligned CUT TO: / FADE OUT:"
+        case .centered: return "Centered text (Fountain: >TEXT<)"
         }
     }
 
@@ -68,6 +74,8 @@ public enum ScreenplayEditorElement: String, CaseIterable, Identifiable, Codable
         case .sceneHeading, .character, .transition:
             return true
         case .action, .dialogue, .parenthetical:
+            return false
+        case .centered:
             return false
         }
     }
@@ -98,6 +106,8 @@ public enum ScreenplayEditorElement: String, CaseIterable, Identifiable, Codable
             return .transition
         case .transition:
             return .sceneHeading
+        case .centered:
+            return .sceneHeading
         }
     }
 
@@ -115,6 +125,8 @@ public enum ScreenplayEditorElement: String, CaseIterable, Identifiable, Codable
             return .dialogue
         case .transition:
             return .action
+        case .centered:
+            return .action
         }
     }
 
@@ -124,6 +136,17 @@ public enum ScreenplayEditorElement: String, CaseIterable, Identifiable, Codable
     ) -> ScreenplayEditorElement {
         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return .action }
+
+        // Fountain's force markers take precedence over visual heuristics.
+        // Without this, an all-caps forced action (`!…`) becomes a character
+        // cue and changes the classification of every following line.
+        if trimmed.hasPrefix("!") { return .action }
+        if trimmed.hasPrefix("@") { return .character }
+        if isCenteredText(trimmed) { return .centered }
+        if trimmed.hasPrefix(".") && looksLikeSceneHeadingStart(String(trimmed.dropFirst())) {
+            return .sceneHeading
+        }
+        if trimmed.hasPrefix(">") { return .transition }
 
         if looksLikeSceneHeadingStart(trimmed) {
             return .sceneHeading
@@ -195,6 +218,8 @@ public enum ScreenplayEditorElement: String, CaseIterable, Identifiable, Codable
             return .sceneHeading
         case .action:
             return .action
+        case .centered:
+            return .action
         }
     }
 
@@ -243,10 +268,37 @@ public enum ScreenplayEditorElement: String, CaseIterable, Identifiable, Codable
     /// the marker as an attribute instead (Final Draft, PDF).
     public static func characterCueName(_ line: String) -> String {
         var trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("@") {
+            trimmed.removeFirst()
+            trimmed = trimmed.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
         if trimmed.hasSuffix("^") {
             trimmed.removeLast()
             trimmed = trimmed.trimmingCharacters(in: .whitespacesAndNewlines)
         }
         return trimmed
+    }
+
+    /// Text shown by screenplay renderers after Fountain force syntax has
+    /// selected an element. The source draft remains untouched.
+    public static func renderedText(for line: String) -> String {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isCenteredText(trimmed) {
+            return trimmed.dropFirst().dropLast().trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        guard let marker = trimmed.first else { return line }
+        switch marker {
+        case "!", "@", ">", "~":
+            return String(trimmed.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
+        case "." where looksLikeSceneHeadingStart(String(trimmed.dropFirst())):
+            return String(trimmed.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
+        default:
+            return line
+        }
+    }
+
+    public static func isCenteredText(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.count >= 2 && trimmed.hasPrefix(">") && trimmed.hasSuffix("<")
     }
 }

@@ -28,6 +28,7 @@ public enum FountainTypography {
         case .dialogue: return dialogueIndent
         case .parenthetical: return parentheticalIndent
         case .transition: return transitionIndent
+        case .centered: return actionIndent
         case .blank: return 0
         }
     }
@@ -35,6 +36,7 @@ public enum FountainTypography {
     public static func alignment(for kind: FountainElement.Kind) -> TextAlignment {
         switch kind {
         case .transition: return .trailing
+        case .centered: return .center
         default: return .leading
         }
     }
@@ -42,6 +44,7 @@ public enum FountainTypography {
     public static func horizontalAlignment(for kind: FountainElement.Kind) -> HorizontalAlignment {
         switch kind {
         case .transition: return .trailing
+        case .centered: return .center
         default: return .leading
         }
     }
@@ -51,31 +54,6 @@ public enum FountainTypography {
     }
 
     public static func classifyLine(_ line: String) -> FountainElement.Kind {
-        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty { return .blank }
-
-        let upper = trimmed.uppercased()
-        if upper.hasPrefix("INT.") || upper.hasPrefix("EXT.") ||
-            upper.hasPrefix("INT/EXT.") || upper.hasPrefix("I/E.") {
-            return .sceneHeading
-        }
-
-        if upper.hasSuffix("TO:") || upper == "FADE IN:" || upper == "FADE OUT:" ||
-            upper == "FADE TO BLACK:" || upper == "THE END" ||
-            upper == "SMASH TO BLACK:" {
-            return .transition
-        }
-
-        if trimmed.hasPrefix("(") && trimmed.hasSuffix(")") {
-            return .parenthetical
-        }
-
-        if trimmed == trimmed.uppercased() && trimmed.count <= 40 &&
-            !trimmed.contains(":") && trimmed.count > 0 &&
-            trimmed.range(of: #"^[A-Z0-9 \x{27}\-().]+$"#, options: .regularExpression) != nil {
-            return .character
-        }
-
-        return .action
+        IOThemTypography.Screenplay.classifyLine(line)
     }
 }

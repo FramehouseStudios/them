@@ -33,17 +33,28 @@ public struct FountainRevealView: View {
         let lines = formattedText.components(separatedBy: "\n")
         var result: [FountainLine] = []
         var globalWordOffset = 0
+        var previousElement: ScreenplayEditorElement?
 
         for (_, line) in lines.enumerated() {
-            let kind = IOThemTypography.Screenplay.classifyLine(line)
-            let words = line.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                result.append(FountainLine(text: "", kind: .blank, words: [], globalWordOffset: globalWordOffset))
+                previousElement = nil
+                continue
+            }
+
+            let element = ScreenplayEditorElement.inferredElement(for: trimmed, previousElement: previousElement)
+            let kind = IOThemTypography.Screenplay.kind(for: element)
+            let displayText = ScreenplayEditorElement.renderedText(for: line)
+            let words = displayText.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
             result.append(FountainLine(
-                text: line,
+                text: displayText,
                 kind: kind,
                 words: words,
                 globalWordOffset: globalWordOffset
             ))
             globalWordOffset += words.count
+            previousElement = element
         }
 
         return result
