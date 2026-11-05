@@ -1396,11 +1396,15 @@ final class V1SmokeUITests: XCTestCase {
             "Studio did not open against the temporary writer-loop backend.\n\(app.debugDescription)"
         )
 
-        let leftDrawerToggle = app.buttons["studio.sidebar.left.toggle"]
-        XCTAssertTrue(waitForHittability(of: leftDrawerToggle, timeout: writerLoopWait(5)))
-        if !element(identifier: "studio.sidebar.left.drawer", in: app).exists {
-            leftDrawerToggle.tap()
+        let createProjectAction = app.buttons["Create Project"]
+        guard waitForHittability(of: createProjectAction, timeout: writerLoopWait(15)) else {
+            XCTFail("The page did not expose its Create Project action after loading."); return
         }
+        createProjectAction.tap()
+        guard element(identifier: "studio.sidebar.left.drawer", in: app).waitForExistence(timeout: writerLoopWait(8)) else {
+            XCTFail("Create Project did not open the Projects drawer."); return
+        }
+        let leftDrawerToggle = app.buttons["studio.sidebar.left.toggle"]
         let projectTitleField = app.textFields["New project title"]
         XCTAssertTrue(
             waitForHittability(of: projectTitleField, timeout: writerLoopWait(8)),
