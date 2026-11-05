@@ -108,8 +108,8 @@ extension ScreenplayLiveDraftBridge {
         // typed locally as dirty until a real screenplay save can acknowledge it.
         let dirty = receipt.entry.initialization?.blankProject == true
             ? !draftText.isEmpty : !draftText.utf8.elementsEqual(receipt.entry.draft.utf8)
-        ScreenplayLocalDraftRecoveryStore().save(ownerUserId: receipt.owner.userID, projectId: receipt.project.id,
-            draft: draftText, baseVersionId: receipt.versionID, dirty: dirty)
+        guard ScreenplayLocalDraftRecoveryStore().saveInitialProjectReceipt(ownerUserId: receipt.owner.userID, projectId: receipt.project.id,
+            draft: draftText, baseVersionId: receipt.versionID, dirty: dirty) else { return false }
         initialProjectReceipt = receipt
         preferredProjectID = receipt.project.id
         preferredVersionID = receipt.versionID

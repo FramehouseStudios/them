@@ -2734,8 +2734,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
               fountainDraft.utf8.elementsEqual(receipt.localDraft.utf8) else { return false }
         let dirty = metadata.blankProject == true
             ? !fountainDraft.isEmpty : !fountainDraft.utf8.elementsEqual(receipt.entry.draft.utf8)
-        localDraftRecoveryStore.save(ownerUserId: receipt.owner.userID, projectId: receipt.project.id,
-            draft: fountainDraft, baseVersionId: receipt.versionID, dirty: dirty)
+        guard localDraftRecoveryStore.saveInitialProjectReceipt(ownerUserId: receipt.owner.userID, projectId: receipt.project.id,
+            draft: fountainDraft, baseVersionId: receipt.versionID, dirty: dirty) else { return false }
         clearTransientProjectStateForSelectionChange(to: receipt.project.id)
         upsertProject(receipt.project)
         selectedProject = receipt.project
