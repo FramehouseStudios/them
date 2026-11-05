@@ -11,6 +11,7 @@ Rehearsal source: `63940922661e9ddfc9d0f2874e94c098cd76981c` on `codex/T-1270-st
 - Signed authenticated local iPhone UI: project creation, save, export and relaunch, 1 passed; simulated provider. Result: `/tmp/them-home-voice-47046.xcresult`.
 - Signed authenticated local iPhone UI: queued offline save, expired-auth recovery and stale-version conflict, 3 passed. Result: `/var/folders/27/kqhcss0n7t1dh_fj2wn98ynm0000gn/T/them-save-recovery-XqAs11/recovery-ios.xcresult`.
 - Signed authenticated local iPhone UI: manual edit during an actual streamed synthetic page remains exact after late completion, save and relaunch, 1 passed. Result: `/tmp/them-home-voice-48490.xcresult`.
+- Signed authenticated local iPhone UI: confirmed simulated voice handoff opens Studio, writes a page and restores it after relaunch, 1 passed. The fixture did not exercise microphone recognition or a live provider. Result: `/tmp/them-home-voice-49348.xcresult`.
 - macOS scaffold build passed; god-file gate and diff check passed. Log: `/private/tmp/them-t1270-macos-639.log`.
 
 ## Holds and limits
