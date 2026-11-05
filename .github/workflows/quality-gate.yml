@@ -2,7 +2,9 @@ name: quality-gate
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    # Drafts already run every gate. Readiness alone changes no code; do not
+    # repeat the full suite when the same tested head becomes ready for review.
+    types: [opened, synchronize, reopened]
   push:
     branches:
       - main
@@ -276,4 +278,5 @@ jobs:
             /tmp/them-smoke/them-home.png
             ${{ runner.temp }}/them-v1-ui-smoke/*.xcresult
             ${{ runner.temp }}/them-screenplay-save-network-fault-smokes/*.xcresult
+            ${{ runner.temp }}/them-save-recovery-*/*.xcresult
             ${{ runner.temp }}/them-voice-network-fault-smokes/*.xcresult
