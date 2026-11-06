@@ -73,6 +73,24 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         XCTAssertTrue(remainingRows.isEmpty)
     }
 
+    func testConfirmedMatchingAutosaveReadbackDoesNotMarkExactPageDirtyAgain() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base", dirty: true)
+        fixture.model.autosaveEnabled = true
+        let save = Task { await fixture.model.handleDraftDebouncedChange(fixture.a) }
+        defer { fixture.peer.releaseFirst(.offline); save.cancel() }
+        try await fixture.waitForFirstSave()
+        XCTAssertEqual(fixture.peer.writes.first?.source, "studio_autosave")
+        fixture.peer.releaseFirst(.matchingConflict)
+        await save.value
+        XCTAssertEqual(fixture.model.latestVersionID, "a-remote")
+        XCTAssertFalse(fixture.model.hasUnsavedDraftChanges)
+        await fixture.model.handleDraftDebouncedChange(fixture.a)
+        XCTAssertFalse(fixture.model.hasUnsavedDraftChanges, "Confirmed exact words must remain clean.")
+        XCTAssertEqual(fixture.peer.writes.count, 1, "A later observer must not submit the same page again.")
+    }
+
     func testPassiveAutosaveMatchingInflightManualSaveDoesNotCreateAnotherRequest() async throws {
         let fixture = try SaveCompletionFixture()
         defer { fixture.close() }
@@ -936,7 +954,7 @@ private struct SaveCompletionEnvironmentSnapshot {
 }
 
 private nonisolated final class SaveCompletionPeer: @unchecked Sendable {
-    enum Outcome: Equatable { case success, conflict, offline, versionIDOnly, wrongReceipt, nestedExactReceipt }
+    enum Outcome: Equatable { case success, conflict, matchingConflict, offline, versionIDOnly, wrongReceipt, nestedExactReceipt }
     struct Write {
         let project: String; let base: String; let draft: String; let id: String
         let phase: String; let source: String; let notes: String
@@ -999,6 +1017,17 @@ private nonisolated final class SaveCompletionPeer: @unchecked Sendable {
             transport.respond(status: 409, payload: ["status": "conflict", "conflict": true,
                 "project_id": write.project, "base_version_id": write.base, "server_version_id": "a-remote",
                 "server_version": ["id": "a-remote", "draft": "Other A words"]])
+        case .matchingConflict:
+            do {
+                let anchors = try JSONSerialization.jsonObject(with: JSONEncoder().encode(write.anchors))
+                let bindings = try JSONSerialization.jsonObject(with: JSONEncoder().encode(write.bindings))
+                transport.respond(status: 200, payload: ["status": "conflict", "conflict": true,
+                    "project_id": write.project, "server_version_id": "a-remote",
+                    "project": ["id": write.project, "title": write.project.uppercased(), "active_version_id": "a-remote"],
+                    "server_version": ["id": "a-remote", "project_id": write.project,
+                        "draft": write.draft, "phase": write.phase,
+                        "studio_write_anchors": anchors, "screenplay_bindings": bindings]])
+            } catch { transport.fail(error) }
         case .success, .versionIDOnly, .wrongReceipt, .nestedExactReceipt:
             let version = "\(write.project)-ack-\(number)"
             do {

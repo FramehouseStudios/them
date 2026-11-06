@@ -8084,6 +8084,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 }
                 latestVersionID = evidence.versionID
                 lastSavedDraftFingerprint = fingerprint(for: request.draft)
+                lastSavedDraftExact = (request.ownerUserId, request.projectId, request.draft)
                 lastRevisionBaseDraft = request.draft
                 hasUnsavedDraftChanges = ScreenplayDraftSaveCompletionPolicy.hasUnsavedChanges(
                     currentDraft: fountainDraft, savedDraft: request.draft)
