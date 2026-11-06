@@ -6154,7 +6154,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     do {
                         try await draftSaveOutbox.enqueue(queuedRequest.outboxEntry)
                     } catch {
-                        errorText = "Your newest local draft is preserved, but its retry could not be queued: \(error.localizedDescription)"
+                        guard authContextIsCurrent(queuedRequest.authContext),
+                              selectedProjectID == queuedRequest.projectId else { return false }
+                        hasUnsavedDraftChanges = true
+                        autosaveStatusText = "Save needs attention"
+                        infoText = "Keep this page open and export a copy, or retry Save."
+                        errorText = "The newest save could not be queued. Automatic retry is not confirmed: \(error.localizedDescription)"
                     }
                 }
                 return false

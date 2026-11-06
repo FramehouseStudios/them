@@ -3,6 +3,50 @@ import XCTest
 
 final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     @MainActor
+    func testPendingSaveQueueFailureDoesNotClaimNewestDraftWillRetry() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let suite = "them.pending-queue-failure.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery, draftSaveOutbox: queue)
+        let project = try JSONDecoder().decode(BackendScreenplayProjectSummary.self,
+            from: JSONSerialization.data(withJSONObject: ["id": "project-1", "title": "Test"]))
+        model.projects = [project]
+        model.selectedProjectID = project.id
+        model.selectedProject = project
+        model.applyStructuralUITestDraft("baseline", versionID: "base")
+        model.fountainDraft = "first draft"
+        model.noteManualDraftEdit()
+        let started = expectation(description: "first save started")
+        var resumeFirst: CheckedContinuation<Void, Never>?
+        model.debugBeforeDraftSaveTransport = {
+            await withCheckedContinuation { continuation in
+                resumeFirst = continuation
+                started.fulfill()
+            }
+            throw URLError(.notConnectedToInternet)
+        }
+        let firstSave = Task { await model.manualSaveDraft() }
+        await fulfillment(of: [started], timeout: 5)
+        let newestWords = String(repeating: "x", count: 2 * 1024 * 1024 + 1)
+        model.fountainDraft = newestWords
+        model.noteManualDraftEdit()
+        await model.manualSaveDraft()
+        try XCTUnwrap(resumeFirst).resume()
+        await firstSave.value
+        XCTAssertEqual(model.fountainDraft, newestWords)
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertEqual(model.autosaveStatusText, "Save needs attention")
+        XCTAssertFalse(model.infoText.contains("will save when the connection returns"))
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        XCTAssertEqual(recovery.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: project.id)?.draft, newestWords)
+        let retained = try await queue.entriesForTesting()
+        XCTAssertEqual(retained.count, 1)
+        XCTAssertEqual(retained.first?.draft, "first draft")
+    }
+
+    @MainActor
     func testPendingNewProjectSaveSurvivesOldProjectFailure() async throws {
         let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let suite = "them.pending-project-save.\(UUID().uuidString)"
