@@ -220,20 +220,23 @@ actor ScreenplayDraftSaveOutbox {
         publishSnapshot()
     }
 
+    @discardableResult
     func markSucceeded(
         id: String,
         serverVersionId: String,
         supersedesEarlierSaves: Bool = false,
+        allowParkedExactConfirmation: Bool = false,
         now: Date = Date()
-    ) throws {
+    ) throws -> Bool {
         try loadIfNeeded()
-        guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+        guard let index = entries.firstIndex(where: { $0.id == id }),
+              entries[index].status != .parked || supersedesEarlierSaves || allowParkedExactConfirmation else { return false }
         let previous = entries
         let completed = entries.remove(at: index)
         entries.removeAll { entry in
             entry.projectId == completed.projectId &&
                 entry.ownerUserId == completed.ownerUserId &&
-                (supersedesEarlierSaves || entry.status == .parked) &&
+                supersedesEarlierSaves &&
                 entry.createdAt <= completed.createdAt
         }
         let nextBase = serverVersionId.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -241,6 +244,7 @@ actor ScreenplayDraftSaveOutbox {
             for queuedIndex in entries.indices where
                 entries[queuedIndex].projectId == completed.projectId &&
                 entries[queuedIndex].ownerUserId == completed.ownerUserId &&
+                (supersedesEarlierSaves || entries[queuedIndex].status != .parked) &&
                 entries[queuedIndex].createdAt >= completed.createdAt &&
                 entries[queuedIndex].baseVersionId == completed.baseVersionId {
                 entries[queuedIndex].baseVersionId = nextBase
@@ -249,6 +253,7 @@ actor ScreenplayDraftSaveOutbox {
         }
         do { try persist() } catch { entries = previous; throw error }
         publishSnapshot()
+        return true
     }
 
     func remove(id: String) throws {
