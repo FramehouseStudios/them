@@ -193,9 +193,10 @@ actor ScreenplayDraftSaveOutbox {
               force || entry.nextAttemptAt <= nowSeconds else {
             return nil
         }
+        let previous = entries
         entries[index].status = .inflight
         entries[index].updatedAt = nowSeconds
-        try persist()
+        do { try persist() } catch { entries = previous; throw error }
         publishSnapshot()
         return entries[index]
     }
@@ -214,9 +215,10 @@ actor ScreenplayDraftSaveOutbox {
     func markInflight(id: String, now: Date = Date()) throws {
         try loadIfNeeded()
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+        let previous = entries
         entries[index].status = .inflight
         entries[index].updatedAt = now.timeIntervalSince1970
-        try persist()
+        do { try persist() } catch { entries = previous; throw error }
         publishSnapshot()
     }
 
@@ -258,8 +260,9 @@ actor ScreenplayDraftSaveOutbox {
 
     func remove(id: String) throws {
         try loadIfNeeded()
+        let previous = entries
         entries.removeAll { $0.id == id }
-        try persist()
+        do { try persist() } catch { entries = previous; throw error }
         publishSnapshot()
     }
 
@@ -298,17 +301,19 @@ actor ScreenplayDraftSaveOutbox {
         try loadIfNeeded()
         let cleanProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanOwnerUserId = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let previous = entries
         entries.removeAll { entry in
             entry.projectId == cleanProjectId &&
                 entry.ownerUserId == cleanOwnerUserId
         }
-        try persist()
+        do { try persist() } catch { entries = previous; throw error }
         publishSnapshot()
     }
 
     func markRetryable(id: String, error: String, now: Date = Date()) throws {
         try loadIfNeeded()
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+        let previous = entries
         let retryCount = entries[index].retries + 1
         entries[index].retries = retryCount
         entries[index].updatedAt = now.timeIntervalSince1970
@@ -320,18 +325,19 @@ actor ScreenplayDraftSaveOutbox {
             entries[index].status = .pending
             entries[index].nextAttemptAt = now.timeIntervalSince1970 + Self.backoffSeconds[retryCount - 1]
         }
-        try persist()
+        do { try persist() } catch { entries = previous; throw error }
         publishSnapshot()
     }
 
     func markParked(id: String, error: String, now: Date = Date()) throws {
         try loadIfNeeded()
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+        let previous = entries
         entries[index].status = .parked
         entries[index].updatedAt = now.timeIntervalSince1970
         entries[index].nextAttemptAt = 0
         entries[index].lastError = normalizedError(error)
-        try persist()
+        do { try persist() } catch { entries = previous; throw error }
         publishSnapshot()
     }
 

@@ -2,6 +2,17 @@ import XCTest
 @testable import them
 
 final class ScreenplayDraftSaveSlotTests: XCTestCase {
+    func testDifferentScopesRetainTheirNewestPendingRequest() {
+        var slot = ScreenplayDraftSaveSlot<String>()
+        XCTAssertTrue(slot.claim("active", scope: "first"))
+        XCTAssertFalse(slot.claim("second old", scope: "second"))
+        XCTAssertFalse(slot.claim("third", scope: "third"))
+        XCTAssertFalse(slot.claim("second new", scope: "second"))
+        XCTAssertEqual(slot.takePending(), "second new")
+        XCTAssertEqual(slot.release(), "third")
+        XCTAssertNil(slot.pending)
+    }
+
     func testASaveArrivingWhileOneRunsWaitsInsteadOfRunningBesideIt() {
         var slot = ScreenplayDraftSaveSlot<String>()
         XCTAssertTrue(slot.claim("page 27"))
