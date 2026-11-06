@@ -935,6 +935,91 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     }
 
     @MainActor
+    func testConfirmedPassiveReadbackPersistsItsVersionForRelaunch() async throws {
+        try await verifyConfirmedReadbackPersistsVersion(emptyBase: false)
+    }
+
+    @MainActor
+    func testConfirmedEmptyBasePreflightPersistsItsVersionForRelaunch() async throws {
+        try await verifyConfirmedReadbackPersistsVersion(emptyBase: true)
+    }
+
+    @MainActor
+    private func verifyConfirmedReadbackPersistsVersion(emptyBase: Bool) async throws {
+        let restoreOwner = try installAuthenticatedFixtureOwner()
+        defer { restoreOwner() }
+        let owner = ScreenplayStudioAuthContext.current()
+        let previousSharedID = BackendAuthClient.sharedUserID()
+        XCTAssertTrue(BackendAuthClient.persistSharedUserID(owner.userID))
+        defer {
+            if let previousSharedID { _ = BackendAuthClient.persistSharedUserID(previousSharedID) }
+            else { BackendAuthClient.clearSharedUserID() }
+        }
+        let identity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: false)
+        let backend = BackendAuthClient.resolvedBackendBaseURL()
+        let draft = "INT. ROOM - NIGHT\n\nExact recovered words.\n"
+        var pending = replacingOwner(of: makeEntry(id: "readback-relaunch", draft: draft), with: owner.userID)
+        if emptyBase { pending.baseVersionId = "" }
+        pending.deliveryOrigin = .init(documentID: "readback-relaunch-document", backendURL: backend)
+        let bridge = ScreenplayLiveDraftBridge.shared
+        XCTAssertTrue(bridge.adoptLoadedProjectDraft(draft, projectID: pending.projectId,
+            versionID: pending.baseVersionId, owner: owner, queuedEntry: pending))
+        let entry = pending
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        try await queue.enqueue(entry)
+        let suite = "them.readback-version.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        DelayedConflictFetchProtocol.install { transport, request in
+            do {
+                if request.url?.path == "/session" {
+                    try transport.respond(["user_id": owner.userID, "authenticated": true,
+                                           "client_token": "test-client", "expires_in": 3600,
+                                           "remembered_names": []])
+                } else if request.url?.path == "/screenplay/projects/\(entry.projectId)/version", !emptyBase {
+                    let version: [String: Any] = ["id": "server-v2", "projectId": entry.projectId,
+                        "draft": entry.draft, "phase": entry.phase, "clientRequestId": "earlier-save"]
+                    try transport.respond(["projectId": entry.projectId, "conflict": true,
+                        "serverVersionId": "server-v2", "serverVersion": version,
+                        "project": ["id": entry.projectId, "title": entry.title, "activeVersionId": "server-v2"]])
+                } else if request.url?.path == "/screenplay/projects/\(entry.projectId)", emptyBase {
+                    let version: [String: Any] = ["id": "server-v2", "projectId": entry.projectId,
+                        "draft": entry.draft, "phase": entry.phase, "clientRequestId": "earlier-save"]
+                    try transport.respond(["project": ["id": entry.projectId, "title": entry.title,
+                        "activeVersionId": "server-v2", "versions": [version]]])
+                } else { transport.fail(URLError(.unsupportedURL)) }
+            } catch { transport.fail(error) }
+        }
+        defer { DelayedConflictFetchProtocol.uninstall() }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [DelayedConflictFetchProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let api = BackendMemoryAPI(session: session, baseURL: backend, requestIdentityProvider: { _ in identity })
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery,
+            recoveryOriginProvider: { $0 == entry.projectId ? entry.deliveryOrigin : nil },
+            draftSaveOutbox: queue, draftSaveAPI: api, projectSelectionAPI: api,
+            draftSaveIdentityProvider: { identity },
+            liveReplyOutbox: OfflineTalkOutbox(storageDirectory: storageDirectory.appendingPathComponent("readback-talk")))
+        let project = try JSONDecoder().decode(BackendScreenplayProjectSummary.self,
+            from: JSONSerialization.data(withJSONObject: ["id": entry.projectId, "title": entry.title]))
+        model.autosaveEnabled = false
+        model.selectedProjectID = entry.projectId
+        model.selectedProject = project
+        model.applyStructuralUITestDraft(draft, versionID: entry.baseVersionId)
+        ScreenplayLiveDraftSyncService.shared.attach(to: model)
+        await model.resumeQueuedDraftSavesIfNeeded(force: true)
+        XCTAssertEqual(model.latestVersionID, "server-v2", "The exact server readback must be acknowledged.")
+        XCTAssertEqual(bridge.preferredVersionID, "server-v2", "Relaunch must use the acknowledged version.")
+        XCTAssertEqual(bridge.draftOrigin.versionID, "server-v2")
+        let storedKey = ScreenplayOwnerScopedStoragePolicy.storageKey(
+            baseKey: "studio_live_preferred_version_id_v1", ownerUserID: owner.userID)
+        XCTAssertEqual(UserDefaults.standard.string(forKey: storedKey), "server-v2")
+        XCTAssertEqual(Data(model.fountainDraft.utf8), Data(draft.utf8))
+    }
+
+    @MainActor
     func testEmptyBasePreflightDoesNotAcknowledgeWhitespaceDifferentDraft() async throws {
         let restoreOwner = try installAuthenticatedFixtureOwner()
         defer { restoreOwner() }
