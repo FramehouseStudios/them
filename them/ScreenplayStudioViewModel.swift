@@ -6016,26 +6016,35 @@ final class ScreenplayStudioViewModel: ObservableObject {
             completedCount += 1
         }
         await refreshDraftSaveOutboxStatus()
-        guard let pending = draftSaveSlot.release() else { return }
-        // Preserve the captured request, not a new save of whichever project
-        // happens to be selected after this drain's asynchronous work.
-        guard authContextIsCurrent(pending.authContext), selectedProjectID == pending.projectId,
-              conflictState == nil || pending.source == "studio_conflict_resolve" else {
-            do {
-                var retained = pending.outboxEntry
-                retained.status = .parked
-                retained.nextAttemptAt = 0
-                retained.lastError = "Save retained after the account, project, or conflict choice changed."
-                try await draftSaveOutbox.enqueue(retained)
-            } catch {
-                guard authContextIsCurrent(pending.authContext), selectedProjectID == pending.projectId else { return }
-                errorText = "Your local draft is preserved, but its waiting save could not be retained: \(error.localizedDescription)"
+        var queuedBehindEarlierSaves = false
+        while let pending = draftSaveSlot.takePending() {
+            // Keep the slot claimed while retaining or running each captured
+            // request, so another save cannot bypass the remaining handoffs.
+            guard authContextIsCurrent(pending.authContext), selectedProjectID == pending.projectId,
+                  conflictState == nil || pending.source == "studio_conflict_resolve" else {
+                do {
+                    var retained = pending.outboxEntry
+                    retained.status = .parked
+                    retained.nextAttemptAt = 0
+                    retained.lastError = "Save retained after the account, project, or conflict choice changed."
+                    try await draftSaveOutbox.enqueue(retained)
+                } catch {
+                    if authContextIsCurrent(pending.authContext), selectedProjectID == pending.projectId {
+                        autosaveStatusText = "Save needs attention"
+                        infoText = "Keep this page open and export a copy, or retry Save."
+                        errorText = "The waiting save could not be retained: \(error.localizedDescription)"
+                    }
+                }
+                continue
             }
-            return
+            let followsDrain = completedCount > 0 && pending.projectId == projectId
+                && pending.authContext == drainContext && pending.source != "studio_conflict_resolve"
+            if await runClaimedDraftSave(followsDrain ? pending.rebased(on: latestVersionID) : pending) {
+                queuedBehindEarlierSaves = true
+            }
         }
-        let followsDrain = completedCount > 0 && pending.projectId == projectId
-            && pending.authContext == drainContext && pending.source != "studio_conflict_resolve"
-        await submitDraftSave(followsDrain ? pending.rebased(on: latestVersionID) : pending)
+        _ = draftSaveSlot.release()
+        if queuedBehindEarlierSaves { await resumeQueuedDraftSavesIfNeeded() }
     }
 
     private func adoptQueuedDraftIntoUnchangedEditorIfNeeded(
