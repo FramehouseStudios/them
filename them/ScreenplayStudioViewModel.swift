@@ -8328,11 +8328,31 @@ final class ScreenplayStudioViewModel: ObservableObject {
             }
             guard ownsCompletion() else { return nil }
             hasUnsavedDraftChanges = true
-            persistRecoveryForUnconfirmedSave(
+            let currentDraft = fountainDraft
+            let recovery = persistRecoveryForUnconfirmedSave(
                 projectId: request.projectId,
-                draft: fountainDraft,
+                draft: currentDraft,
                 baseVersionId: request.baseVersionId
             )
+            let recoveryMatches = recovery.map {
+                $0.draft.utf8.elementsEqual(currentDraft.utf8) &&
+                    $0.baseVersionId.utf8.elementsEqual(request.baseVersionId.utf8)
+            } ?? false
+            let requestMatches = request.draft.utf8.elementsEqual(currentDraft.utf8)
+            let requestIsDurable: Bool
+            if requestMatches {
+                requestIsDurable = (try? await draftSaveOutbox.hasDurableTarget(id: request.id, matching: request.outboxEntry)) == true
+            } else {
+                requestIsDurable = false
+            }
+            guard ownsCompletion(), fountainDraft.utf8.elementsEqual(currentDraft.utf8) else { return nil }
+            guard recoveryMatches || requestIsDurable else {
+                autosaveStatusText = "Save needs attention"
+                infoText = "This page could not be secured locally. Keep it open and export it or retry Save."
+                errorText = "The latest page is not confirmed in local recovery."
+                await refreshDraftSaveOutboxStatus()
+                return nil
+            }
             if retryable {
                 autosaveStatusText = receiptUnconfirmed ? "Save confirmation pending" : "Queued locally - reconnecting"
                 infoText = receiptUnconfirmed

@@ -475,6 +475,29 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         XCTAssertEqual(fixture.model.recoveryCandidate?.draft, external)
     }
 
+    func testOfflineSaveDoesNotClaimNewerUnsecuredWordsAreSafe() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base")
+        let save = fixture.startSave()
+        defer { save.cancel() }
+        try await fixture.waitForFirstSave()
+        let key = ScreenplayOwnerScopedStoragePolicy.storageKey(baseKey: fixture.store.key, ownerUserID: fixture.owner)
+        fixture.store.defaults.set("unreadable recovery", forKey: key)
+        let latest = fixture.a + "\nNewer words with unavailable recovery."
+        fixture.model.fountainDraft = latest
+        fixture.model.noteManualDraftEdit()
+        fixture.peer.releaseFirst(.offline)
+        try await fixture.waitForSave(save)
+        XCTAssertEqual(fixture.model.fountainDraft, latest)
+        XCTAssertFalse(fixture.model.infoText.localizedCaseInsensitiveContains("safe on this device"))
+        XCTAssertTrue(fixture.model.infoText.localizedCaseInsensitiveContains("export"),
+                      "The newest unconfirmed page needs an actionable custody warning.")
+        let queued = try await fixture.reloadQueueEntries()
+        XCTAssertEqual(queued.count, 1)
+        XCTAssertEqual(queued.first?.draft, fixture.a, "Only the earlier page was durably queued.")
+    }
+
     func testManualTypingWarnsWhenRecoveryStoreCannotBeWritten() throws {
         let fixture = try SaveCompletionFixture()
         defer { fixture.close() }
