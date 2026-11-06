@@ -8921,6 +8921,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     infoText = "This page could not be secured locally. Keep it open and export it or retry Save."
                 }
             }
+            if recoveryCandidate == nil,
+               let snapshot = localDraftRecoveryStore.dirtyOrdinarySnapshot(ownerUserId: ownerID,
+                                                                             projectId: normalizedProjectId) {
+                let owner = currentStudioAuthContext()
+                updateRecoveryReviewScope(owner: owner, projectID: normalizedProjectId)
+                recoveryCandidate = LocalDraftRecoveryCandidate(owner: owner, projectId: snapshot.projectId,
+                    draft: snapshot.draft, baseVersionId: snapshot.baseVersionId, savedAt: snapshot.savedAt,
+                    isPreservedConflict: false)
+            }
             return
         }
         if let candidate = recoveryCandidate,

@@ -425,6 +425,35 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         XCTAssertEqual((preserved?["draft"] as? String).map { Data($0.utf8) }, Data(current.utf8),
                        "The currently visible newer edit must also be durably retained.")
         XCTAssertTrue(fixture.model.hasUnsavedDraftChanges)
+        XCTAssertEqual(fixture.model.recoveryCandidate?.draft, stored,
+                       "The other recovery copy must be visible and protected before typing continues.")
+        let continued = current + "\nMore words after the acknowledgement."
+        fixture.model.fountainDraft = continued
+        fixture.model.noteManualDraftEdit()
+        let afterTyping = fixture.store.payloads(ownerUserId: fixture.owner)["a"]
+        XCTAssertEqual((afterTyping?["draft"] as? String).map { Data($0.utf8) }, Data(stored.utf8),
+                       "Continued typing must not overwrite the other recovery copy.")
+        XCTAssertEqual((afterTyping?["preservedConflict"] as? [String: Any])?["draft"] as? String, current)
+        let origin = try fixture.currentOrigin()
+        guard case let .present(overflow) = fixture.overflow.load(ownerUserID: fixture.owner, projectID: "a",
+            backendURL: origin.backendURL, documentID: origin.documentID) else {
+            return XCTFail("The continued edit must be held in the scoped overflow copy.")
+        }
+        XCTAssertEqual(Data(overflow.draft.utf8), Data(continued.utf8))
+        let unsheltered = continued + "\nAnother edit when recovery is full."
+        fixture.model.fountainDraft = unsheltered
+        fixture.model.noteManualDraftEdit()
+        XCTAssertEqual(fixture.model.fountainDraft, unsheltered)
+        XCTAssertTrue(fixture.model.infoText.localizedCaseInsensitiveContains("export"),
+                      "The writer must be warned when the newest words cannot be secured.")
+        let afterFull = fixture.store.payloads(ownerUserId: fixture.owner)["a"]
+        XCTAssertEqual(afterFull?["draft"] as? String, stored)
+        XCTAssertEqual((afterFull?["preservedConflict"] as? [String: Any])?["draft"] as? String, current)
+        guard case let .present(stillHeld) = fixture.overflow.load(ownerUserID: fixture.owner, projectID: "a",
+            backendURL: origin.backendURL, documentID: origin.documentID) else {
+            return XCTFail("The occupied overflow copy must remain readable.")
+        }
+        XCTAssertEqual(Data(stillHeld.draft.utf8), Data(continued.utf8))
     }
 
     func testSameDocumentNewerAEditsStayDirtyOnTheAcknowledgedBase() async throws {
@@ -787,6 +816,7 @@ private final class SaveCompletionFixture {
     let model: ScreenplayStudioViewModel
     let queue: ScreenplayDraftSaveOutbox
     let store: ScreenplayLocalDraftRecoveryStore
+    let overflow: ScreenplayRecoveryOverflowStore
     let owner: String
     let peer: SaveCompletionPeer
     private let directory: URL
@@ -830,6 +860,7 @@ private final class SaveCompletionFixture {
         suite = "them.save-completion.\(UUID())"
         defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         store = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        overflow = ScreenplayRecoveryOverflowStore(rootDirectory: directory.appendingPathComponent("overflow"))
         queue = ScreenplayDraftSaveOutbox(storageDirectory: directory)
         started = XCTestExpectation(description: "A's actual version request reached URLSession")
         peer = SaveCompletionPeer(started: started)
@@ -853,8 +884,8 @@ private final class SaveCompletionFixture {
             guard bridge.draftOrigin.projectID == projectID, let documentID = bridge.draftOrigin.documentID else { return nil }
             return .init(documentID: documentID, backendURL: backend)
         }
-        model = ScreenplayStudioViewModel(localDraftRecoveryStore: store, recoveryOriginProvider: recoveryOrigin,
-                                          draftSaveOutbox: queue, draftSaveAPI: api,
+        model = ScreenplayStudioViewModel(localDraftRecoveryStore: store, overflowRecoveryStore: overflow,
+                                          recoveryOriginProvider: recoveryOrigin, draftSaveOutbox: queue, draftSaveAPI: api,
                                           draftSaveIdentityProvider: { identity }, liveReplyOutbox: replyOutbox)
         model.autosaveEnabled = false
         environment = savedEnvironment
