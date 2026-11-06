@@ -490,6 +490,34 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         XCTAssertNil(fixture.model.recoveryCandidate)
     }
 
+    func testRecoveryOwnershipDoesNotCrossDocuments() throws {
+        try verifyRecoveryOwnershipChangesOrigin(changeBackend: false)
+    }
+
+    func testRecoveryOwnershipDoesNotCrossBackends() throws {
+        try verifyRecoveryOwnershipChangesOrigin(changeBackend: true)
+    }
+
+    private func verifyRecoveryOwnershipChangesOrigin(changeBackend: Bool) throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base")
+        let original = fixture.a + "\nFirst document edit."
+        fixture.model.fountainDraft = original
+        fixture.model.noteManualDraftEdit()
+        let origin = try fixture.currentOrigin()
+        fixture.originOverride.value = ScreenplayDraftSaveOrigin(
+            documentID: changeBackend ? origin.documentID : "another-document",
+            backendURL: changeBackend ? URL(string: "https://another.example.invalid")! : origin.backendURL)
+        let next = fixture.a + "\nA different document edit."
+        fixture.model.fountainDraft = next
+        fixture.model.noteManualDraftEdit()
+        let recovery = fixture.store.payloads(ownerUserId: fixture.owner)["a"]
+        XCTAssertEqual(recovery?["draft"] as? String, original)
+        XCTAssertEqual((recovery?["preservedConflict"] as? [String: Any])?["draft"] as? String, next)
+        XCTAssertEqual(fixture.model.recoveryCandidate?.draft, original)
+    }
+
     func testSameDocumentNewerAEditsStayDirtyOnTheAcknowledgedBase() async throws {
         let fixture = try SaveCompletionFixture()
         defer { fixture.close() }
@@ -844,6 +872,11 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
 }
 
 @MainActor
+private final class RecoveryOriginOverride {
+    var value: ScreenplayDraftSaveOrigin?
+}
+
+@MainActor
 private final class SaveCompletionFixture {
     let a = "INT. A - NIGHT\r\n\r\nA's cafe\u{0301} stays open. \t "
     let b = "INT. B - DAY\r\n\r\nB's exact words stay here.  \r\n"
@@ -851,6 +884,7 @@ private final class SaveCompletionFixture {
     let queue: ScreenplayDraftSaveOutbox
     let store: ScreenplayLocalDraftRecoveryStore
     let overflow: ScreenplayRecoveryOverflowStore
+    let originOverride = RecoveryOriginOverride()
     let owner: String
     let peer: SaveCompletionPeer
     private let directory: URL
@@ -914,7 +948,9 @@ private final class SaveCompletionFixture {
             requestIdentityProvider: { _ in identity }, backendURLProvider: { backend })
         let api = BackendMemoryAPI(session: session, baseURL: backend,
             requestIdentityProvider: { _ in identity }, projectWriteAuthRefresher: { _ in authenticatedState })
+        let override = originOverride
         let recoveryOrigin: (String) -> ScreenplayDraftSaveOrigin? = { projectID in
+            if let origin = override.value { return origin }
             guard bridge.draftOrigin.projectID == projectID, let documentID = bridge.draftOrigin.documentID else { return nil }
             return .init(documentID: documentID, backendURL: backend)
         }

@@ -8900,7 +8900,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     // Only a byte-exact recovery write by this model can be advanced as typing continues.
-    private var ownedOrdinaryRecovery: (owner: ScreenplayStudioAuthContext, snapshot: ScreenplayLocalDraftRecoverySnapshot)?
+    private var ownedOrdinaryRecovery: (owner: ScreenplayStudioAuthContext, origin: ScreenplayDraftSaveOrigin,
+                                        snapshot: ScreenplayLocalDraftRecoverySnapshot)?
 
     private func persistLocalDraftRecovery(
         projectId: String,
@@ -8914,9 +8915,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
         guard !normalizedProjectId.isEmpty else { return }
         let owner = currentStudioAuthContext()
         let ownerID = owner.userID
+        let origin = currentRecoveryOrigin(projectID: normalizedProjectId)
         let stored = localDraftRecoveryStore.dirtyOrdinarySnapshot(ownerUserId: ownerID, projectId: normalizedProjectId)
         let ownedMatches = stored.map { current in
-            guard let owned = ownedOrdinaryRecovery, owned.owner == owner else { return false }
+            guard let owned = ownedOrdinaryRecovery, owned.owner == owner, let origin,
+                  owned.origin.documentID == origin.documentID,
+                  owned.origin.permitsBackend(origin.backendURL) else { return false }
             let prior = owned.snapshot
             return prior.projectId == current.projectId &&
                 prior.draft.utf8.elementsEqual(current.draft.utf8) &&
@@ -8975,12 +8979,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
             dirty: dirty,
             savedAt: savedAt
         )
-        if dirty, let stored = localDraftRecoveryStore.dirtyOrdinarySnapshot(ownerUserId: ownerID,
-                                                                               projectId: normalizedProjectId),
+        if dirty, let origin, let stored = localDraftRecoveryStore.dirtyOrdinarySnapshot(ownerUserId: ownerID,
+                                                                                           projectId: normalizedProjectId),
            stored.draft.utf8.elementsEqual(draft.utf8),
            stored.baseVersionId.utf8.elementsEqual(baseVersionId.utf8),
            stored.savedAt.bitPattern == savedAt.bitPattern {
-            ownedOrdinaryRecovery = (owner, stored)
+            ownedOrdinaryRecovery = (owner, origin, stored)
         } else {
             ownedOrdinaryRecovery = nil
         }
