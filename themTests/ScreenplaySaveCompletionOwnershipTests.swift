@@ -73,6 +73,110 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         XCTAssertTrue(remainingRows.isEmpty)
     }
 
+    func testConfirmedMatchingAutosaveReadbackDoesNotMarkExactPageDirtyAgain() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base", dirty: true)
+        fixture.model.autosaveEnabled = true
+        let save = Task { await fixture.model.handleDraftDebouncedChange(fixture.a) }
+        defer { fixture.peer.releaseFirst(.offline); save.cancel() }
+        try await fixture.waitForFirstSave()
+        XCTAssertEqual(fixture.peer.writes.first?.source, "studio_autosave")
+        fixture.peer.releaseFirst(.matchingConflict)
+        await save.value
+        XCTAssertEqual(fixture.model.latestVersionID, "a-remote")
+        XCTAssertFalse(fixture.model.hasUnsavedDraftChanges)
+        await fixture.model.handleDraftDebouncedChange(fixture.a)
+        XCTAssertFalse(fixture.model.hasUnsavedDraftChanges, "Confirmed exact words must remain clean.")
+        XCTAssertEqual(fixture.peer.writes.count, 1, "A later observer must not submit the same page again.")
+    }
+
+    func testPassiveAutosaveMatchingInflightManualSaveDoesNotCreateAnotherRequest() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base", dirty: true)
+        fixture.model.autosaveEnabled = true
+        let manualSave = fixture.startSave()
+        defer { fixture.peer.releaseFirst(.offline); manualSave.cancel() }
+        try await fixture.waitForFirstSave()
+
+        await fixture.model.handleDraftDebouncedChange(fixture.a)
+        let rowsBeforeAcknowledgement = try await fixture.reloadQueueEntries()
+        XCTAssertEqual(rowsBeforeAcknowledgement.count, 1,
+            "An identical passive autosave must not create another durable request")
+        fixture.peer.releaseFirst(.success)
+        try await fixture.waitForSave(manualSave)
+        let remaining = try await fixture.reloadQueueEntries()
+        XCTAssertTrue(remaining.isEmpty, "The acknowledged page must not leave a duplicate parked save")
+        XCTAssertEqual(fixture.peer.writes.count, 1)
+    }
+
+    func testPassiveAutosaveWithTimestampOnlyBindingRefreshDoesNotDuplicateInflightSave() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base", dirty: true)
+        fixture.model.autosaveEnabled = true
+        let decoder = JSONDecoder()
+        let first = try decoder.decode(BackendScreenplayBindingRecord.self,
+            from: Data("{\"draftSceneId\":\"same-scene\",\"updatedAt\":100}".utf8))
+        let refreshed = try decoder.decode(BackendScreenplayBindingRecord.self,
+            from: Data("{\"draftSceneId\":\"same-scene\",\"updatedAt\":200}".utf8))
+        fixture.model.screenplayBindings = [first]
+        let save = fixture.startSave()
+        defer { fixture.peer.releaseFirst(.offline); save.cancel() }
+        try await fixture.waitForFirstSave()
+        fixture.model.screenplayBindings = [refreshed]
+        await fixture.model.handleDraftDebouncedChange(fixture.a)
+        let rows = try await fixture.reloadQueueEntries()
+        XCTAssertEqual(rows.count, 1, "A timestamp-only passive refresh must not create a second save request.")
+        fixture.peer.releaseFirst(.success)
+        try await fixture.waitForSave(save)
+        XCTAssertEqual(fixture.peer.writes.count, 1)
+        XCTAssertEqual(fixture.model.screenplayBindings, [refreshed], "The writer's current projection must remain visible.")
+    }
+
+    func testPassiveAutosaveWithMeaningfullyChangedBindingRemainsDurable() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base", dirty: true)
+        fixture.model.autosaveEnabled = true
+        let decoder = JSONDecoder()
+        fixture.model.screenplayBindings = [try decoder.decode(BackendScreenplayBindingRecord.self,
+            from: Data("{\"draftSceneId\":\"first-scene\",\"updatedAt\":100}".utf8))]
+        let save = fixture.startSave()
+        defer { fixture.peer.releaseFirst(.offline); save.cancel() }
+        try await fixture.waitForFirstSave()
+        fixture.model.screenplayBindings = [try decoder.decode(BackendScreenplayBindingRecord.self,
+            from: Data("{\"draftSceneId\":\"different-scene\",\"updatedAt\":200}".utf8))]
+        await fixture.model.handleDraftDebouncedChange(fixture.a)
+        let rows = try await fixture.reloadQueueEntries()
+        XCTAssertEqual(rows.count, 2, "A meaningful binding change must not be coalesced with an earlier save.")
+        fixture.peer.releaseFirst(.success)
+        try await fixture.waitForSave(save)
+    }
+
+    func testPassiveAutosaveWithNewerWordsRemainsDurableBehindInflightSave() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base", dirty: true)
+        fixture.model.autosaveEnabled = true
+        let manualSave = fixture.startSave()
+        defer { fixture.peer.releaseFirst(.offline); manualSave.cancel() }
+        try await fixture.waitForFirstSave()
+
+        let newer = fixture.a + "\r\nA newer exact line.  \t"
+        fixture.model.fountainDraft = newer
+        fixture.model.noteManualDraftEdit()
+        await fixture.model.handleDraftDebouncedChange(newer)
+        let rows = try await fixture.reloadQueueEntries()
+        XCTAssertEqual(rows.count, 2)
+        let pending = try XCTUnwrap(rows.first { $0.draft.utf8.elementsEqual(newer.utf8) })
+        XCTAssertEqual(pending.status, .pending)
+        XCTAssertEqual(pending.source, "studio_autosave")
+        XCTAssertEqual(pending.ownerUserId, fixture.owner)
+        XCTAssertEqual(pending.projectId, "a")
+    }
+
     func testManualWhitespaceOnlySavePreservesExactBytes() async throws {
         let fixture = try SaveCompletionFixture()
         defer { fixture.close() }
@@ -479,6 +583,62 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         XCTAssertFalse(fixture.model.debugIsDraftSaveInFlight)
     }
 
+    func testQueuedConflictAfterServerHydrationKeepsWriterDraftOnPage() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        let writerDraft = fixture.a + "\r\nWriter's exact queued words.  \t"
+        let serverDraft = "Other A words"
+        fixture.select("a", draft: serverDraft, base: "a-remote")
+        fixture.store.save(ownerUserId: fixture.owner, projectId: "a", draft: writerDraft,
+            baseVersionId: "a-base", dirty: true)
+        var queued = ScreenplayDraftSaveOutboxEntry(id: UUID().uuidString, projectId: "a", ownerUserId: fixture.owner,
+            draft: writerDraft, title: "A", phase: "draft", notes: "", source: "studio_manual",
+            studioWriteAnchors: [], screenplayBindings: [], baseVersionId: "a-base", createdAt: 1, updatedAt: 1,
+            status: .pending, retries: 0, nextAttemptAt: 0, lastError: "")
+        queued.deliveryOrigin = try fixture.currentOrigin()
+        try await fixture.queue.enqueue(queued)
+        let drain = Task { await fixture.model.resumeQueuedDraftSavesIfNeeded(force: true) }
+        defer { fixture.peer.releaseFirst(.offline); drain.cancel() }
+        try await fixture.waitForFirstSave()
+        fixture.peer.releaseFirst(.conflict)
+        await drain.value
+        XCTAssertEqual(Data(fixture.model.fountainDraft.utf8), Data(writerDraft.utf8),
+            "A stale queued save must not leave the server copy presented as the writer's local conflict page")
+        XCTAssertTrue(fixture.model.hasUnsavedDraftChanges)
+        let rows = try await fixture.reloadQueueEntries()
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.status, .parked)
+        XCTAssertEqual(rows.first.map { Data($0.draft.utf8) }, Data(writerDraft.utf8))
+        let recovery = fixture.store.dirtyOrdinarySnapshot(ownerUserId: fixture.owner, projectId: "a")
+        XCTAssertEqual(recovery.map { Data($0.draft.utf8) }, Data(writerDraft.utf8))
+    }
+
+    func testQueuedConflictNeverOverwritesDifferentDirtyRecoveryCopy() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        let queuedDraft = fixture.a + "\nEarlier queued words."
+        let newerDraft = queuedDraft + "\nNewer exact words.  \t"
+        fixture.select("a", draft: "Other A words", base: "a-remote")
+        fixture.store.save(ownerUserId: fixture.owner, projectId: "a", draft: newerDraft,
+            baseVersionId: "a-base", dirty: true)
+        var queued = ScreenplayDraftSaveOutboxEntry(id: UUID().uuidString, projectId: "a", ownerUserId: fixture.owner,
+            draft: queuedDraft, title: "A", phase: "draft", notes: "", source: "studio_manual",
+            studioWriteAnchors: [], screenplayBindings: [], baseVersionId: "a-base", createdAt: 1, updatedAt: 1,
+            status: .pending, retries: 0, nextAttemptAt: 0, lastError: "")
+        queued.deliveryOrigin = try fixture.currentOrigin()
+        try await fixture.queue.enqueue(queued)
+        let drain = Task { await fixture.model.resumeQueuedDraftSavesIfNeeded(force: true) }
+        defer { fixture.peer.releaseFirst(.offline); drain.cancel() }
+        try await fixture.waitForFirstSave()
+        fixture.peer.releaseFirst(.conflict)
+        await drain.value
+        let recovery = fixture.store.dirtyOrdinarySnapshot(ownerUserId: fixture.owner, projectId: "a")
+        XCTAssertEqual(recovery.map { Data($0.draft.utf8) }, Data(newerDraft.utf8))
+        let rows = try await fixture.reloadQueueEntries()
+        XCTAssertEqual(rows.first?.status, .parked)
+        XCTAssertEqual(rows.first.map { Data($0.draft.utf8) }, Data(queuedDraft.utf8))
+    }
+
     func testManualSaveBehindBackgroundDrainIsDispatchedExactlyOnce() async throws {
         try await assertPendingSaveFollowsBackgroundDrain(switchProject: false)
     }
@@ -794,7 +954,7 @@ private struct SaveCompletionEnvironmentSnapshot {
 }
 
 private nonisolated final class SaveCompletionPeer: @unchecked Sendable {
-    enum Outcome: Equatable { case success, conflict, offline, versionIDOnly, wrongReceipt, nestedExactReceipt }
+    enum Outcome: Equatable { case success, conflict, matchingConflict, offline, versionIDOnly, wrongReceipt, nestedExactReceipt }
     struct Write {
         let project: String; let base: String; let draft: String; let id: String
         let phase: String; let source: String; let notes: String
@@ -857,6 +1017,17 @@ private nonisolated final class SaveCompletionPeer: @unchecked Sendable {
             transport.respond(status: 409, payload: ["status": "conflict", "conflict": true,
                 "project_id": write.project, "base_version_id": write.base, "server_version_id": "a-remote",
                 "server_version": ["id": "a-remote", "draft": "Other A words"]])
+        case .matchingConflict:
+            do {
+                let anchors = try JSONSerialization.jsonObject(with: JSONEncoder().encode(write.anchors))
+                let bindings = try JSONSerialization.jsonObject(with: JSONEncoder().encode(write.bindings))
+                transport.respond(status: 200, payload: ["status": "conflict", "conflict": true,
+                    "project_id": write.project, "server_version_id": "a-remote",
+                    "project": ["id": write.project, "title": write.project.uppercased(), "active_version_id": "a-remote"],
+                    "server_version": ["id": "a-remote", "project_id": write.project,
+                        "draft": write.draft, "phase": write.phase,
+                        "studio_write_anchors": anchors, "screenplay_bindings": bindings]])
+            } catch { transport.fail(error) }
         case .success, .versionIDOnly, .wrongReceipt, .nestedExactReceipt:
             let version = "\(write.project)-ack-\(number)"
             do {

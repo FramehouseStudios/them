@@ -429,7 +429,7 @@ struct ScreenplayStudioScreen: View {
             "selected_project_present": vm.selectedProject != nil,
             "latest_version_id": vm.latestVersionID.trimmingCharacters(in: .whitespacesAndNewlines),
             "conflict_project_id": vm.conflictState?.projectId ?? "",
-            "conflict_server_version_id": vm.conflictState?.serverVersionId ?? "",
+            "conflict_server_version_id": vm.conflictState?.serverVersionId ?? "", "conflict_recovery_stage": vm.debugConflictRecoveryStage,
             "conflict_fixture_applied": didApplyUITestDraftConflictFixture,
             "recovery_present": vm.recoveryCandidate != nil,
             "recovery_slot": vm.recoveryCandidate.map { $0.isPreservedConflict ? "preservedConflict" : "ordinary" } ?? "",
@@ -2258,24 +2258,9 @@ Replace is best when this file should become the script you edit. Append is safe
                     proxy.scrollTo("studio.pending-question.anchor", anchor: .top)
                 }
             }
-            .onChange(of: isDirectionOneComposerExpanded) { _, isExpanded in
-                guard isExpanded else { return }
-                Task { @MainActor in
-                    await Task.yield()
-                    withAnimation(.easeOut(duration: 0.20)) {
-                        proxy.scrollTo("studio.composer.anchor", anchor: .top)
-                    }
-                }
-            }
-            .onChange(of: studioPromptFocused) { _, isFocused in
-                guard isFocused else { return }
-                Task { @MainActor in
-                    await Task.yield()
-                    withAnimation(.easeOut(duration: 0.20)) {
-                        proxy.scrollTo("studio.prompt.anchor", anchor: .center)
-                    }
-                }
-            }
+            .modifier(ScreenplayStudioComposerVisibility(
+                proxy: proxy, expanded: isDirectionOneComposerExpanded, focused: studioPromptFocused
+            ))
             .onDisappear {
                 inspectorAutoScrollTask?.cancel()
                 inspectorAutoScrollTask = nil

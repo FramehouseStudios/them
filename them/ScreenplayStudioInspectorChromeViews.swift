@@ -17,6 +17,39 @@ struct ScreenplayStudioPinnedInspectorTabs<Tabs: View>: ViewModifier {
     }
 }
 
+/// Keep the focused composer visible as the keyboard changes the drawer viewport.
+struct ScreenplayStudioComposerVisibility: ViewModifier {
+    let proxy: ScrollViewProxy
+    let expanded: Bool
+    let focused: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: expanded) { _, value in
+                guard value else { return }
+                reveal(focused: focused)
+            }
+            .onChange(of: focused) { _, value in
+                guard value else { return }
+                reveal(focused: true)
+            }
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { _ in
+                guard expanded && focused else { return }
+                reveal(focused: true)
+            }
+    }
+
+    private func reveal(focused: Bool) {
+        Task { @MainActor in
+            await Task.yield()
+            withAnimation(.easeOut(duration: 0.20)) {
+                proxy.scrollTo(focused ? "studio.prompt.anchor" : "studio.composer.anchor",
+                               anchor: focused ? .center : .top)
+            }
+        }
+    }
+}
+
 struct ScreenplayStudioRightPanelTabs: View {
     @Binding var selection: ScreenplayStudioScreen.DirectionOneRightPanelTab
     let textColor: Color
