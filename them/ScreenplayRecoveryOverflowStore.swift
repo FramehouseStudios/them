@@ -309,12 +309,13 @@ nonisolated struct ScreenplayRecoveryOverflowStore {
                       let attrs = try? fileManager.attributesOfItem(atPath: url.path),
                       attrs[.type] as? FileAttributeType == .typeRegular,
                       let size = attrs[.size] as? NSNumber, size.uint64Value <= 32 * 1024 * 1024,
-                      let data = try? Data(contentsOf: url),
+                      (try? enforceCompleteFileProtection(at: url)) != nil,
+                      let data = try? Data(contentsOf: url, options: .mappedIfSafe),
                       let decoded = try? JSONDecoder().decode(ScreenplayRecoveryOverflowSnapshot.self, from: data),
                       let recordScope = scope(projectScope: project, documentID: decoded.documentID),
-                      case let .present(_, valid) = readState(at: url, scope: recordScope, expectedRecordID: id)
+                      Self.validate(decoded, expectedScope: recordScope), Self.exactString(decoded.recordID, id)
                 else { hasUnreadable = true; continue }
-                records.append(valid)
+                records.append(decoded)
             }
             let ordered = records.sorted { $0.savedAt == $1.savedAt ? $0.recordID < $1.recordID : $0.savedAt < $1.savedAt }
             if hasUnreadable { return .incomplete(ordered) }

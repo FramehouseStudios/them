@@ -131,6 +131,23 @@ final class ScreenplayRecoveryOverflowStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testJournalDiscoveryFailsClosedWhenFileProtectionCannotBeConfirmed() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let writer = ScreenplayRecoveryOverflowStore(rootDirectory: root)
+        _ = try storedSnapshot(writer.appendJournalCopy(ownerUserID: "writer", projectID: "project",
+            backendURL: backend, documentID: "doc", draft: "Writer words", baseVersionID: ""))
+        let protectedReader = ScreenplayRecoveryOverflowStore(rootDirectory: root, fileProtectionEnforcer: { url in
+            if url.lastPathComponent.contains(".journal.") { throw CocoaError(.fileWriteNoPermission) }
+        })
+        XCTAssertEqual(protectedReader.journalCopies(ownerUserID: "writer", projectID: "project", backendURL: backend), .incomplete([]))
+        guard case let .present(records) = writer.journalCopies(ownerUserID: "writer", projectID: "project", backendURL: backend) else {
+            return XCTFail("The unreadable copy must remain available after protection recovers")
+        }
+        XCTAssertEqual(records.map(\.draft), ["Writer words"])
+    }
+
+    @MainActor
     func testDamagedJournalFileDoesNotHideValidCopies() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
