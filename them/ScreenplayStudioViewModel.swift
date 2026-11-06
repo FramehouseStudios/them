@@ -6111,7 +6111,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private func submitDraftSave(_ request: DraftSaveRequest) async {
         var next: DraftSaveRequest? = request
         while let current = next {
-            guard draftSaveSlot.claim(current) else { return }
+            let saveScope = "\(current.ownerUserId.utf8.count):\(current.ownerUserId)\(current.projectId)"
+            guard draftSaveSlot.claim(current, scope: saveScope) else { return }
             let queuedBehindEarlierSaves = await runClaimedDraftSave(current)
             next = draftSaveSlot.release()
             // Behind an earlier save: try the queue now; it keeps its own backoff.
@@ -6127,6 +6128,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         )) == true {
             do {
                 try await draftSaveOutbox.enqueue(request.outboxEntry)
+                guard authContextIsCurrent(request.authContext), selectedProjectID == request.projectId else { return true }
                 hasUnsavedDraftChanges = true
                 persistRecoveryForUnconfirmedSave(
                     projectId: request.projectId,
@@ -6138,7 +6140,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 errorText = ""
                 await refreshDraftSaveOutboxStatus()
             } catch {
-                errorText = "Your draft is preserved locally, but its retry could not be queued: \(error.localizedDescription)"
+                guard authContextIsCurrent(request.authContext), selectedProjectID == request.projectId else { return false }
+                autosaveStatusText = "Save needs attention"
+                infoText = "Keep this page open and export a copy, or retry Save."
+                errorText = "The local save queue could not be updated. Automatic retry is not confirmed: \(error.localizedDescription)"
             }
             return true
         }
