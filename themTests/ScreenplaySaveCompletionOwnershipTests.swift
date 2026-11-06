@@ -475,6 +475,21 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         XCTAssertEqual(fixture.model.recoveryCandidate?.draft, external)
     }
 
+    func testManualTypingWarnsWhenRecoveryStoreCannotBeWritten() throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base")
+        let key = ScreenplayOwnerScopedStoragePolicy.storageKey(baseKey: fixture.store.key, ownerUserID: fixture.owner)
+        fixture.store.defaults.set("unreadable recovery", forKey: key)
+        let text = fixture.a + "\nWords that could not be secured."
+        fixture.model.fountainDraft = text
+        fixture.model.noteManualDraftEdit()
+        XCTAssertEqual(fixture.model.fountainDraft, text)
+        XCTAssertEqual(fixture.store.defaults.string(forKey: key), "unreadable recovery")
+        XCTAssertTrue(fixture.model.infoText.localizedCaseInsensitiveContains("export"),
+                      "A failed recovery write must not be silently treated as safe.")
+    }
+
     func testOrdinaryTypingAdvancesOwnedRecoveryWithoutCreatingCopies() throws {
         let fixture = try SaveCompletionFixture()
         defer { fixture.close() }
