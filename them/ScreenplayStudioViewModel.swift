@@ -7992,7 +7992,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                         projectId: request.projectId,
                         draft: fountainDraft,
                         baseVersionId: serverVersion.id,
-                        dirty: hasUnsavedDraftChanges
+                        dirty: hasUnsavedDraftChanges,
+                        completingSaveCapturedAt: request.createdAt
                     )
                     return completion(serverVersion.id, confirmed: confirmed)
                 }
@@ -8104,7 +8105,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 autosaveStatusText = hasUnsavedDraftChanges ? "Unsaved changes" : "Saved"
                 infoText = hasUnsavedDraftChanges ? infoText : "Your latest words are already saved."
                 persistLocalDraftRecovery(projectId: request.projectId, draft: fountainDraft,
-                    baseVersionId: evidence.versionID, dirty: hasUnsavedDraftChanges)
+                    baseVersionId: evidence.versionID, dirty: hasUnsavedDraftChanges,
+                    completingSaveCapturedAt: request.createdAt)
                 return completion(evidence.versionID, confirmed: evidence)
             }
             if conflictDetected {
@@ -8283,7 +8285,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 projectId: request.projectId,
                 draft: fountainDraft,
                 baseVersionId: latestVersionID,
-                dirty: hasUnsavedDraftChanges
+                dirty: hasUnsavedDraftChanges,
+                completingSaveCapturedAt: request.createdAt
             )
             await recomputeRevision(for: fountainDraft, source: request.source, api: draftSaveAPI, isCurrent: ownsCompletion)
             guard ownsCompletion() else { return completion(nextVersionId, confirmed: confirmed) }
@@ -8901,10 +8904,25 @@ final class ScreenplayStudioViewModel: ObservableObject {
         draft: String,
         baseVersionId: String,
         dirty: Bool,
-        savedAt: TimeInterval = Date().timeIntervalSince1970
+        savedAt: TimeInterval = Date().timeIntervalSince1970,
+        completingSaveCapturedAt: TimeInterval? = nil
     ) {
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else { return }
+        let ownerID = currentStudioAuthContext().userID
+        if let completingSaveCapturedAt,
+           localDraftRecoveryStore.holdsNewerUnsavedWork(ownerUserId: ownerID, projectId: normalizedProjectId,
+                                                          than: completingSaveCapturedAt, differingFrom: draft) {
+            if dirty {
+                switch secureRecoveryCopy(ownerUserId: ownerID, projectId: normalizedProjectId,
+                                          draft: draft, baseVersionId: baseVersionId, savedAt: savedAt) {
+                case .secured: break
+                case .occupied, .unconfirmed:
+                    infoText = "This page could not be secured locally. Keep it open and export it or retry Save."
+                }
+            }
+            return
+        }
         if let candidate = recoveryCandidate,
            candidate.projectId == normalizedProjectId, authContextIsCurrent(candidate.owner) {
             guard recoveryCandidateIsCurrent(candidate) else {
@@ -8923,7 +8941,6 @@ final class ScreenplayStudioViewModel: ObservableObject {
             }
             return
         }
-        let ownerID = currentStudioAuthContext().userID
         // A clean server observation is not authority to replace a different
         // dirty writer copy, even before its queued conflict has surfaced.
         if !dirty, let existing = localDraftRecoveryStore.dirtyOrdinarySnapshot(ownerUserId: ownerID, projectId: normalizedProjectId),

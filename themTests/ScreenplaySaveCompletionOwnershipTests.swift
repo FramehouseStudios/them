@@ -393,6 +393,32 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         try await assertRejectedAStaysScoped(.offline, expectedStatus: .pending)
     }
 
+    func testOlderAcknowledgementPreservesStoredRecoveryAndCurrentEdit() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base")
+        let save = fixture.startSave()
+        defer { save.cancel() }
+        try await fixture.waitForFirstSave()
+        let stored = fixture.a + "\nStored newer recovery."
+        let current = fixture.a + "\nA different current edit."
+        fixture.model.fountainDraft = current
+        fixture.model.noteManualDraftEdit()
+        _ = fixture.model.mirrorDraftIntoLiveBridgeIfOwned(current)
+        fixture.store.save(ownerUserId: fixture.owner, projectId: "a", draft: stored,
+                           baseVersionId: "a-base", dirty: true,
+                           savedAt: Date().timeIntervalSince1970 + 1)
+        fixture.peer.releaseFirst(.success)
+        try await fixture.waitForSave(save)
+        let recovery = fixture.store.payloads(ownerUserId: fixture.owner)["a"]
+        let preserved = recovery?["preservedConflict"] as? [String: Any]
+        XCTAssertEqual((recovery?["draft"] as? String).map { Data($0.utf8) }, Data(stored.utf8),
+                       "An older acknowledgement must not replace another newer recovery copy.")
+        XCTAssertEqual((preserved?["draft"] as? String).map { Data($0.utf8) }, Data(current.utf8),
+                       "The currently visible newer edit must also be durably retained.")
+        XCTAssertTrue(fixture.model.hasUnsavedDraftChanges)
+    }
+
     func testSameDocumentNewerAEditsStayDirtyOnTheAcknowledgedBase() async throws {
         let fixture = try SaveCompletionFixture()
         defer { fixture.close() }
