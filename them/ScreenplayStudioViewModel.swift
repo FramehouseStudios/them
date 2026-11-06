@@ -8355,6 +8355,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
             } else {
                 requestIsDurable = false
             }
+            let requestIsPending: Bool
+            if retryable && requestIsDurable {
+                requestIsPending = (try? await draftSaveOutbox.hasDurablePendingTarget(id: request.id, matching: request.outboxEntry)) == true
+            } else {
+                requestIsPending = false
+            }
             guard ownsCompletion(), fountainDraft.utf8.elementsEqual(currentDraft.utf8) else { return nil }
             guard recoveryMatches || requestIsDurable else {
                 autosaveStatusText = "Save needs attention"
@@ -8363,7 +8369,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 await refreshDraftSaveOutboxStatus()
                 return nil
             }
-            if retryable && !requestIsDurable {
+            if retryable && requestIsDurable && !requestIsPending {
+                autosaveStatusText = "Save needs attention"
+                infoText = "Your words are kept locally. Review the saved copy and retry Save."
+                errorText = ""
+            } else if retryable && !requestIsDurable {
                 autosaveStatusText = "Unsaved changes"
                 infoText = "Your newer words are kept locally. Save them after reconnecting."
                 errorText = ""

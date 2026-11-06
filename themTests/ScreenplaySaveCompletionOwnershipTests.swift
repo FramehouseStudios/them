@@ -475,6 +475,25 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         XCTAssertEqual(fixture.model.recoveryCandidate?.draft, external)
     }
 
+    func testParkedSaveDoesNotPromiseAutomaticRetry() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base")
+        let save = fixture.startSave()
+        defer { save.cancel() }
+        try await fixture.waitForFirstSave()
+        let rows = try await fixture.queue.entriesForTesting()
+        let id = try XCTUnwrap(rows.first?.id)
+        for _ in 0..<5 { try await fixture.queue.markRetryable(id: id, error: "offline") }
+        fixture.peer.releaseFirst(.offline)
+        try await fixture.waitForSave(save)
+        let parked = try await fixture.reloadQueueEntries()
+        XCTAssertEqual(parked.first?.status, .parked)
+        XCTAssertFalse(fixture.model.infoText.localizedCaseInsensitiveContains("will save when"))
+        XCTAssertFalse(fixture.model.autosaveStatusText.localizedCaseInsensitiveContains("reconnecting"))
+        XCTAssertTrue(fixture.model.infoText.localizedCaseInsensitiveContains("review"))
+    }
+
     func testOfflineSaveRecognizesSeparateSecuredNewerPageWithoutPromisingRetry() async throws {
         let fixture = try SaveCompletionFixture()
         defer { fixture.close() }
