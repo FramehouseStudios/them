@@ -490,6 +490,23 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         XCTAssertNil(fixture.model.recoveryCandidate)
     }
 
+    func testOfflineTypingAdvancesTheSameLocallyBoundDocument() throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base")
+        fixture.originOverride.suppress = true
+        ScreenplayLiveDraftSyncService.shared.attach(to: fixture.model)
+        defer { ScreenplayLiveDraftSyncService.shared.detach() }
+        for suffix in ["one", "two", "three"] {
+            fixture.model.fountainDraft += "\n" + suffix
+            fixture.model.noteManualDraftEdit()
+        }
+        let recovery = fixture.store.payloads(ownerUserId: fixture.owner)["a"]
+        XCTAssertEqual(recovery?["draft"] as? String, fixture.model.fountainDraft)
+        XCTAssertNil(recovery?["preservedConflict"])
+        XCTAssertNil(fixture.model.recoveryCandidate)
+    }
+
     func testRecoveryOwnershipDoesNotCrossDocuments() throws {
         try verifyRecoveryOwnershipChangesOrigin(changeBackend: false)
     }
@@ -874,6 +891,7 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
 @MainActor
 private final class RecoveryOriginOverride {
     var value: ScreenplayDraftSaveOrigin?
+    var suppress = false
 }
 
 @MainActor
@@ -950,6 +968,7 @@ private final class SaveCompletionFixture {
             requestIdentityProvider: { _ in identity }, projectWriteAuthRefresher: { _ in authenticatedState })
         let override = originOverride
         let recoveryOrigin: (String) -> ScreenplayDraftSaveOrigin? = { projectID in
+            if override.suppress { return nil }
             if let origin = override.value { return origin }
             guard bridge.draftOrigin.projectID == projectID, let documentID = bridge.draftOrigin.documentID else { return nil }
             return .init(documentID: documentID, backendURL: backend)

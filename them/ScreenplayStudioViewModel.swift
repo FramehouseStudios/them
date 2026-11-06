@@ -8915,7 +8915,17 @@ final class ScreenplayStudioViewModel: ObservableObject {
         guard !normalizedProjectId.isEmpty else { return }
         let owner = currentStudioAuthContext()
         let ownerID = owner.userID
-        let origin = currentRecoveryOrigin(projectID: normalizedProjectId)
+        // This local identity is used only to compare writes already made and
+        // read back by this editor. It does not authorize backend or overflow access.
+        let origin: ScreenplayDraftSaveOrigin? = {
+            if let verified = currentRecoveryOrigin(projectID: normalizedProjectId) { return verified }
+            let bridge = ScreenplayLiveDraftBridge.shared
+            guard ScreenplayLiveDraftSyncService.shared.ownsEditor(self),
+                  bridge.draftOrigin.projectID == normalizedProjectId,
+                  let documentID = bridge.draftOrigin.documentID else { return nil }
+            return ScreenplayDraftSaveOrigin(documentID: documentID,
+                backendURL: BackendAuthClient.resolvedBackendBaseURL())
+        }()
         let stored = localDraftRecoveryStore.dirtyOrdinarySnapshot(ownerUserId: ownerID, projectId: normalizedProjectId)
         let ownedMatches = stored.map { current in
             guard let owned = ownedOrdinaryRecovery, owned.owner == owner, let origin,
