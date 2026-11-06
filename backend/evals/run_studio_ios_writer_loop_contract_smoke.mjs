@@ -64,6 +64,7 @@ try {
     env: {
       ...process.env,
       ONLY_TESTING: WRITER_LOOP_TEST,
+      ARTIFACT_DIR: dirname(RESULT_BUNDLE_PATH),
       THEM_UITEST_RESTORE_XCCONFIG_PATH: XCCONFIG_PATH,
     },
   });
@@ -135,5 +136,10 @@ try {
 } finally {
   if (existsSync(XCCONFIG_PATH)) unlinkSync(XCCONFIG_PATH);
   if (proxy) await proxy.stop();
+  // Keep native failure recordings/hierarchy in the existing artifact owner.
+  // A bounded stdout tail is not a substitute for the actual result bundle.
+  if (existsSync(RESULT_BUNDLE_PATH)) {
+    console.log(`studio-ios-writer-loop-contract-smoke: retained ${RESULT_BUNDLE_PATH}`);
+  }
   if (server) await server.stop();
 }

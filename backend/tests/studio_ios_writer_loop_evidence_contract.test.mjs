@@ -32,7 +32,10 @@ process.exit(process.env.TEST_WRITER_MODE === "failure" ? 65 : 0);
 const fs = require("node:fs");
 const args = process.argv.slice(2);
 fs.appendFileSync(process.env.TEST_CALLS_FILE, args.join(" ") + "\\n");
-if(args[0] === "simctl") process.exit(0);
+if(args[0] === "simctl") {
+ if(args[1] === "list") console.log(JSON.stringify({devices:{"com.apple.CoreSimulator.SimRuntime.iOS-26-2":[{name:"iPhone fixture",udid:"owned-evidence-fixture",isAvailable:true}]}}));
+ process.exit(0);
+}
 if(args.includes("tests")) {
  console.log(JSON.stringify({testNodes:[{nodeType:"Failure Message",name:"Markdown artifact missing"}]}));
 } else if(process.env.TEST_WRITER_MODE === "bad-summary") {
