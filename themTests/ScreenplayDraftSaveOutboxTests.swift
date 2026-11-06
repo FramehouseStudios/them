@@ -3,6 +3,42 @@ import XCTest
 
 final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     @MainActor
+    func testRetryQueueWriteFailureDoesNotPromiseAutomaticRecovery() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let suite = "them.failed-retry-message.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore:
+            ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery"), draftSaveOutbox: queue)
+        let project = try JSONDecoder().decode(BackendScreenplayProjectSummary.self,
+            from: JSONSerialization.data(withJSONObject: ["id": "project-1", "title": "Test"]))
+        model.projects = [project]
+        model.selectedProjectID = project.id
+        model.selectedProject = project
+        model.applyStructuralUITestDraft("Earlier page", versionID: "server-v1")
+        let raw = "  Writer words cafe\u{0301}\r\n"
+        model.fountainDraft = raw
+        model.noteManualDraftEdit()
+        let directory = try XCTUnwrap(storageDirectory)
+        model.debugBeforeDraftSaveTransport = {
+            let manifest = directory.appendingPathComponent("queue.json")
+            try FileManager.default.moveItem(at: manifest, to: directory.appendingPathComponent("preserved-original.json"))
+            try FileManager.default.createDirectory(at: manifest, withIntermediateDirectories: false)
+            throw URLError(.notConnectedToInternet)
+        }
+        await model.manualSaveDraft()
+        XCTAssertEqual(Array(model.fountainDraft.utf8), Array(raw.utf8))
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertEqual(model.autosaveStatusText, "Save needs attention")
+        XCTAssertTrue(model.infoText.contains("Keep this page open"))
+        XCTAssertTrue(model.errorText.contains("Automatic retry is not confirmed"))
+        let retained = try await queue.entriesForTesting()
+        XCTAssertEqual(retained.count, 1)
+        XCTAssertEqual(Array(try XCTUnwrap(retained.first?.draft).utf8), Array(raw.utf8))
+        XCTAssertEqual(retained.first?.status, .inflight, "Failed persistence must roll back the attempted retry mutation.")
+    }
+
+    @MainActor
     func testManualSaveReportsUnconfirmedQueueWriteWithoutLosingVisibleWords() async throws {
         let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         _ = await queue.snapshot()

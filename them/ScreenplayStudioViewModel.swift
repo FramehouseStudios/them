@@ -1902,6 +1902,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     #if DEBUG
+    var debugBeforeDraftSaveTransport: (() throws -> Void)?
+
     var debugDidLoadScreenplayProjectsFromBackend: Bool {
         didLoadScreenplayProjectsFromBackend
     }
@@ -6252,6 +6254,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 return false
             }
 #if DEBUG
+            try debugBeforeDraftSaveTransport?()
             if IOThemRuntime.isRunningUITests,
                ProcessInfo.processInfo.arguments.contains("--ui-screenplay-save-network-fault") {
                 throw URLError(.notConnectedToInternet)
