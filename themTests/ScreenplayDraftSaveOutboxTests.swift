@@ -3,6 +3,51 @@ import XCTest
 
 final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     @MainActor
+    func testFailedOldProjectSaveCannotOverwriteNewProjectOrItsRecovery() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let suite = "them.failed-save-project-scope.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery, draftSaveOutbox: queue)
+        let decoder = JSONDecoder()
+        func project(_ id: String) throws -> BackendScreenplayProjectSummary {
+            try decoder.decode(BackendScreenplayProjectSummary.self,
+                from: JSONSerialization.data(withJSONObject: ["id": id, "title": id]))
+        }
+        let oldProject = try project("project-1")
+        let newProject = try project("project-2")
+        model.projects = [oldProject, newProject]
+        model.selectedProjectID = oldProject.id
+        model.selectedProject = oldProject
+        model.applyStructuralUITestDraft("Old baseline", versionID: "old-base")
+        let oldWords = "  Old project writer words\r\n"
+        model.fountainDraft = oldWords
+        model.noteManualDraftEdit()
+        let newWords = "  Different project writer words cafe\u{0301}\r\n"
+        model.debugBeforeDraftSaveTransport = {
+            model.selectedProjectID = newProject.id
+            model.selectedProject = newProject
+            model.fountainDraft = newWords
+            model.infoText = "New project notice"
+            model.errorText = ""
+            throw URLError(.notConnectedToInternet)
+        }
+        await model.manualSaveDraft()
+        XCTAssertEqual(model.selectedProjectID, newProject.id)
+        XCTAssertEqual(Array(model.fountainDraft.utf8), Array(newWords.utf8))
+        XCTAssertEqual(model.infoText, "New project notice")
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let oldCopy = recovery.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: oldProject.id)
+        XCTAssertEqual(oldCopy.map { Array($0.draft.utf8) }, Array(oldWords.utf8),
+            "An old project's failed save cannot store the new project's page.")
+        let copies = try await queue.entriesForTesting()
+        XCTAssertEqual(copies.count, 1)
+        XCTAssertEqual(copies.first?.projectId, oldProject.id)
+        XCTAssertEqual(copies.first.map { Array($0.draft.utf8) }, Array(oldWords.utf8))
+    }
+
+    @MainActor
     func testRetryQueueWriteFailureDoesNotPromiseAutomaticRecovery() async throws {
         let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let suite = "them.failed-retry-message.\(UUID().uuidString)"

@@ -6230,7 +6230,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             try await draftSaveOutbox.enqueue(request.outboxEntry)
             try await draftSaveOutbox.markInflight(id: request.id)
         } catch {
-            guard authContextIsCurrent(request.authContext) else { return false }
+            guard authContextIsCurrent(request.authContext), selectedProjectID == request.projectId else { return false }
             hasUnsavedDraftChanges = true
             persistRecoveryForUnconfirmedSave(
                 projectId: request.projectId,
@@ -6457,6 +6457,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 )
                 return false
             }
+            guard selectedProjectID == request.projectId else {
+                try? await draftSaveOutbox.markRetryable(
+                    id: request.id,
+                    error: "Project changed before save confirmation."
+                )
+                return false
+            }
             hasUnsavedDraftChanges = true
             persistRecoveryForUnconfirmedSave(
                 projectId: request.projectId,
@@ -6466,18 +6473,21 @@ final class ScreenplayStudioViewModel: ObservableObject {
             do {
                 if ScreenplayDraftSaveRetryPolicy.shouldRetry(error) {
                     try await draftSaveOutbox.markRetryable(id: request.id, error: error.localizedDescription)
+                    guard authContextIsCurrent(request.authContext), selectedProjectID == request.projectId else { return false }
                     shouldQueuePendingDraftSaveAfterFailure = true
                     autosaveStatusText = "Queued locally - reconnecting"
                     infoText = "Your draft is safe on this device and will save when the connection returns."
                     errorText = ""
                 } else {
                     try await draftSaveOutbox.markParked(id: request.id, error: error.localizedDescription)
+                    guard authContextIsCurrent(request.authContext), selectedProjectID == request.projectId else { return false }
                     autosaveStatusText = ScreenplayDraftSaveRecoveryPresentationPolicy.failureStatus(source: request.source)
                     infoText = ScreenplayDraftSaveRecoveryPresentationPolicy.recoveryInfo(source: request.source)
                     errorText = ScreenplayDraftSaveRecoveryPresentationPolicy.failureError(
                         source: request.source, underlying: error.localizedDescription)
                 }
             } catch {
+                guard authContextIsCurrent(request.authContext), selectedProjectID == request.projectId else { return false }
                 shouldQueuePendingDraftSaveAfterFailure = false
                 autosaveStatusText = "Save needs attention"
                 infoText = "Keep this page open and export a copy, or retry Save."
