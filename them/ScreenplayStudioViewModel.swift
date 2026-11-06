@@ -1903,6 +1903,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
     #if DEBUG
     var debugBeforeDraftSaveTransport: (() throws -> Void)?
+    var debugDraftSaveResponse: (() throws -> BackendReadResult<BackendScreenplayVersionMutationResponse>)?
 
     var debugDidLoadScreenplayProjectsFromBackend: Bool {
         didLoadScreenplayProjectsFromBackend
@@ -6272,11 +6273,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
                         serverVersionId: serverVersion.id,
                         supersedesEarlierSaves: request.source == "studio_conflict_resolve"
                     )) == true else {
+                        guard authContextIsCurrent(request.authContext), selectedProjectID == request.projectId else { return false }
                         hasUnsavedDraftChanges = true
                         autosaveStatusText = "Save needs attention"
                         infoText = "Your local copy is retained. Resolve any conflict or retry the save."
                         return false
                     }
+                    guard authContextIsCurrent(request.authContext), selectedProjectID == request.projectId else { return false }
                     latestVersionID = serverVersion.id
                     lastSavedDraftFingerprint = fingerprint(for: request.draft)
                     lastRevisionBaseDraft = request.draft
@@ -6312,39 +6315,47 @@ final class ScreenplayStudioViewModel: ObservableObject {
             let ownerHeaders = projectOwnerHeaderOptions(forProjectID: request.projectId)
             let baseVersionId = request.baseVersionId
             let result: BackendReadResult<BackendScreenplayVersionMutationResponse>
-            do {
-                result = try await BackendMemoryAPI.shared.upsertScreenplayProjectVersion(
-                    projectId: request.projectId,
-                    draft: request.draft,
-                    title: request.title,
-                    phase: request.phase,
-                    notes: request.notes,
-                    source: request.source,
-                    studioWriteAnchors: request.studioWriteAnchors,
-                    screenplayBindings: request.screenplayBindings,
-                    baseVersionId: baseVersionId,
-                    conflictStrategy: "reject_if_stale",
-                    clientRequestId: request.id,
-                    includeUserIdentity: ownerHeaders.includeUserIdentity,
-                    includeAuthToken: ownerHeaders.includeAuthToken,
-                    clientTokenOverride: ownerHeaders.clientTokenOverride
-                )
-            } catch BackendMemoryAPIError.server(let status, _)
-                        where ownerHeaders.usesDebugClientTokenOwner && status == 404 {
-                guard authContextIsCurrent(request.authContext) else { return false }
-                result = try await BackendMemoryAPI.shared.upsertScreenplayProjectVersion(
-                    projectId: request.projectId,
-                    draft: request.draft,
-                    title: request.title,
-                    phase: request.phase,
-                    notes: request.notes,
-                    source: request.source,
-                    studioWriteAnchors: request.studioWriteAnchors,
-                    screenplayBindings: request.screenplayBindings,
-                    baseVersionId: baseVersionId,
-                    conflictStrategy: "reject_if_stale",
-                    clientRequestId: request.id
-                )
+            var injectedResponse: BackendReadResult<BackendScreenplayVersionMutationResponse>?
+            #if DEBUG
+            injectedResponse = try debugDraftSaveResponse?()
+            #endif
+            if let injectedResponse {
+                result = injectedResponse
+            } else {
+                do {
+                    result = try await BackendMemoryAPI.shared.upsertScreenplayProjectVersion(
+                        projectId: request.projectId,
+                        draft: request.draft,
+                        title: request.title,
+                        phase: request.phase,
+                        notes: request.notes,
+                        source: request.source,
+                        studioWriteAnchors: request.studioWriteAnchors,
+                        screenplayBindings: request.screenplayBindings,
+                        baseVersionId: baseVersionId,
+                        conflictStrategy: "reject_if_stale",
+                        clientRequestId: request.id,
+                        includeUserIdentity: ownerHeaders.includeUserIdentity,
+                        includeAuthToken: ownerHeaders.includeAuthToken,
+                        clientTokenOverride: ownerHeaders.clientTokenOverride
+                    )
+                } catch BackendMemoryAPIError.server(let status, _)
+                            where ownerHeaders.usesDebugClientTokenOwner && status == 404 {
+                    guard authContextIsCurrent(request.authContext) else { return false }
+                    result = try await BackendMemoryAPI.shared.upsertScreenplayProjectVersion(
+                        projectId: request.projectId,
+                        draft: request.draft,
+                        title: request.title,
+                        phase: request.phase,
+                        notes: request.notes,
+                        source: request.source,
+                        studioWriteAnchors: request.studioWriteAnchors,
+                        screenplayBindings: request.screenplayBindings,
+                        baseVersionId: baseVersionId,
+                        conflictStrategy: "reject_if_stale",
+                        clientRequestId: request.id
+                    )
+                }
             }
             guard authContextIsCurrent(request.authContext) else {
                 try? await draftSaveOutbox.markRetryable(
@@ -6381,11 +6392,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 serverVersionId: nextVersionId,
                 supersedesEarlierSaves: request.source == "studio_conflict_resolve"
             )) == true else {
+                guard authContextIsCurrent(request.authContext), selectedProjectID == request.projectId else { return false }
                 hasUnsavedDraftChanges = true
                 autosaveStatusText = "Save needs attention"
                 infoText = "Your local copy is retained. Resolve any conflict or retry the save."
                 return false
             }
+            guard authContextIsCurrent(request.authContext), selectedProjectID == request.projectId else { return false }
             conflictState = nil
             if let nextProject = result.payload.project {
                 upsertProject(nextProject)
@@ -6437,6 +6450,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             }
             if request.source == "studio_snapshot" || request.source == "studio_conflict_resolve" {
                 await loadSelectedProjectOutline()
+                guard authContextIsCurrent(request.authContext), selectedProjectID == request.projectId else { return false }
             }
             persistLocalDraftRecovery(
                 projectId: request.projectId,

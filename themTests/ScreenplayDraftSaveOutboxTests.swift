@@ -3,6 +3,47 @@ import XCTest
 
 final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     @MainActor
+    func testSuccessfulOldProjectSaveCannotReplaceNewProject() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let suite = "them.success-save-project-scope.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery, draftSaveOutbox: queue)
+        let decoder = JSONDecoder()
+        func project(_ id: String) throws -> BackendScreenplayProjectSummary {
+            try decoder.decode(BackendScreenplayProjectSummary.self,
+                from: JSONSerialization.data(withJSONObject: ["id": id, "title": id]))
+        }
+        let oldProject = try project("project-1")
+        let newProject = try project("project-2")
+        model.projects = [oldProject, newProject]
+        model.selectedProjectID = oldProject.id
+        model.selectedProject = oldProject
+        model.applyStructuralUITestDraft("Old baseline", versionID: "old-base")
+        let oldWords = "  Old project words\r\n"
+        model.fountainDraft = oldWords
+        model.noteManualDraftEdit()
+        let newWords = "  New project words cafe\u{0301}\r\n"
+        let response = try decoder.decode(BackendScreenplayVersionMutationResponse.self,
+            from: JSONSerialization.data(withJSONObject: ["versionId": "old-saved", "project": ["id": oldProject.id, "title": oldProject.title]]))
+        model.debugDraftSaveResponse = {
+            model.selectedProjectID = newProject.id
+            model.selectedProject = newProject
+            model.fountainDraft = newWords
+            model.infoText = "New project notice"
+            return BackendReadResult(payload: response, sync: .empty, notModified: false)
+        }
+        await model.manualSaveDraft()
+        XCTAssertEqual(model.selectedProjectID, newProject.id)
+        XCTAssertEqual(Array(model.fountainDraft.utf8), Array(newWords.utf8))
+        XCTAssertEqual(model.infoText, "New project notice")
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let oldCopy = recovery.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: oldProject.id)
+        XCTAssertEqual(oldCopy.map { Array($0.draft.utf8) }, Array(oldWords.utf8))
+    }
+
+    @MainActor
     func testFailedOldProjectSaveCannotOverwriteNewProjectOrItsRecovery() async throws {
         let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let suite = "them.failed-save-project-scope.\(UUID().uuidString)"
