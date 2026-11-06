@@ -2,6 +2,35 @@ import XCTest
 @testable import them
 
 final class ScreenplayDraftSaveOutboxTests: XCTestCase {
+    @MainActor
+    func testManualSaveReportsUnconfirmedQueueWriteWithoutLosingVisibleWords() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        _ = await queue.snapshot()
+        try FileManager.default.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: storageDirectory.appendingPathComponent("queue.json"), withIntermediateDirectories: false)
+        let suite = "them.failed-queue-message.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore:
+            ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery"), draftSaveOutbox: queue)
+        let project = try JSONDecoder().decode(BackendScreenplayProjectSummary.self,
+            from: JSONSerialization.data(withJSONObject: ["id": "project-1", "title": "Test"]))
+        model.projects = [project]
+        model.selectedProjectID = project.id
+        model.selectedProject = project
+        model.applyStructuralUITestDraft("Earlier page", versionID: "server-v1")
+        let raw = "  Writer words cafe\u{0301}\r\n"
+        model.fountainDraft = raw
+        model.noteManualDraftEdit()
+        await model.manualSaveDraft()
+        XCTAssertEqual(Array(model.fountainDraft.utf8), Array(raw.utf8))
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertEqual(model.autosaveStatusText, "Save needs attention")
+        XCTAssertTrue(model.infoText.contains("Keep this page open"))
+        XCTAssertTrue(model.errorText.contains("could not be secured"))
+        XCTAssertFalse(model.infoText.contains("will save when"))
+    }
+
     func testFailedQueueMutationsKeepThePriorInMemoryWriterCopies() async throws {
         let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         try await store.enqueue(makeEntry(id: "writer", draft: "Exact unsynced writer words"))
