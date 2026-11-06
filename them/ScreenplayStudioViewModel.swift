@@ -6235,8 +6235,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 draft: fountainDraft,
                 baseVersionId: request.baseVersionId
             )
-            autosaveStatusText = "Saved locally"
-            infoText = "Your draft is preserved on this device."
+            autosaveStatusText = "Save needs attention"
+            infoText = "Keep this page open and export a copy, or retry Save."
             errorText = "The local save queue could not be secured: \(error.localizedDescription)"
             return false
         }
@@ -6460,26 +6460,25 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 draft: fountainDraft,
                 baseVersionId: request.baseVersionId
             )
-            if ScreenplayDraftSaveRetryPolicy.shouldRetry(error) {
-                shouldQueuePendingDraftSaveAfterFailure = true
-                try? await draftSaveOutbox.markRetryable(
-                    id: request.id,
-                    error: error.localizedDescription
-                )
-                autosaveStatusText = "Queued locally - reconnecting"
-                infoText = "Your draft is safe on this device and will save when the connection returns."
-                errorText = ""
-            } else {
-                try? await draftSaveOutbox.markParked(
-                    id: request.id,
-                    error: error.localizedDescription
-                )
-                autosaveStatusText = ScreenplayDraftSaveRecoveryPresentationPolicy.failureStatus(source: request.source)
-                infoText = ScreenplayDraftSaveRecoveryPresentationPolicy.recoveryInfo(source: request.source)
-                errorText = ScreenplayDraftSaveRecoveryPresentationPolicy.failureError(
-                    source: request.source,
-                    underlying: error.localizedDescription
-                )
+            do {
+                if ScreenplayDraftSaveRetryPolicy.shouldRetry(error) {
+                    try await draftSaveOutbox.markRetryable(id: request.id, error: error.localizedDescription)
+                    shouldQueuePendingDraftSaveAfterFailure = true
+                    autosaveStatusText = "Queued locally - reconnecting"
+                    infoText = "Your draft is safe on this device and will save when the connection returns."
+                    errorText = ""
+                } else {
+                    try await draftSaveOutbox.markParked(id: request.id, error: error.localizedDescription)
+                    autosaveStatusText = ScreenplayDraftSaveRecoveryPresentationPolicy.failureStatus(source: request.source)
+                    infoText = ScreenplayDraftSaveRecoveryPresentationPolicy.recoveryInfo(source: request.source)
+                    errorText = ScreenplayDraftSaveRecoveryPresentationPolicy.failureError(
+                        source: request.source, underlying: error.localizedDescription)
+                }
+            } catch {
+                shouldQueuePendingDraftSaveAfterFailure = false
+                autosaveStatusText = "Save needs attention"
+                infoText = "Keep this page open and export a copy, or retry Save."
+                errorText = "The local save queue could not be updated. Automatic retry is not confirmed."
             }
             await refreshDraftSaveOutboxStatus()
             return false

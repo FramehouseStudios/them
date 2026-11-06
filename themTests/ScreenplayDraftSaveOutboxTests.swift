@@ -2,6 +2,30 @@ import XCTest
 @testable import them
 
 final class ScreenplayDraftSaveOutboxTests: XCTestCase {
+    func testFailedQueueMutationsKeepThePriorInMemoryWriterCopies() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        try await store.enqueue(makeEntry(id: "writer", draft: "Exact unsynced writer words"))
+        let before = try await store.entriesForTesting()
+        let manifest = storageDirectory.appendingPathComponent("queue.json")
+        try FileManager.default.moveItem(at: manifest, to: storageDirectory.appendingPathComponent("preserved-original.json"))
+        try FileManager.default.createDirectory(at: manifest, withIntermediateDirectories: false)
+        for operation in ["begin", "inflight", "retry", "park", "remove", "removeAll"] {
+            do {
+                switch operation {
+                case "begin": _ = try await store.beginNext(projectId: "project-1", ownerUserId: "user-1", force: true)
+                case "inflight": try await store.markInflight(id: "writer")
+                case "retry": try await store.markRetryable(id: "writer", error: "offline")
+                case "park": try await store.markParked(id: "writer", error: "requires review")
+                case "remove": try await store.remove(id: "writer")
+                default: try await store.removeAll(projectId: "project-1", ownerUserId: "user-1")
+                }
+                XCTFail("\(operation) must not report a successful disk update")
+            } catch {}
+            let after = try await store.entriesForTesting()
+            XCTAssertEqual(after, before, "\(operation) must restore the previous in-memory state when persistence fails")
+        }
+    }
+
     func testOrdinaryAcknowledgementCannotDiscardAnEarlierParkedConflict() async throws {
         let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let conflict = makeEntry(id: "conflict", draft: "Earlier unsynced words", createdAt: 100)
