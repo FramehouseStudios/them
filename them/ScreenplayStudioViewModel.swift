@@ -9083,7 +9083,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 secureJournalCopy(ownerUserId: ownerID, projectId: normalizedProjectId, draft: draft,
                     baseVersionId: baseVersionId, scope: scope, mayAdvanceEdit: isManualEdit)
             }
-            if fallback != .secured {
+            if fallback == .secured {
+                infoText = "Your current page has a separate local copy. The usual recovery storage could not be confirmed; review your recovery copies."
+            } else {
                 errorText = "This page could not be secured locally. Keep it open and export it or retry Save."
             }
         }

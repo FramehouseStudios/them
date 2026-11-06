@@ -1849,6 +1849,7 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         defaults.set("unreadable existing recovery", forKey: scopedKey)
         model.fountainDraft = "New exact words\r\n"
         model.noteManualDraftEdit()
+        XCTAssertTrue(model.infoText.contains("usual recovery storage could not be confirmed"))
         XCTAssertEqual(defaults.string(forKey: scopedKey), "unreadable existing recovery")
         guard case let .present(records) = overflow.journalCopies(ownerUserID: owner, projectID: project,
             backendURL: origin.backendURL) else { return XCTFail("Expected scoped journal fallback") }
