@@ -3,6 +3,57 @@ import XCTest
 
 final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     @MainActor
+    func testPendingNewProjectSaveSurvivesOldProjectFailure() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let suite = "them.pending-project-save.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore:
+            ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery"), draftSaveOutbox: queue)
+        let decoder = JSONDecoder()
+        func project(_ id: String) throws -> BackendScreenplayProjectSummary {
+            try decoder.decode(BackendScreenplayProjectSummary.self,
+                from: JSONSerialization.data(withJSONObject: ["id": id, "title": id]))
+        }
+        let first = try project("project-1"), second = try project("project-2")
+        model.projects = [first, second]
+        model.selectedProjectID = first.id
+        model.selectedProject = first
+        model.applyStructuralUITestDraft("first baseline", versionID: "first-base")
+        model.fountainDraft = "first writer words"
+        model.noteManualDraftEdit()
+        let started = expectation(description: "first request started")
+        var resumeFirst: CheckedContinuation<Void, Never>?
+        var attempts = 0
+        model.debugBeforeDraftSaveTransport = {
+            attempts += 1
+            if attempts == 1 {
+                await withCheckedContinuation { continuation in
+                    resumeFirst = continuation
+                    started.fulfill()
+                }
+            }
+            throw URLError(.notConnectedToInternet)
+        }
+        let firstSave = Task { await model.manualSaveDraft() }
+        await fulfillment(of: [started], timeout: 5)
+        model.selectedProjectID = second.id
+        model.selectedProject = second
+        model.applyStructuralUITestDraft("second baseline", versionID: "second-base")
+        let secondWords = "  second project writer words\r\n"
+        model.fountainDraft = secondWords
+        model.noteManualDraftEdit()
+        await model.manualSaveDraft()
+        try XCTUnwrap(resumeFirst).resume()
+        await firstSave.value
+        let retained = try await queue.entriesForTesting()
+        XCTAssertEqual(attempts, 2, "The second project's pending save must actually run.")
+        let secondEntry = retained.first { $0.projectId == second.id }
+        XCTAssertEqual(secondEntry.map { Array($0.draft.utf8) }, Array(secondWords.utf8))
+        XCTAssertEqual(secondEntry?.baseVersionId, "second-base")
+    }
+
+    @MainActor
     func testSuccessfulOldProjectSaveCannotReplaceNewProject() async throws {
         let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let suite = "them.success-save-project-scope.\(UUID().uuidString)"

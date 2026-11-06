@@ -1902,7 +1902,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     #if DEBUG
-    var debugBeforeDraftSaveTransport: (() throws -> Void)?
+    var debugBeforeDraftSaveTransport: (() async throws -> Void)?
     var debugDraftSaveResponse: (() throws -> BackendReadResult<BackendScreenplayVersionMutationResponse>)?
 
     var debugDidLoadScreenplayProjectsFromBackend: Bool {
@@ -6147,9 +6147,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
         while let activeRequest = nextRequest {
             let didSave = await performDraftSave(activeRequest)
             guard didSave else {
-                let queuedRequest = draftSaveSlot.takePending()
                 if shouldQueuePendingDraftSaveAfterFailure,
-                   let queuedRequest {
+                   draftSaveSlot.pending?.projectId == activeRequest.projectId,
+                   draftSaveSlot.pending?.ownerUserId == activeRequest.ownerUserId,
+                   let queuedRequest = draftSaveSlot.takePending() {
                     do {
                         try await draftSaveOutbox.enqueue(queuedRequest.outboxEntry)
                     } catch {
@@ -6159,7 +6160,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 return false
             }
             if let queuedRequest = draftSaveSlot.takePending() {
-                if ScreenplayDraftSaveCoalescingPolicy.shouldCoalesce(
+                if queuedRequest.projectId == activeRequest.projectId,
+                   queuedRequest.ownerUserId == activeRequest.ownerUserId,
+                   ScreenplayDraftSaveCoalescingPolicy.shouldCoalesce(
                     activeDraft: activeRequest.draft,
                     activeSource: activeRequest.source,
                     activeNotes: activeRequest.notes,
@@ -6171,7 +6174,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 ) {
                     nextRequest = nil
                 } else {
-                    nextRequest = queuedRequest.rebased(on: latestVersionID)
+                    nextRequest = queuedRequest.projectId == activeRequest.projectId
+                        && queuedRequest.ownerUserId == activeRequest.ownerUserId
+                        ? queuedRequest.rebased(on: latestVersionID) : queuedRequest
                 }
                 continue
             }
@@ -6255,7 +6260,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 return false
             }
 #if DEBUG
-            try debugBeforeDraftSaveTransport?()
+            try await debugBeforeDraftSaveTransport?()
             if IOThemRuntime.isRunningUITests,
                ProcessInfo.processInfo.arguments.contains("--ui-screenplay-save-network-fault") {
                 throw URLError(.notConnectedToInternet)
