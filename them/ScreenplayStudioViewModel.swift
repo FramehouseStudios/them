@@ -5700,14 +5700,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
             serverDraftExcerpt: selectedVersion?.draftExcerpt ?? ""
         )
         let owner = currentStudioAuthContext()
-        if let version = selectedVersion, !version.id.isEmpty, fountainDraft == nextDraft {
+        if let version = selectedVersion, !version.id.isEmpty, fountainDraft.utf8.elementsEqual(nextDraft.utf8) {
             Task {
                 do {
                     guard let entry = try await draftSaveOutbox.pendingEntry(projectId: project.id, ownerUserId: owner.userID),
-                          entry.draft == nextDraft, authContextIsCurrent(owner),
-                          selectedProjectID == project.id, fountainDraft == nextDraft else { return }
+                          entry.draft.utf8.elementsEqual(nextDraft.utf8), authContextIsCurrent(owner),
+                          selectedProjectID == project.id, fountainDraft.utf8.elementsEqual(nextDraft.utf8) else { return }
                     try await draftSaveOutbox.markSucceeded(id: entry.id, serverVersionId: version.id,
-                        supersedesEarlierSaves: true)
+                        allowParkedExactConfirmation: true)
                     await refreshDraftSaveOutboxStatus()
                 } catch {
                     guard authContextIsCurrent(owner), selectedProjectID == project.id else { return }
@@ -6264,11 +6264,16 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 guard authContextIsCurrent(request.authContext) else { return false }
                 let serverDraft = serverVersion.draft ?? ""
                 if fingerprint(for: serverDraft) == fingerprint(for: request.draft) {
-                    try? await draftSaveOutbox.markSucceeded(
+                    guard (try? await draftSaveOutbox.markSucceeded(
                         id: request.id,
                         serverVersionId: serverVersion.id,
                         supersedesEarlierSaves: request.source == "studio_conflict_resolve"
-                    )
+                    )) == true else {
+                        hasUnsavedDraftChanges = true
+                        autosaveStatusText = "Save needs attention"
+                        infoText = "Your local copy is retained. Resolve any conflict or retry the save."
+                        return false
+                    }
                     latestVersionID = serverVersion.id
                     lastSavedDraftFingerprint = fingerprint(for: request.draft)
                     lastRevisionBaseDraft = request.draft
@@ -6363,22 +6368,27 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 await handleDraftSaveConflict(conflict, ownerUserId: request.ownerUserId, expectedContext: request.authContext)
                 return false
             }
+            let nextVersionId = (result.payload.versionId ?? result.payload.version?.id ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !nextVersionId.isEmpty else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+            guard (try? await draftSaveOutbox.markSucceeded(
+                id: request.id,
+                serverVersionId: nextVersionId,
+                supersedesEarlierSaves: request.source == "studio_conflict_resolve"
+            )) == true else {
+                hasUnsavedDraftChanges = true
+                autosaveStatusText = "Save needs attention"
+                infoText = "Your local copy is retained. Resolve any conflict or retry the save."
+                return false
+            }
             conflictState = nil
             if let nextProject = result.payload.project {
                 upsertProject(nextProject)
                 selectedProject = nextProject
                 selectedProjectID = nextProject.id
             }
-            let nextVersionId = (result.payload.versionId ?? result.payload.version?.id ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !nextVersionId.isEmpty else {
-                throw BackendMemoryAPIError.invalidResponse
-            }
-            try? await draftSaveOutbox.markSucceeded(
-                id: request.id,
-                serverVersionId: nextVersionId,
-                supersedesEarlierSaves: request.source == "studio_conflict_resolve"
-            )
             latestVersionID = nextVersionId
             if let savedAnchors = result.payload.version?.studioWriteAnchors {
                 studioWriteAnchors = savedAnchors.filter { anchor in

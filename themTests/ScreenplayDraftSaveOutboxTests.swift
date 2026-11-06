@@ -2,6 +2,50 @@ import XCTest
 @testable import them
 
 final class ScreenplayDraftSaveOutboxTests: XCTestCase {
+    func testOrdinaryAcknowledgementCannotDiscardAnEarlierParkedConflict() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let conflict = makeEntry(id: "conflict", draft: "Earlier unsynced words", createdAt: 100)
+        try await store.enqueue(conflict)
+        _ = try await store.retainConflict(projectId: "project-1", ownerUserId: "user-1")
+        let newer = makeEntry(id: "newer", draft: "Different later words", createdAt: 200)
+        try await store.enqueue(newer)
+        let acknowledged = try await store.markSucceeded(id: newer.id, serverVersionId: "server-new")
+        XCTAssertTrue(acknowledged)
+        let reopened = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let retained = try await reopened.entriesForTesting()
+        XCTAssertEqual(retained.map(\.id), [conflict.id])
+        XCTAssertEqual(retained.first?.status, .parked)
+        XCTAssertEqual(retained.first?.draft, conflict.draft)
+    }
+
+    func testExactServerConfirmationRetiresOnlyItsMatchingParkedCopy() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let earlier = makeEntry(id: "earlier", draft: "Different unsynced words", createdAt: 100)
+        let confirmed = makeEntry(id: "confirmed", draft: "Exact confirmed words", createdAt: 200)
+        try await store.enqueue(earlier)
+        try await store.enqueue(confirmed)
+        _ = try await store.retainConflict(projectId: "project-1", ownerUserId: "user-1")
+        try await store.markSucceeded(id: confirmed.id, serverVersionId: "server-new", allowParkedExactConfirmation: true)
+        let reopened = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let retained = try await reopened.entriesForTesting()
+        XCTAssertEqual(retained.map(\.id), [earlier.id])
+        XCTAssertEqual(retained.first?.draft, earlier.draft)
+        XCTAssertEqual(retained.first?.status, .parked)
+    }
+
+    func testLateOrdinaryAcknowledgementCannotDiscardItsParkedConflict() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let conflict = makeEntry(id: "conflict", draft: "Writer words", createdAt: 100)
+        try await store.enqueue(conflict)
+        _ = try await store.retainConflict(projectId: "project-1", ownerUserId: "user-1")
+        let acknowledged = try await store.markSucceeded(id: conflict.id, serverVersionId: "old-response")
+        XCTAssertFalse(acknowledged, "The caller must not treat a parked save as settled.")
+        let reopened = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let retained = try await reopened.entriesForTesting()
+        XCTAssertEqual(retained.map(\.id), [conflict.id])
+        XCTAssertEqual(retained.first?.status, .parked)
+    }
+
     @MainActor
     func testStaleBlankObserverCannotClearQueuedWriterAuthorityOrRecovery() async throws {
         let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
