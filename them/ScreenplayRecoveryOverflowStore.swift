@@ -1107,7 +1107,20 @@ nonisolated struct ScreenplayRecoveryOverflowStore {
     }
 
     private static func exactString(_ lhs: String, _ rhs: String) -> Bool {
-        lhs.utf8.elementsEqual(rhs.utf8)
+        let left = lhs.utf8
+        let right = rhs.utf8
+        guard left.count == right.count else { return false }
+        // Native UTF-8 storage permits a byte-for-byte comparison without
+        // walking a feature-length draft one character at a time.
+        if let compared = left.withContiguousStorageIfAvailable({ leftBytes in
+            right.withContiguousStorageIfAvailable { rightBytes in
+                guard let leftBase = leftBytes.baseAddress, let rightBase = rightBytes.baseAddress else {
+                    return leftBytes.isEmpty && rightBytes.isEmpty
+                }
+                return Darwin.memcmp(leftBase, rightBase, leftBytes.count) == 0
+            }
+        }), let compared { return compared }
+        return left.elementsEqual(right)
     }
 
     private static func encode(_ snapshot: ScreenplayRecoveryOverflowSnapshot) throws -> Data {
