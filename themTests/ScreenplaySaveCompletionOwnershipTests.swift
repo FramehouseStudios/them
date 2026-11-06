@@ -456,6 +456,40 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         XCTAssertEqual(Data(stillHeld.draft.utf8), Data(continued.utf8))
     }
 
+    func testManualTypingProtectsDifferentUnsurfacedRecoveryCopy() throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base")
+        let firstEdit = fixture.a + "\nA first edit."
+        fixture.model.fountainDraft = firstEdit
+        fixture.model.noteManualDraftEdit()
+        let external = fixture.a + "\nA different stored recovery."
+        fixture.store.save(ownerUserId: fixture.owner, projectId: "a", draft: external,
+                           baseVersionId: "a-base", dirty: true, savedAt: 1)
+        let secondEdit = firstEdit + "\nAnother edit."
+        fixture.model.fountainDraft = secondEdit
+        fixture.model.noteManualDraftEdit()
+        let recovery = fixture.store.payloads(ownerUserId: fixture.owner)["a"]
+        XCTAssertEqual(recovery?["draft"] as? String, external)
+        XCTAssertEqual((recovery?["preservedConflict"] as? [String: Any])?["draft"] as? String, secondEdit)
+        XCTAssertEqual(fixture.model.recoveryCandidate?.draft, external)
+    }
+
+    func testOrdinaryTypingAdvancesOwnedRecoveryWithoutCreatingCopies() throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base")
+        fixture.model.fountainDraft = fixture.a + "\nFirst."
+        fixture.model.noteManualDraftEdit()
+        let next = fixture.model.fountainDraft + "\nSecond."
+        fixture.model.fountainDraft = next
+        fixture.model.noteManualDraftEdit()
+        let recovery = fixture.store.payloads(ownerUserId: fixture.owner)["a"]
+        XCTAssertEqual(recovery?["draft"] as? String, next)
+        XCTAssertNil(recovery?["preservedConflict"])
+        XCTAssertNil(fixture.model.recoveryCandidate)
+    }
+
     func testSameDocumentNewerAEditsStayDirtyOnTheAcknowledgedBase() async throws {
         let fixture = try SaveCompletionFixture()
         defer { fixture.close() }
