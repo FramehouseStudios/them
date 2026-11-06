@@ -2742,8 +2742,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
         selectedProjectID = receipt.project.id
         loadedDraftProjectID = receipt.project.id
         latestVersionID = receipt.versionID
-        lastSavedDraftFingerprint = fingerprint(for: metadata.blankProject == true ? "" : receipt.entry.draft)
-        lastRevisionBaseDraft = metadata.blankProject == true ? "" : receipt.entry.draft
+        let confirmedDraft = metadata.blankProject == true ? "" : receipt.entry.draft
+        lastSavedDraftFingerprint = fingerprint(for: confirmedDraft)
+        lastSavedDraftExact = (receipt.owner.userID, receipt.project.id, confirmedDraft)
+        lastRevisionBaseDraft = confirmedDraft
         hasUnsavedDraftChanges = dirty
         isManualDraftEditing = dirty
         autosaveStatusText = dirty ? "Unsaved changes" : "Saved now"
