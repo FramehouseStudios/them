@@ -246,7 +246,7 @@ struct ScreenplayStudioSidebarToggleButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: "sidebar.left")
-                .font(.system(size: 13, weight: .regular))
+                .font(IOThemTypography.UI.callout)
                 .foregroundStyle(text.opacity(0.90))
                 .frame(width: 28, height: 28)
                 .background(
