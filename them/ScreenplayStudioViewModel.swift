@@ -7087,6 +7087,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return
         }
 
+        if !allowOverwriteDirtyLocalDraft,
+           normalizedProjectID == loadedDraftProjectID,
+           (normalizedServerVersionID.isEmpty || latestVersionID.isEmpty || normalizedServerVersionID == latestVersionID),
+           ScreenplayRemoteDraftConflictPolicy.isWhitespaceOnlyDifference(localDraft: fountainDraft, serverDraft: draft) {
+            // Without a distinct known version, keep the exact page and its base.
+            return
+        }
+
         isHydratingDraft = true
         fountainDraft = draft
         latestVersionID = versionId.trimmingCharacters(in: .whitespacesAndNewlines)
