@@ -46,6 +46,21 @@ nonisolated enum UITestLaunchConfiguration {
             }
         }
 
+        // Synthetic journal entry for exercising the real review and relaunch path.
+        if arguments.contains("--ui-reset-state"), !arguments.contains("--ui-preserve-state"),
+           let project = environment["THEM_UITEST_JOURNAL_PROJECT_ID"], !project.isEmpty,
+           let owner = environment["THEM_UITEST_USER_ID"], !owner.isEmpty,
+           let rawBackend = environment["THEM_UITEST_BACKEND_BASE_URL"], let backend = URL(string: rawBackend) {
+            let stored = MainActor.assumeIsolated {
+                let journal = ScreenplayRecoveryOverflowStore()
+                if case .stored = journal.appendJournalCopy(ownerUserID: owner, projectID: project,
+                    backendURL: backend, documentID: "ui-journal-document", draft: "INT. ROOM - NIGHT\n\nJOURNAL RELAUNCH WORDS.\n",
+                    baseVersionID: "ui-journal-old-base") { return true }
+                return false
+            }
+            guard stored else { assertionFailure("UI journal fixture could not be stored"); return }
+        }
+
         if arguments.contains("--ui-seed-remembered-login"),
            defaults === UserDefaults.standard {
             let account = BackendLocalDemoAccount.standard

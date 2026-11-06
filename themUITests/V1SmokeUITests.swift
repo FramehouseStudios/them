@@ -3603,6 +3603,99 @@ final class V1SmokeUITests: XCTestCase {
     }
 
     @MainActor
+    func test_editor_full_slots_journals_words_across_app_relaunch() async throws {
+        let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_SCREENPLAY_SAVE_BACKEND_PORT"] ?? "") ?? 31337
+        let baseURL = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)"))
+        guard await backendRestoreContractIsAvailable(baseURL: baseURL) else { throw XCTSkip("Local recovery fixture unavailable.") }
+        let fixture = try await seedBackendRestoreContractFixture(baseURL: baseURL)
+        var environment = fixture.appLaunchEnvironment
+        environment["THEM_UITEST_JOURNAL_FILL_SLOTS"] = "1"
+        var app = launchApp(openStudio: true, restoreProjectID: fixture.projectID,
+            restoreVersionID: fixture.versionID, restoreLoadToken: fixture.loadToken, launchEnvironment: environment)
+        defer { app.terminate() }
+        XCTAssertTrue(app.otherElements["studio.surface"].waitForExistence(timeout: 15))
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 60) {
+            stringValue($0["loaded_draft_project_id"]).lowercased() == fixture.projectID.lowercased()
+                && stringValue($0["latest_version_id"]).lowercased() == fixture.versionID.lowercased()
+        }, "The local project did not finish loading.")
+        guard waitForRestoreSnapshot(in: app, timeout: 30, predicate: { boolValue($0["debug_journal_verified_context"]) }) else {
+            XCTFail("The local project did not establish a verified recovery context.")
+            return
+        }
+        guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
+        let prepare = app.buttons["studio.sidebar.left.toggle"]
+        guard waitForHittability(of: prepare, timeout: 15) else {
+            XCTFail("The debug recovery fixture control was not tappable.")
+            return
+        }
+        prepare.tap()
+        var fixtureState = "unavailable"
+        guard waitForRestoreSnapshot(in: app, timeout: 15, predicate: { snapshot in
+            fixtureState = stringValue(snapshot["debug_journal_fixture_status"])
+            return boolValue(snapshot["debug_journal_slots_seeded"])
+        }) else {
+            XCTFail("The full-slot fixture did not become ready; stage: \(fixtureState).")
+            return
+        }
+        let editor = app.textViews["studio.draft.editor"]
+        XCTAssertTrue(waitForHittability(of: editor, timeout: 15))
+        editor.tap()
+        guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
+        let marker = " JournaledExactWords"
+        editor.typeText(marker)
+        XCTAssertTrue(waitForDraft(in: app, containing: marker, timeout: 15))
+        let expected = accessibleDraftText(in: app)
+        XCTAssertTrue(expected.contains(marker))
+        app.terminate()
+        app = launchApp(openStudio: true, resetState: false, launchEnvironment: environment)
+        XCTAssertTrue(app.otherElements["studio.surface"].waitForExistence(timeout: 15))
+        var snapshot: [String: Any] = [:]
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 60) {
+            snapshot = $0
+            return boolValue($0["recovery_present"]) && stringValue($0["recovery_base_version_id"]).isEmpty
+        }, "The unknown-base journal copy did not appear after relaunch.")
+        if !boolValue(snapshot["recovery_matches_current_draft"]) {
+            let recover = app.buttons["studio.draft-recovery.primary-action"]
+            XCTAssertTrue(recover.waitForExistence(timeout: 10))
+            recover.tap()
+        }
+        XCTAssertTrue(waitForDraft(in: app, containing: marker, timeout: 15))
+        XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(expected.utf8))
+    }
+
+    @MainActor
+    func test_journal_copy_is_reviewable_across_app_relaunch() async throws {
+        let configuredPort = Int(ProcessInfo.processInfo.environment["THEM_UITEST_SCREENPLAY_SAVE_BACKEND_PORT"] ?? "") ?? 31337
+        let baseURL = try XCTUnwrap(URL(string: "http://127.0.0.1:\(configuredPort)"))
+        guard await backendRestoreContractIsAvailable(baseURL: baseURL) else {
+            throw XCTSkip("Screenplay recovery fixture server is not running.")
+        }
+        let fixture = try await seedBackendRestoreContractFixture(baseURL: baseURL)
+        var environment = fixture.appLaunchEnvironment
+        environment["THEM_UITEST_JOURNAL_PROJECT_ID"] = fixture.projectID
+        let words = "INT. ROOM - NIGHT\n\nJOURNAL RELAUNCH WORDS.\n"
+        var app = launchApp(openStudio: true, restoreProjectID: fixture.projectID,
+            restoreVersionID: fixture.versionID, restoreLoadToken: fixture.loadToken, launchEnvironment: environment)
+        defer { app.terminate() }
+        XCTAssertTrue(app.otherElements["studio.surface"].waitForExistence(timeout: 15))
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 60) {
+            boolValue($0["recovery_present"]) && stringValue($0["recovery_base_version_id"]) == "ui-journal-old-base"
+        }, "The journal copy did not appear for review.")
+        let recover = app.buttons["studio.draft-recovery.primary-action"]
+        XCTAssertTrue(recover.waitForExistence(timeout: 10))
+        recover.tap()
+        XCTAssertTrue(waitForDraft(in: app, containing: "JOURNAL RELAUNCH WORDS.", timeout: 15))
+        XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(words.utf8))
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 10) { stringValue($0["latest_version_id"]).isEmpty })
+        app.terminate()
+        app = launchApp(openStudio: true, resetState: false, launchEnvironment: environment)
+        XCTAssertTrue(app.otherElements["studio.surface"].waitForExistence(timeout: 15))
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 60) {
+            boolValue($0["recovery_present"]) && stringValue($0["recovery_base_version_id"]) == "ui-journal-old-base"
+        }, "The journal copy did not reappear after app relaunch.")
+    }
+
+    @MainActor
     func test_recovery_controls_preserve_independent_copies_across_relaunch() throws {
         let preserved = "INT. ROOM - DAY\n\nPRESERVED RECOVERY COPY."
         var app = launchApp(openStudio: true, structuralSeed: true, recoveryTwoSlotFixture: true)

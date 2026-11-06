@@ -919,6 +919,32 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     }
 
     @MainActor
+    func testJournalCopyCanBeReviewedWithoutAdoptingItsOldServerBase() throws {
+        let owner = "journal-review-owner"
+        let project = "journal-review-project"
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let journal = ScreenplayRecoveryOverflowStore(rootDirectory: root)
+        let origin = ScreenplayDraftSaveOrigin(documentID: "previous-document", backendURL: URL(string: "https://example.test")!)
+        guard case .stored = journal.appendJournalCopy(ownerUserID: owner, projectID: project,
+            backendURL: origin.backendURL, documentID: origin.documentID, draft: "Recovered exact\r\n", baseVersionID: "old-base") else {
+            return XCTFail("The journal fixture must be stored.")
+        }
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store, overflowRecoveryStore: journal,
+            recoveryOriginProvider: { _ in origin }, studioAuthContextProvider: { .init(userID: owner, sessionIntentGeneration: 1) })
+        model.autosaveEnabled = false
+        model.selectedProjectID = project
+        model.applyServerDraft("Server words", versionId: "server-base")
+        XCTAssertEqual(model.recoveryCandidate?.draft, "Recovered exact\r\n")
+        model.restoreDraftFromRecovery()
+        XCTAssertEqual(Data(model.fountainDraft.utf8), Data("Recovered exact\r\n".utf8))
+        XCTAssertEqual(model.latestVersionID, "")
+        guard case .present = journal.journalCopies(ownerUserID: owner, projectID: project, backendURL: origin.backendURL) else {
+            return XCTFail("Review must not delete the journal copy.")
+        }
+    }
+
+    @MainActor
     func testServerDebouncePreservesBothCopiesWhilePreservedRecoveryIsVisible() async {
         let owner = "visible-preserved-owner"
         let project = "visible-preserved-project"
@@ -950,7 +976,9 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         let project = "visible-preserved-edit"
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
-        let overflow = ScreenplayRecoveryOverflowStore(rootDirectory: root)
+        let overflow = ScreenplayRecoveryOverflowStore(rootDirectory: root, fileProtectionEnforcer: { url in
+            if url.lastPathComponent.contains(".journal.") { throw CocoaError(.fileWriteNoPermission) }
+        })
         let origin = ScreenplayDraftSaveOrigin(documentID: "test-document", backendURL: URL(string: "https://example.test")!)
         let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store, overflowRecoveryStore: overflow,
             recoveryOriginProvider: { _ in origin }, studioAuthContextProvider: { .init(userID: owner, sessionIntentGeneration: 1) })
@@ -973,7 +1001,7 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertEqual(preserved?["savedAt"] as? TimeInterval, 200)
         XCTAssertEqual(model.recoveryCandidate?.draft, "Preserved words")
         XCTAssertEqual(model.fountainDraft, "New page")
-        XCTAssertTrue(model.infoText.contains("Export"))
+        XCTAssertTrue(model.infoText.localizedCaseInsensitiveContains("export"))
     }
 
     @MainActor
@@ -1001,7 +1029,9 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         let project = "slot-full"
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
-        let overflow = ScreenplayRecoveryOverflowStore(rootDirectory: root)
+        let overflow = ScreenplayRecoveryOverflowStore(rootDirectory: root, fileProtectionEnforcer: { url in
+            if url.lastPathComponent.contains(".journal.") { throw CocoaError(.fileWriteNoPermission) }
+        })
         let origin = ScreenplayDraftSaveOrigin(documentID: "test-document", backendURL: URL(string: "https://example.test")!)
         let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store, overflowRecoveryStore: overflow,
             recoveryOriginProvider: { _ in origin }, studioAuthContextProvider: { .init(userID: owner, sessionIntentGeneration: 1) })
@@ -1803,12 +1833,156 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     }
 
     @MainActor
+    func testMalformedOrdinaryRecoveryRootFallsBackWithoutOverwritingIt() throws {
+        let owner = "malformed-root-owner"
+        let project = "malformed-root-project"
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let overflow = ScreenplayRecoveryOverflowStore(rootDirectory: root)
+        let origin = ScreenplayDraftSaveOrigin(documentID: "document", backendURL: URL(string: "https://example.test")!)
+        let identity = ScreenplayStudioAuthContext(userID: owner, sessionIntentGeneration: 1)
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store, overflowRecoveryStore: overflow,
+            recoveryOriginProvider: { _ in origin }, studioAuthContextProvider: { identity })
+        model.selectedProjectID = project
+        model.applyStructuralUITestDraft("Saved page", versionID: "base")
+        let scopedKey = ScreenplayOwnerScopedStoragePolicy.storageKey(baseKey: recoveryKey, ownerUserID: owner)
+        defaults.set("unreadable existing recovery", forKey: scopedKey)
+        model.fountainDraft = "New exact words\r\n"
+        model.noteManualDraftEdit()
+        XCTAssertEqual(defaults.string(forKey: scopedKey), "unreadable existing recovery")
+        guard case let .present(records) = overflow.journalCopies(ownerUserID: owner, projectID: project,
+            backendURL: origin.backendURL) else { return XCTFail("Expected scoped journal fallback") }
+        XCTAssertEqual(records.map(\.draft), ["New exact words\r\n"])
+        let reopened = ScreenplayStudioViewModel(localDraftRecoveryStore: store, overflowRecoveryStore: overflow,
+            recoveryOriginProvider: { _ in origin }, studioAuthContextProvider: { identity })
+        reopened.selectedProjectID = project
+        reopened.applyServerDraft("Saved page", versionId: "server")
+        XCTAssertEqual(reopened.recoveryCandidate?.draft, "New exact words\r\n")
+        XCTAssertEqual(defaults.string(forKey: scopedKey), "unreadable existing recovery")
+    }
+
+    @MainActor
+    func testUnconfirmedOverflowLocatorFallsBackToScopedJournal() throws {
+        let owner = "locator-failure-owner"
+        let project = "locator-failure-project"
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        var locatorAttempts = 0
+        let overflow = ScreenplayRecoveryOverflowStore(rootDirectory: root, fileProtectionEnforcer: { url in
+            if url.lastPathComponent.contains(".locator.json") {
+                locatorAttempts += 1
+                throw CocoaError(.fileWriteNoPermission)
+            }
+        })
+        let origin = ScreenplayDraftSaveOrigin(documentID: "document", backendURL: URL(string: "https://example.test")!)
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store, overflowRecoveryStore: overflow,
+            recoveryOriginProvider: { _ in origin }, studioAuthContextProvider: { .init(userID: owner, sessionIntentGeneration: 1) })
+        model.selectedProjectID = project
+        model.applyStructuralUITestDraft("Saved page", versionID: "")
+        store.save(ownerUserId: owner, projectId: project, draft: "Earlier words", baseVersionId: "known-base", dirty: true)
+        store.savePreservedConflict(ownerUserId: owner, projectId: project, draft: "Other words", baseVersionId: "other-base")
+        model.fountainDraft = "Newest writer words\r\n"
+        model.noteManualDraftEdit()
+        let attemptsAfterFirstEdit = locatorAttempts
+        XCTAssertGreaterThan(attemptsAfterFirstEdit, 0)
+        model.fountainDraft = "Newest writer words\r\nAgain"
+        model.noteManualDraftEdit()
+        XCTAssertEqual(locatorAttempts, attemptsAfterFirstEdit, "An active scoped journal should not probe the failed locator again")
+        guard case let .present(records) = overflow.journalCopies(ownerUserID: owner, projectID: project,
+            backendURL: origin.backendURL) else { return XCTFail("Expected independently secured journal copy") }
+        XCTAssertEqual(records.map(\.draft), ["Newest writer words\r\nAgain"])
+        let payload = store.payloads(ownerUserId: owner)[project]
+        XCTAssertEqual(payload?["draft"] as? String, "Earlier words")
+        XCTAssertEqual((payload?["preservedConflict"] as? [String: Any])?["draft"] as? String, "Other words")
+        XCTAssertFalse(model.errorText.contains("could not be secured"))
+
+        // A new model must discover the journal even while the old locator
+        // remains unreadable; presenting it must not discard earlier copies.
+        let reopened = ScreenplayStudioViewModel(localDraftRecoveryStore: store, overflowRecoveryStore: overflow,
+            recoveryOriginProvider: { _ in origin }, studioAuthContextProvider: { .init(userID: owner, sessionIntentGeneration: 1) })
+        reopened.selectedProjectID = project
+        reopened.applyServerDraft("Saved page", versionId: "server-version")
+        XCTAssertEqual(reopened.recoveryCandidate?.journalSnapshot?.recordID, records[0].recordID)
+        XCTAssertEqual(reopened.recoveryCandidate?.draft, "Newest writer words\r\nAgain")
+        reopened.restoreDraftFromRecovery()
+        XCTAssertEqual(reopened.fountainDraft, "Newest writer words\r\nAgain")
+        let afterRestore = store.payloads(ownerUserId: owner)[project]
+        XCTAssertEqual(afterRestore?["draft"] as? String, "Earlier words")
+        XCTAssertEqual((afterRestore?["preservedConflict"] as? [String: Any])?["draft"] as? String, "Other words")
+    }
+
+    @MainActor
+    func testLiveSyncRecoveryDoesNotReplaceActiveEditorJournal() async throws {
+        let owner = "journal-ownership-owner"
+        let project = "journal-ownership-project"
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let overflow = ScreenplayRecoveryOverflowStore(rootDirectory: root, fileProtectionEnforcer: { url in
+            if url.lastPathComponent.contains(".locator.json") { throw CocoaError(.fileWriteNoPermission) }
+        })
+        let origin = ScreenplayDraftSaveOrigin(documentID: "document", backendURL: URL(string: "https://example.test")!)
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store, overflowRecoveryStore: overflow,
+            recoveryOriginProvider: { _ in origin }, studioAuthContextProvider: { .init(userID: owner, sessionIntentGeneration: 1) })
+        model.selectedProjectID = project
+        model.applyStructuralUITestDraft("Saved page", versionID: "")
+        store.save(ownerUserId: owner, projectId: project, draft: "Earlier", baseVersionId: "known", dirty: true)
+        store.savePreservedConflict(ownerUserId: owner, projectId: project, draft: "Other", baseVersionId: "other")
+        model.fountainDraft = "Active editor words"
+        model.noteManualDraftEdit()
+        await model.handleDraftDebouncedChange("Active editor words")
+        guard case let .present(afterDebounce) = overflow.journalCopies(ownerUserID: owner, projectID: project,
+            backendURL: origin.backendURL) else { return XCTFail("Expected the editor journal") }
+        XCTAssertEqual(afterDebounce.map(\.draft), ["Active editor words"], "A duplicate observer must reuse the verified exact copy")
+        XCTAssertTrue(model.preserveLocalDraftForLiveSyncRecovery("Independent live-sync copy", projectID: project))
+        guard case let .present(records) = overflow.journalCopies(ownerUserID: owner, projectID: project,
+            backendURL: origin.backendURL) else { return XCTFail("Expected both recovery copies") }
+        XCTAssertEqual(Set(records.map(\.draft)), Set(["Active editor words", "Independent live-sync copy"]))
+    }
+
+    @MainActor
+    func testChangedScopedRecoverySelectionPreservesNewEditsSeparately() throws {
+        let owner = "changed-selection-owner"
+        let project = "changed-selection-project"
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let overflow = ScreenplayRecoveryOverflowStore(rootDirectory: root)
+        let origin = ScreenplayDraftSaveOrigin(documentID: "document", backendURL: URL(string: "https://example.test")!)
+        let identity = ScreenplayStudioAuthContext(userID: owner, sessionIntentGeneration: 1)
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store, overflowRecoveryStore: overflow,
+            recoveryOriginProvider: { _ in origin }, studioAuthContextProvider: { identity })
+        model.selectedProjectID = project
+        model.applyStructuralUITestDraft("Saved page", versionID: "base")
+        store.save(ownerUserId: owner, projectId: project, draft: "Earlier words", baseVersionId: "base", dirty: true)
+        guard case let .stored(old) = overflow.appendJournalCopy(ownerUserID: owner, projectID: project,
+            backendURL: origin.backendURL, documentID: origin.documentID, draft: "Old selection", baseVersionID: "base") else {
+            return XCTFail("Expected a journal selection")
+        }
+        model.recoveryCandidate = .init(owner: identity, projectId: project, draft: old.draft,
+            baseVersionId: old.baseVersionID, savedAt: old.savedAt, isPreservedConflict: false, journalSnapshot: old)
+        XCTAssertEqual(overflow.removeJournalCopyIfMatching(ownerUserID: owner, projectID: project,
+            backendURL: origin.backendURL, documentID: origin.documentID, expected: old), .deleted)
+        model.fountainDraft = "New exact writer words\r\n"
+        model.noteManualDraftEdit()
+        let payload = store.payloads(ownerUserId: owner)[project]
+        XCTAssertEqual(payload?["draft"] as? String, "Earlier words")
+        let preserved = payload?["preservedConflict"] as? [String: Any]
+        let ordinaryOrPreserved = [payload?["draft"] as? String, preserved?["draft"] as? String]
+        let overflowResult = overflow.load(ownerUserID: owner, projectID: project,
+            backendURL: origin.backendURL, documentID: origin.documentID)
+        let overflowDraft: String? = if case let .present(snapshot) = overflowResult { snapshot.draft } else { nil }
+        XCTAssertTrue((ordinaryOrPreserved + [overflowDraft]).contains("New exact writer words\r\n"))
+        XCTAssertTrue(model.errorText.contains("separate local copy"))
+    }
+
+    @MainActor
     func testLiveSyncDoesNotOverwriteOccupiedRecoveryCopies() {
         let owner = "live-recovery-owner"
         let project = "live-recovery-full"
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
-        let overflow = ScreenplayRecoveryOverflowStore(rootDirectory: root)
+        let overflow = ScreenplayRecoveryOverflowStore(rootDirectory: root, fileProtectionEnforcer: { url in
+            if url.lastPathComponent.contains(".journal.") { throw CocoaError(.fileWriteNoPermission) }
+        })
         let origin = ScreenplayDraftSaveOrigin(documentID: "test-document", backendURL: URL(string: "https://example.test")!)
         let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store, overflowRecoveryStore: overflow,
             recoveryOriginProvider: { _ in origin }, studioAuthContextProvider: { .init(userID: owner, sessionIntentGeneration: 1) })

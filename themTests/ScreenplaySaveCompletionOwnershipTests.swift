@@ -411,7 +411,7 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         XCTAssertEqual(preserved?["baseVersionId"] as? String, "")
     }
 
-    func testFullRecoverySlotsWarnAndKeepEarlierCopies() throws {
+    func testFullRecoverySlotsKeepEarlierCopiesAndJournalNewWords() throws {
         let fixture = try SaveCompletionFixture()
         defer { fixture.close() }
         fixture.select("a", draft: fixture.a, base: "a-base", dirty: true)
@@ -434,7 +434,9 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         fixture.model.fountainDraft = latest
         fixture.model.noteManualDraftEdit()
         XCTAssertEqual(Data(fixture.model.fountainDraft.utf8), Data(latest.utf8))
-        XCTAssertTrue(fixture.model.errorText.localizedCaseInsensitiveContains("export"))
+        guard case let .present(journal) = fixture.overflow.journalCopies(ownerUserID: fixture.owner,
+            projectID: "a", backendURL: origin.backendURL) else { return XCTFail("The latest words must be journaled.") }
+        XCTAssertTrue(journal.contains { Data($0.draft.utf8) == Data(latest.utf8) })
         let stored = fixture.store.payloads(ownerUserId: fixture.owner)["a"]
         XCTAssertEqual(stored?["draft"] as? String, fixture.a)
         XCTAssertEqual((stored?["preservedConflict"] as? [String: Any])?["draft"] as? String, newer)
@@ -443,6 +445,39 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
             return XCTFail("The existing overflow copy must remain available.")
         }
         XCTAssertEqual(Data(stillHeld.draft.utf8), Data(continued.utf8))
+    }
+
+    func testFullSlotsJournalLatestEditForModelRecreation() throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base", dirty: true)
+        fixture.store.save(ownerUserId: fixture.owner, projectId: "a", draft: fixture.a, baseVersionId: "a-base", dirty: true)
+        fixture.store.savePreservedConflict(ownerUserId: fixture.owner, projectId: "a", draft: "Other held words", baseVersionId: "other")
+        let origin = try fixture.currentOrigin()
+        guard case .stored = fixture.overflow.saveIfVacant(ownerUserID: fixture.owner, projectID: "a",
+            backendURL: origin.backendURL, documentID: origin.documentID, draft: "Older overflow", baseVersionID: "old") else {
+            return XCTFail("Overflow fixture must be stored.")
+        }
+        fixture.model.latestVersionID = ""
+        fixture.model.fountainDraft = "First journal words"
+        fixture.model.noteManualDraftEdit()
+        fixture.model.fountainDraft = "Latest journal words\r\n"
+        fixture.model.noteManualDraftEdit()
+        guard case let .present(copies) = fixture.overflow.journalCopies(ownerUserID: fixture.owner,
+            projectID: "a", backendURL: origin.backendURL) else { return XCTFail("Latest journal copy was not stored.") }
+        XCTAssertEqual(copies.count, 1)
+        XCTAssertEqual(Data(copies[0].draft.utf8), Data("Latest journal words\r\n".utf8))
+        XCTAssertEqual(copies[0].baseVersionID, "")
+        let owner = ScreenplayStudioAuthContext.current()
+        let reopened = ScreenplayStudioViewModel(localDraftRecoveryStore: fixture.store, overflowRecoveryStore: fixture.overflow,
+            recoveryOriginProvider: { _ in origin }, studioAuthContextProvider: { owner })
+        reopened.autosaveEnabled = false
+        reopened.selectedProjectID = "a"
+        reopened.applyServerDraft("Server words", versionId: "server-base")
+        XCTAssertEqual(reopened.recoveryCandidate?.draft, "Latest journal words\r\n")
+        reopened.restoreDraftFromRecovery()
+        XCTAssertEqual(Data(reopened.fountainDraft.utf8), Data("Latest journal words\r\n".utf8))
+        XCTAssertEqual(reopened.latestVersionID, "")
     }
 
     func testStartupEditDoesNotEraseKnownRecoveryBase() throws {
