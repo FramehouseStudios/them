@@ -411,6 +411,40 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         XCTAssertEqual(preserved?["baseVersionId"] as? String, "")
     }
 
+    func testFullRecoverySlotsWarnAndKeepEarlierCopies() throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base", dirty: true)
+        fixture.store.save(ownerUserId: fixture.owner, projectId: "a", draft: fixture.a,
+                           baseVersionId: "a-base", dirty: true)
+        fixture.model.latestVersionID = ""
+        let newer = fixture.a + "\nSecond copy."
+        fixture.model.fountainDraft = newer
+        fixture.model.noteManualDraftEdit()
+        let continued = newer + "\nThird copy."
+        fixture.model.fountainDraft = continued
+        fixture.model.noteManualDraftEdit()
+        let origin = try fixture.currentOrigin()
+        guard case let .present(overflow) = fixture.overflow.load(ownerUserID: fixture.owner, projectID: "a",
+            backendURL: origin.backendURL, documentID: origin.documentID) else {
+            return XCTFail("The third copy must be secured before the full-slot check.")
+        }
+        XCTAssertEqual(Data(overflow.draft.utf8), Data(continued.utf8))
+        let latest = continued + "\nNewest words."
+        fixture.model.fountainDraft = latest
+        fixture.model.noteManualDraftEdit()
+        XCTAssertEqual(Data(fixture.model.fountainDraft.utf8), Data(latest.utf8))
+        XCTAssertTrue(fixture.model.errorText.localizedCaseInsensitiveContains("export"))
+        let stored = fixture.store.payloads(ownerUserId: fixture.owner)["a"]
+        XCTAssertEqual(stored?["draft"] as? String, fixture.a)
+        XCTAssertEqual((stored?["preservedConflict"] as? [String: Any])?["draft"] as? String, newer)
+        guard case let .present(stillHeld) = fixture.overflow.load(ownerUserID: fixture.owner, projectID: "a",
+            backendURL: origin.backendURL, documentID: origin.documentID) else {
+            return XCTFail("The existing overflow copy must remain available.")
+        }
+        XCTAssertEqual(Data(stillHeld.draft.utf8), Data(continued.utf8))
+    }
+
     func testStartupEditDoesNotEraseKnownRecoveryBase() throws {
         let fixture = try SaveCompletionFixture()
         defer { fixture.close() }
@@ -784,6 +818,7 @@ private final class SaveCompletionFixture {
     let model: ScreenplayStudioViewModel
     let queue: ScreenplayDraftSaveOutbox
     let store: ScreenplayLocalDraftRecoveryStore
+    let overflow: ScreenplayRecoveryOverflowStore
     let owner: String
     let peer: SaveCompletionPeer
     private let directory: URL
@@ -827,6 +862,7 @@ private final class SaveCompletionFixture {
         suite = "them.save-completion.\(UUID())"
         defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         store = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        overflow = ScreenplayRecoveryOverflowStore(rootDirectory: directory.appendingPathComponent("overflow"))
         queue = ScreenplayDraftSaveOutbox(storageDirectory: directory)
         started = XCTestExpectation(description: "A's actual version request reached URLSession")
         peer = SaveCompletionPeer(started: started)
@@ -850,7 +886,7 @@ private final class SaveCompletionFixture {
             guard bridge.draftOrigin.projectID == projectID, let documentID = bridge.draftOrigin.documentID else { return nil }
             return .init(documentID: documentID, backendURL: backend)
         }
-        model = ScreenplayStudioViewModel(localDraftRecoveryStore: store, recoveryOriginProvider: recoveryOrigin,
+        model = ScreenplayStudioViewModel(localDraftRecoveryStore: store, overflowRecoveryStore: overflow, recoveryOriginProvider: recoveryOrigin,
                                           draftSaveOutbox: queue, draftSaveAPI: api,
                                           draftSaveIdentityProvider: { identity }, liveReplyOutbox: replyOutbox)
         model.autosaveEnabled = false
