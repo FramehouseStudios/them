@@ -1874,6 +1874,9 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertEqual(store.payloads(ownerUserId: owner)["partial"]?["baseVersionId"] as? String, "old")
         defaults.set(["partial": ["ordinaryBackendOrigin": "https://alpha.example.test", "baseVersionId": "old"]], forKey: key)
         XCTAssertFalse(store.canAutomaticallyRetireRecovery(ownerUserId: owner, projectId: "partial", backend: a))
+        XCTAssertFalse(store.save(ownerUserId: owner, projectId: "partial", draft: "New words",
+            baseVersionId: "new", dirty: true, backendOrigin: a))
+        XCTAssertEqual(store.payloads(ownerUserId: owner)["partial"]?["baseVersionId"] as? String, "old")
         defaults.set(["partial": ["preservedConflict": ["backendOrigin": "https://alpha.example.test", "draft": "Keep me"]]], forKey: key)
         XCTAssertFalse(store.canAutomaticallyRetireRecovery(ownerUserId: owner, projectId: "partial", backend: a))
     }

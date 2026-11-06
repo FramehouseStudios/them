@@ -218,6 +218,11 @@ struct ScreenplayLocalDraftRecoveryStore {
             if let raw = projectPayload["ordinaryBackendOrigin"] {
                 guard let text = raw as? String, let oldOrigin = URL(string: text),
                       OfflineTalkRecoveryScope.sameBackend(oldOrigin, canonical) else { return false }
+                let ordinary = storedRecoverySlot(.ordinary, in: projectPayload)
+                if ordinary.exists {
+                    guard projectPayload["draft"] is String, projectPayload["baseVersionId"] is String,
+                          projectPayload["dirty"] is Bool, projectPayload["savedAt"] is TimeInterval else { return false }
+                }
             } else if storedRecoverySlot(.ordinary, in: projectPayload).exists {
                 // A legacy or partial record has no proven origin. Preserve it unchanged.
                 return false
