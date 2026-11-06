@@ -77,6 +77,13 @@ nonisolated enum CrossDeviceStateVersionPolicy {
 }
 
 nonisolated enum ScreenplayRemoteDraftConflictPolicy {
+    static func isWhitespaceOnlyDifference(localDraft: String, serverDraft: String) -> Bool {
+        let local = localDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !localDraft.utf8.elementsEqual(serverDraft.utf8)
+            && !local.isEmpty
+            && local == serverDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     static func shouldProtectLocalDraft(
         selectedProjectId: String,
         loadedProjectId: String,

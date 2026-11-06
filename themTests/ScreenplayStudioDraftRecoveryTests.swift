@@ -1518,6 +1518,63 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     }
 
     @MainActor
+    func testCleanRemoteWhitespaceChangeAdoptsExactNewVersion() {
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "clean-whitespace-refresh-\(UUID().uuidString)"
+        let previous = "INT. ROOM - NIGHT\n\nA door opens.\n"
+        let remote = "INT. ROOM - NIGHT\n\nA door opens.\n\n"
+        model.applyServerDraft(previous, versionId: "v1")
+        model.applyServerDraft(remote, versionId: "v2")
+        XCTAssertEqual(Data(model.fountainDraft.utf8), Data(remote.utf8),
+                       "A clean page must show the exact bytes of its adopted server version.")
+        XCTAssertEqual(model.latestVersionID, "v2")
+        XCTAssertFalse(model.hasUnsavedDraftChanges)
+    }
+
+    @MainActor
+    func testSameVersionWhitespaceMismatchDoesNotReplaceLocalPage() {
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "same-version-whitespace-\(UUID().uuidString)"
+        let local = "INT. ROOM - NIGHT\n\nA door opens.\n"
+        model.applyServerDraft(local, versionId: "v1")
+        model.applyServerDraft(local + "\n", versionId: "v1")
+        XCTAssertEqual(Data(model.fountainDraft.utf8), Data(local.utf8))
+        XCTAssertEqual(model.latestVersionID, "v1")
+    }
+
+    @MainActor
+    func testUnversionedWhitespaceRefreshCannotEraseKnownPageBase() {
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "unversioned-whitespace-\(UUID().uuidString)"
+        let local = "INT. ROOM - NIGHT\n\nA door opens.\n"
+        model.applyServerDraft(local, versionId: "v1")
+        model.applyServerDraft(local + "\n", versionId: "")
+        XCTAssertEqual(Data(model.fountainDraft.utf8), Data(local.utf8))
+        XCTAssertEqual(model.latestVersionID, "v1", "An unversioned observation cannot erase the known save base.")
+    }
+
+    @MainActor
+    func testDirtyWhitespaceRemainsLocalWhenRemoteWhitespaceChanges() {
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "dirty-whitespace-refresh-\(UUID().uuidString)"
+        let previous = "INT. ROOM - NIGHT\n\nA door opens.\n"
+        let local = previous + " "
+        let remote = previous + "\n"
+        model.applyServerDraft(previous, versionId: "v1")
+        model.fountainDraft = local
+        model.noteManualDraftEdit()
+        model.applyServerDraft(remote, versionId: "v2")
+        XCTAssertEqual(Data(model.fountainDraft.utf8), Data(local.utf8))
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertEqual(model.latestVersionID, "v1")
+        XCTAssertEqual(model.conflictState?.serverVersionId, "v2")
+    }
+
+    @MainActor
     func testRemoteRefreshKeepsUnsavedWhitespaceAndRaisesConflict() {
         let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
         model.autosaveEnabled = false
