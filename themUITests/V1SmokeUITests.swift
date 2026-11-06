@@ -180,10 +180,18 @@ final class V1SmokeUITests: XCTestCase {
         }
         field.tap()
         guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
-        field.typeText("Help me shape this scene")
+        let promptText = "Help me shape this scene"
+        field.typeText(promptText)
         XCTAssertTrue(waitForHittability(of: field, timeout: 8),
             "The focused prompt must remain visible above the keyboard while writing.")
-        XCTAssertEqual(field.value as? String, "Help me shape this scene")
+        // On loaded simulators typeText can return before all synthesized key
+        // events arrive. Wait for the exact text; do not type it a second time.
+        let delivered = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", promptText), object: field
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [delivered], timeout: 8), .completed,
+            "The prompt did not receive the complete typed sentence.")
+        XCTAssertEqual(field.value as? String, promptText)
 
         let inlineSend = app.buttons["studio.prompt.send"]
         XCTAssertTrue(inlineSend.exists, "The composer must retain its single visible Send action.")
