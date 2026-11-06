@@ -8914,6 +8914,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return
         }
         let ownerID = currentStudioAuthContext().userID
+        // An unknown startup base cannot supersede the known base for the
+        // same exact retained words. Keep the existing copy unchanged.
+        if dirty, baseVersionId.isEmpty,
+           let existing = localDraftRecoveryStore.dirtyOrdinarySnapshot(ownerUserId: ownerID, projectId: normalizedProjectId),
+           !existing.baseVersionId.isEmpty, existing.draft.utf8.elementsEqual(draft.utf8) {
+            return
+        }
         // A clean server observation is not authority to replace a different
         // dirty writer copy, even before its queued conflict has surfaced.
         if !dirty, let existing = localDraftRecoveryStore.dirtyOrdinarySnapshot(ownerUserId: ownerID, projectId: normalizedProjectId),
