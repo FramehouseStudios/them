@@ -7,13 +7,33 @@ func hollywoodScreenplayEditorUIFont() -> UIFont {
     UIFont(name: "Courier", size: 12) ?? UIFont.monospacedSystemFont(ofSize: 12, weight: .regular)
 }
 
-extension IOSCursorInsertTextEditor {
-    func shouldApplyModelText(to textView: UITextView, previous: (text: String, documentID: String), deferredAllows: Bool) -> Bool {
-        let documentDidChange = previous.documentID != documentID
+extension IOSCursorInsertTextEditor.Coordinator {
+    func publishEditorText(_ text: String) {
+        guard !ScreenplayDraftTextIdentity.matches(parent.text, text) else { return }
+        pendingEditorPublications.record(text)
+        parent.text = text
+    }
+
+    func shouldApplyModelText(
+        incomingText: String,
+        to textView: UITextView,
+        documentDidChange: Bool,
+        deferredAllows: Bool = true
+    ) -> Bool {
+        // A Binding reads today's model, even when held by yesterday's parent.
+        // Keep the previous render's value independently of that live binding.
+        defer { lastRenderedModelText = incomingText }
+        if documentDidChange {
+            pendingEditorPublications.reset()
+        } else if pendingEditorPublications.acknowledge(incomingText) {
+            return false
+        }
         return ScreenplayEditorTextBindingPolicy.shouldApplyModelText(
-            incomingText: text, currentEditorText: textView.text ?? "",
-            lastRenderedModelText: previous.text,
-            isEditorFocused: textView.isFirstResponder, documentDidChange: documentDidChange,
+            incomingText: incomingText,
+            currentEditorText: textView.text ?? "",
+            lastRenderedModelText: lastRenderedModelText,
+            isEditorFocused: textView.isFirstResponder,
+            documentDidChange: documentDidChange,
             deferredAllows: deferredAllows
         )
     }

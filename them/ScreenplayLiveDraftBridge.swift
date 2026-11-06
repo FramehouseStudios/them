@@ -9403,10 +9403,9 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
                 ? .parenthetical
                 : currentElement
 
-            return FountainFormatter.normalizeEditorLine(
-                trimmed,
-                as: effectiveElement,
-                existingDraft: parent.text
+            return FountainFormatter.normalizeLiveEditorLine(
+                lineText,
+                as: effectiveElement
             )
         }
 
@@ -10804,7 +10803,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
         let previousPendingID = context.coordinator.parent.pendingReplacementTarget?.id
         let previousSubmittedID = context.coordinator.parent.submittedReplacementTarget?.id
         let previousInsertionID = context.coordinator.parent.insertionRequest?.id
-        let previousParent = (text: context.coordinator.parent.text, documentID: context.coordinator.parent.documentID)
+        let previousDocumentID = context.coordinator.parent.documentID
         context.coordinator.parent = self
         let currentPendingID = pendingReplacementTarget?.id
         let currentSubmittedID = submittedReplacementTarget?.id
@@ -10836,8 +10835,12 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
         }
 
         if !context.coordinator.isApplyingProgrammaticChange,
-           shouldApplyModelText(to: uiView, previous: previousParent,
-               deferredAllows: context.coordinator.shouldApplyBoundText(text, currentText: uiView.text ?? "")) {
+           context.coordinator.shouldApplyModelText(
+               incomingText: text,
+               to: uiView,
+               documentDidChange: previousDocumentID != documentID,
+               deferredAllows: context.coordinator.shouldApplyBoundText(text, currentText: uiView.text ?? "")
+           ) {
             let previousSelection = uiView.selectedRange
             context.coordinator.isApplyingProgrammaticChange = true
             uiView.text = text
@@ -10944,6 +10947,8 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
         var explicitCurrentLineLocation: Int?
         var paragraphElements: [ScreenplayEditorElement?] = []
         var lastKnownTextSnapshot: String
+        var lastRenderedModelText: String
+        var pendingEditorPublications = ScreenplayEditorTextBindingPolicy.PendingPublications()
         private var representableUpdateDepth = 0
         private var representableUpdateGeneration = 0
         private var activeRepresentableUpdateGeneration: Int?
@@ -10965,6 +10970,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             self.parent = parent
             self.lastKnownActiveElement = parent.activeScreenplayElement
             self.lastKnownTextSnapshot = parent.text
+            self.lastRenderedModelText = parent.text
         }
 
         @objc func saveDraftFromKeyboard() {
@@ -11016,7 +11022,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
 
         private func publishText(_ value: String, requestID: UUID? = nil) {
             guard representableUpdateDepth > 0 else {
-                parent.text = value
+                publishEditorText(value)
                 return
             }
             coalesce(&deferredText, current: parent.text, value: value, requestID: requestID)
@@ -11210,7 +11216,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
 
                 if let text,
                    ScreenplayDeferredPublicationGate.acceptsNativeTextPublication(expectedBinding: text.expected, currentBinding: self.parent.text, queuedText: text.value, nativeText: self.textView?.text, requestID: text.requestID, activeRequestID: self.parent.insertionRequest?.id) {
-                    self.parent.text = text.value
+                    self.publishEditorText(text.value)
                 }
                 if let activeElement,
                    generationIsAccepted(activeElement.generation),
@@ -11363,6 +11369,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             publishUserEdit(expectedText: next)
             updateCurrentCursorLine()
             refreshAnchoredTextRectSnapshot()
+            ScreenplayEditorViewport.followEditingCaret(in: textView)
         }
 
         private func interruptStreamingInsertForUserEditIfNeeded() {
@@ -11468,8 +11475,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             let targetLine = max(1, request.line)
             let content = textView.text ?? ""
             let targetRange = rangeForLine(targetLine, in: content)
-            textView.selectedRange = NSRange(location: targetRange.location, length: 0)
-            textView.scrollRangeToVisible(targetRange)
+            ScreenplayEditorViewport.jump(to: targetRange, in: textView)
             publishCurrentCursorLine(targetLine)
             refreshAnchoredTextRectSnapshot()
             lastAppliedLineJumpID = request.id
@@ -11513,8 +11519,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
 
         func applyEditorFocus(_ request: ScreenplayEditorFocusRequest) {
             guard let textView else { return }
-            textView.becomeFirstResponder()
-            textView.scrollRangeToVisible(textView.selectedRange)
+            ScreenplayEditorViewport.focus(textView)
             updateCurrentCursorLine()
             refreshAnchoredTextRectSnapshot()
             lastAppliedEditorFocusID = request.id
@@ -11632,6 +11637,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             publishUserEdit(expectedText: nextText)
             updateCurrentCursorLine()
             refreshAnchoredTextRectSnapshot()
+            ScreenplayEditorViewport.followEditingCaret(in: textView)
         }
 
         private func syncActiveElementFromSelection() {
@@ -11754,10 +11760,9 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 ? .parenthetical
                 : currentElement
 
-            return FountainFormatter.normalizeEditorLine(
-                trimmed,
-                as: effectiveElement,
-                existingDraft: parent.text
+            return FountainFormatter.normalizeLiveEditorLine(
+                lineText,
+                as: effectiveElement
             )
         }
 

@@ -34,12 +34,10 @@ final class V1SmokeUITests: XCTestCase {
 
         let sentence = "She counts seven red lights before the motel sign finally goes dark."
         editor.tap()
-        // XCTest can deliver a long typeText string as one synthetic keyboard
-        // burst. On a loaded hosted simulator that burst once dropped a single
-        // character even though the same sentence passes locally. Send one word
-        // per event and checkpoint every exact prefix; this keeps the assertion
-        // strict without asking XCTest to synthesize an unrealistically long
-        // uninterrupted burst or retrying any input.
+        // Checkpoint each exact prefix to locate the first lost character.
+        // The separate uninterrupted case sends the same sentence in one call.
+        // Native tracing proved all keys arrived before a stale model render
+        // overwrote newer text; do not blame input synthesis or retry input.
         let chunks = [
             "She",
             " counts",
@@ -152,6 +150,60 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(editor.waitForExistence(timeout: 4))
 #else
         throw XCTSkip("The printed-page overview covers the iPhone Studio home.")
+#endif
+    }
+
+    func test_keyboard_actions_follow_page_and_prompt_focus() throws {
+#if os(iOS)
+        let app = launchApp(openStudio: true, openCommandBar: true)
+        defer { app.terminate() }
+        let prompt = element(identifier: "studio.prompt.field", in: app)
+        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+        guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
+        let keyboardSend = app.buttons["studio.prompt.keyboard-send"]
+        XCTAssertTrue(keyboardSend.waitForExistence(timeout: 5))
+        let inspectorToggle = app.buttons["studio.sidebar.right.toggle"]
+        XCTAssertTrue(waitForHittability(of: inspectorToggle, timeout: 5))
+        inspectorToggle.tap()
+        let editor = app.textViews["studio.draft.editor"]
+        XCTAssertTrue(waitForHittability(of: editor, timeout: 5))
+        editor.tap()
+        editor.typeText("The page keeps this line.")
+        XCTAssertTrue(waitForDraft(in: app, containing: "The page keeps this line.", timeout: 5))
+        XCTAssertTrue(app.buttons["studio.draft.keyboard-save"].waitForExistence(timeout: 3))
+        let pageKeyboard = XCTAttachment(screenshot: app.screenshot())
+        pageKeyboard.name = "Typed paper line above the software keyboard"
+        pageKeyboard.lifetime = .keepAlways
+        add(pageKeyboard)
+        XCTAssertTrue(waitForDisappearance(of: keyboardSend, timeout: 3))
+        inspectorToggle.tap()
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        XCTAssertTrue(drawer.waitForExistence(timeout: 5))
+        XCTAssertTrue(revealInStudioDrawer(prompt, drawer: drawer, scrollingUp: false, maxSwipes: 12))
+        prompt.tap()
+        XCTAssertTrue(keyboardSend.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForHittability(of: keyboardSend, timeout: 3))
+#else
+        throw XCTSkip("Keyboard focus ownership specifically covers iPhone.")
+#endif
+    }
+
+    func test_studio_page_preserves_uninterrupted_typing_while_following_caret() throws {
+#if os(iOS)
+        let app = launchApp(openStudio: true)
+        defer { app.terminate() }
+        let editor = app.textViews["studio.draft.editor"]
+        XCTAssertTrue(waitForHittability(of: editor, timeout: 8))
+        editor.tap()
+        guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
+        let sentence = "She counts seven red lights before the motel sign finally goes dark."
+        editor.typeText(sentence)
+        XCTAssertTrue(waitForDraft(in: app, containing: sentence, timeout: 8),
+            "Uninterrupted typing lost words: \(accessibleDraftText(in: app))")
+        XCTAssertEqual(editor.value as? String, sentence)
+        XCTAssertEqual(accessibleDraftText(in: app), sentence)
+#else
+        throw XCTSkip("Native uninterrupted typing specifically covers iPhone.")
 #endif
     }
 
@@ -495,6 +547,35 @@ final class V1SmokeUITests: XCTestCase {
         )
     }
 
+    func test_iphone_export_choices_stay_inside_document_controls() throws {
+#if os(iOS)
+        let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true)
+        defer { app.terminate() }
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        XCTAssertTrue(drawer.waitForExistence(timeout: 8))
+        let trigger = drawer.buttons["studio.export.menu"]
+        guard revealFullyInStudioDrawer(trigger, drawer: drawer, maxSwipes: 12) else {
+            XCTFail("The document export control must be reachable.")
+            return
+        }
+        trigger.tap()
+        let markdown = drawer.buttons["studio.export.md"]
+        guard markdown.waitForExistence(timeout: 4) else {
+            XCTFail("Export choices must remain in the Document card, not a detached popover.")
+            return
+        }
+        XCTAssertEqual(trigger.value as? String, "Expanded")
+        XCTAssertTrue(drawer.buttons["studio.export.fdx"].exists)
+        XCTAssertTrue(drawer.buttons["studio.export.pdf"].exists)
+        XCTAssertFalse(drawer.buttons["studio.export.pdf"].isEnabled)
+        trigger.tap()
+        XCTAssertTrue(waitForDisappearance(of: markdown, timeout: 3))
+        XCTAssertEqual(trigger.value as? String, "Collapsed")
+#else
+        throw XCTSkip("Inline document export choices specifically cover iPhone.")
+#endif
+    }
+
     func test_screenplay_export_returns_a_file() {
         let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true)
         XCTAssertTrue(waitForDraft(in: app, containing: "INT. DINER - NIGHT", timeout: 10))
@@ -513,7 +594,8 @@ final class V1SmokeUITests: XCTestCase {
             app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "Markdown")).firstMatch.tap()
         }
 
-        XCTAssertTrue(staticText(containing: "Saved", in: app).waitForExistence(timeout: 6))
+        XCTAssertTrue(staticText(containing: ".md", in: app).waitForExistence(timeout: 6),
+            "Export must report its Markdown artifact, not match an earlier saved status.")
     }
 
     @MainActor
@@ -875,6 +957,33 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["studio.draft.page-tools"].waitForExistence(timeout: 4))
     }
 
+    func test_inspector_navigation_stays_visible_while_panel_scrolls() {
+        let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true)
+        defer { app.terminate() }
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        let tab = app.buttons["studio.right-panel.draft"]
+        guard tab.waitForExistence(timeout: 8), tab.isHittable else {
+            XCTFail("The inspector navigation must be visible before scrolling.")
+            return
+        }
+        let before = tab.frame
+        drawer.swipeUp()
+        guard tab.exists, tab.isHittable else {
+            XCTFail("Scrolling a panel must not hide the inspector's navigation.")
+            return
+        }
+        XCTAssertEqual(tab.frame.minY, before.minY, accuracy: 1,
+            "The navigation must remain pinned while the panel content scrolls.")
+        XCTAssertEqual(tab.frame.maxY, before.maxY, accuracy: 1)
+
+        app.buttons["studio.right-panel.beats"].tap()
+        drawer.swipeUp()
+        drawer.swipeUp()
+        app.buttons["studio.right-panel.craft"].tap()
+        XCTAssertTrue(waitForHittability(of: app.staticTexts["studio.craft.panel"], timeout: 4),
+            "A newly selected panel must open at its heading, not inherit another panel's scroll offset.")
+    }
+
     func test_all_studio_inspector_tabs_route_to_real_panels_and_report_selection() {
         let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true)
         defer { app.terminate() }
@@ -891,18 +1000,12 @@ final class V1SmokeUITests: XCTestCase {
 
         for route in routes {
             let tab = app.buttons["studio.right-panel.\(route.tab)"]
-            // The tab grid sits at the top of a lazy drawer. Revealing the
-            // previous panel scrolls the grid out of the accessibility
-            // hierarchy, so bring it back before tapping and check the
-            // selected state before this panel's reveal scrolls it away again.
-            XCTAssertTrue(
-                revealInspectorTab(tab, drawer: drawer, in: app),
-                "Missing \(route.tab) inspector tab"
-            )
-            XCTAssertTrue(
-                revealInStudioDrawer(tab, drawer: drawer, scrollingUp: false, maxSwipes: 16),
-                "The \(route.tab) inspector tab could not be scrolled into view"
-            )
+            // Navigation stays pinned; selecting it must not require a
+            // scroll/reopen recovery sequence.
+            guard tab.waitForExistence(timeout: 8), tab.isHittable else {
+                XCTFail("Missing pinned \(route.tab) inspector tab")
+                return
+            }
             tab.tap()
             XCTAssertTrue(
                 waitForSelection(of: tab, timeout: 3),
@@ -1430,7 +1533,10 @@ final class V1SmokeUITests: XCTestCase {
                 in: app.buttons.matching(NSPredicate(format: "label == %@", "Clear Thread"))
             ) ?? app.buttons["Clear Thread"]
         }
-        XCTAssertTrue(waitForHittability(of: confirmThread, timeout: 4))
+        XCTAssertTrue(
+            revealInStudioDrawer(confirmThread, drawer: drawer, scrollingUp: true, maxSwipes: 8),
+            "Clear Thread confirmation was not reachable after its inline panel expanded."
+        )
 #if os(macOS)
         confirmThread.click()
 #else
@@ -1470,7 +1576,10 @@ final class V1SmokeUITests: XCTestCase {
                 in: app.buttons.matching(NSPredicate(format: "label == %@", "Clear Memory"))
             ) ?? app.buttons["Clear Memory"]
         }
-        XCTAssertTrue(waitForHittability(of: confirmMemory, timeout: 4))
+        XCTAssertTrue(
+            revealInStudioDrawer(confirmMemory, drawer: drawer, scrollingUp: true, maxSwipes: 8),
+            "Clear Memory confirmation was not reachable after its inline panel expanded."
+        )
 #if os(macOS)
         confirmMemory.click()
 #else
@@ -2009,6 +2118,7 @@ final class V1SmokeUITests: XCTestCase {
 
         let fixture = try await seedBackendRestoreContractFixture(baseURL: baseURL, preserveDraftBoundaries: true)
         let marker = "SAVE-OUTBOX-\(UUID().uuidString.uppercased())"
+        let expectedQueuedDraft = "\(fixture.expectedDraft)\n\n\(marker)"
         var app = launchApp(
             openStudio: true,
             screenplaySaveNetworkFaultMarker: marker,
@@ -2024,7 +2134,9 @@ final class V1SmokeUITests: XCTestCase {
             waitForRestoreSnapshot(in: app, timeout: 60) { snapshot in
                 queuedSnapshot = snapshot
                 return stringValue(snapshot["selected_project_id"]).lowercased() == fixture.projectID.lowercased()
-                    && stringValue(snapshot["draft_tail_preview"]).contains(marker)
+                    && stringValue(snapshot["loaded_draft_project_id"]).lowercased() == fixture.projectID.lowercased()
+                    && (snapshot["draft_tail_preview"] as? String ?? "") == String(expectedQueuedDraft.suffix(260))
+                    && intValue(snapshot["draft_character_count"]) == expectedQueuedDraft.count
                     && intValue(snapshot["queued_draft_save_count"]) == 1
                     && intValue(snapshot["parked_draft_save_count"]) == 0
                     && boolValue(snapshot["has_unsaved_draft_changes"])
@@ -2207,6 +2319,7 @@ final class V1SmokeUITests: XCTestCase {
 
         let fixture = try await seedBackendRestoreContractFixture(baseURL: baseURL)
         let marker = "SAVE-CONFLICT-\(UUID().uuidString.uppercased())"
+        let expectedQueuedDraft = "\(fixture.expectedDraft)\n\n\(marker)"
         var app = launchApp(
             openStudio: true,
             screenplaySaveNetworkFaultMarker: marker,
@@ -2221,7 +2334,10 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(
             waitForRestoreSnapshot(in: app, timeout: 60) { snapshot in
                 queuedSnapshot = snapshot
-                return stringValue(snapshot["draft_tail_preview"]).contains(marker)
+                return stringValue(snapshot["selected_project_id"]).lowercased() == fixture.projectID.lowercased()
+                    && stringValue(snapshot["loaded_draft_project_id"]).lowercased() == fixture.projectID.lowercased()
+                    && (snapshot["draft_tail_preview"] as? String ?? "") == String(expectedQueuedDraft.suffix(260))
+                    && intValue(snapshot["draft_character_count"]) == expectedQueuedDraft.count
                     && intValue(snapshot["queued_draft_save_count"]) == 1
                     && intValue(snapshot["parked_draft_save_count"]) == 0
                     && boolValue(snapshot["has_unsaved_draft_changes"])
@@ -3418,39 +3534,53 @@ final class V1SmokeUITests: XCTestCase {
 #endif
 
     private func revealStudioPendingQuestion(in app: XCUIApplication) {
-        let card = element(identifier: "studio.pending-question", in: app)
+        revealStudioPartnerContent(identifier: "studio.pending-question", in: app)
+    }
+
+    private func revealStudioAppliedMemory(in app: XCUIApplication) {
+        revealStudioPartnerContent(identifier: "studio.story-obligation.current", in: app)
+    }
+
+    private func revealStudioPartnerContent(identifier: String, in app: XCUIApplication) {
+        let content = element(identifier: identifier, in: app)
         let deadline = Date().addingTimeInterval(8)
         let rightToggle = app.buttons["studio.sidebar.right.toggle"]
-        while Date() < deadline, !card.exists {
+        while Date() < deadline, !content.exists {
             if rightToggle.waitForExistence(timeout: 0.5),
-               rightToggle.isHittable,
-               rightToggle.label.localizedCaseInsensitiveContains("Open") {
+               rightToggle.label.localizedCaseInsensitiveContains("Open"),
+               rightToggle.isHittable {
                 rightToggle.tap()
             }
-            let themTab = app.buttons["io.them"]
-            if themTab.exists, themTab.isHittable, !themTab.isSelected {
+            // Opening the drawer may already reveal the selected panel.
+            // Do not request an unnecessary hit point on its selected tab.
+            if content.exists { return }
+            let themTab = app.buttons["studio.right-panel.them"]
+            if themTab.exists, !themTab.isSelected, themTab.isHittable {
                 themTab.tap()
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         }
     }
 
-    private func revealStudioAppliedMemory(in app: XCUIApplication) {
-        let memory = element(identifier: "studio.story-obligation.current", in: app)
-        let deadline = Date().addingTimeInterval(8)
-        let rightToggle = app.buttons["studio.sidebar.right.toggle"]
-        while Date() < deadline, !memory.exists {
-            if rightToggle.waitForExistence(timeout: 0.5),
-               rightToggle.isHittable,
-               rightToggle.label.localizedCaseInsensitiveContains("Open") {
-                rightToggle.tap()
-            }
-            let themTab = app.buttons["io.them"]
-            if themTab.exists, themTab.isHittable, !themTab.isSelected {
-                themTab.tap()
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+    private func dismissKeyboardTypingTutorialIfPresent(in app: XCUIApplication) -> Bool {
+#if os(iOS)
+        // Preserved 2fcdc772: identify this system tutorial, not any Continue action.
+        let tutorial = app.staticTexts.matching(NSPredicate(
+            format: "label BEGINSWITH %@", "Speed up your typing by sliding"
+        )).firstMatch
+        guard tutorial.waitForExistence(timeout: 0.5) else { return true }
+        let continueTyping = app.buttons["Continue"].firstMatch
+        guard continueTyping.exists, continueTyping.isHittable else {
+            XCTFail("The keyboard tutorial did not expose its Continue action.")
+            return false
         }
+        continueTyping.tap()
+        guard waitForDisappearance(of: tutorial, timeout: 5) else {
+            XCTFail("The keyboard tutorial still covers the Studio controls.")
+            return false
+        }
+#endif
+        return true
     }
 
     private func submitFocusedPrompt(in app: XCUIApplication, field: XCUIElement) {
@@ -3804,23 +3934,55 @@ final class V1SmokeUITests: XCTestCase {
         _ target: XCUIElement,
         drawer: XCUIElement,
         scrollingUp: Bool,
-        maxSwipes: Int
+        maxSwipes: Int,
+        fullyVisible: Bool = false,
+        requiresHittability: Bool = true
     ) -> Bool {
-        if target.exists, target.isHittable {
-            return true
+        func isVisible() -> Bool {
+            guard target.exists else { return false }
+            if requiresHittability, !target.isHittable { return false }
+            guard fullyVisible else { return true }
+            let frame = target.frame
+            let viewport = studioDrawerContentViewport(drawer)
+            return !frame.isEmpty && frame.minY >= viewport.minY + 8
+                && frame.maxY <= viewport.maxY - 24
         }
+        if isVisible() { return true }
         for _ in 0..<maxSwipes {
-            if target.exists, target.isHittable {
-                return true
-            }
-            if scrollingUp {
-                drawer.swipeUp()
+            if isVisible() { return true }
+            // Reuse T-992's bounded, target-relative gesture (6a57ff9).
+            // Full-height flings can skip a control on an SE and then keep
+            // scrolling away because the caller assumed a taller viewport.
+            let targetFrame = target.exists ? target.frame : .zero
+            let viewport = studioDrawerContentViewport(drawer)
+            let distance: CGFloat
+            if !targetFrame.isEmpty, targetFrame.minY < viewport.minY + 24 {
+                distance = targetFrame.minY - (viewport.minY + 24)
+            } else if !targetFrame.isEmpty, targetFrame.maxY > viewport.maxY - 24 {
+                distance = targetFrame.maxY - (viewport.maxY - 24)
             } else {
-                drawer.swipeDown()
+                distance = scrollingUp ? 160 : -160
             }
+            let limit = min(CGFloat(220), viewport.height * 0.4)
+            let anchor = drawer.coordinate(withNormalizedOffset: .zero).withOffset(
+                CGVector(dx: viewport.midX - drawer.frame.minX, dy: viewport.midY - drawer.frame.minY)
+            )
+            // A sub-10-point correction can remain a press rather than pan;
+            // the failed SE recording repeated the same 9.5-point gesture.
+            let travel = min(max(abs(distance), 44), limit) * (distance < 0 ? -1 : 1)
+            let end = anchor.withOffset(CGVector(dx: 0, dy: -travel))
+            anchor.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.12)
             RunLoop.current.run(until: Date().addingTimeInterval(0.12))
         }
-        return waitForHittability(of: target, timeout: 2)
+        return isVisible()
+    }
+
+    private func studioDrawerContentViewport(_ drawer: XCUIElement) -> CGRect {
+        let content = drawer.descendants(matching: .any)
+            .matching(identifier: "studio.sidebar.right.content-scroll").firstMatch
+        guard content.exists else { return drawer.frame }
+        let viewport = drawer.frame.intersection(content.frame)
+        return viewport.isNull || viewport.isEmpty ? drawer.frame : viewport
     }
 
     @discardableResult
@@ -3829,28 +3991,8 @@ final class V1SmokeUITests: XCTestCase {
         drawer: XCUIElement,
         maxSwipes: Int
     ) -> Bool {
-        func isFullyVisible() -> Bool {
-            target.exists &&
-                target.isHittable &&
-                target.frame.minY >= drawer.frame.minY + 8 &&
-                target.frame.maxY <= drawer.frame.maxY - 24
-        }
-
-        if isFullyVisible() {
-            return true
-        }
-        for _ in 0..<maxSwipes {
-            if target.exists, target.frame.minY < drawer.frame.minY + 8 {
-                drawer.swipeDown()
-            } else {
-                drawer.swipeUp()
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.12))
-            if isFullyVisible() {
-                return true
-            }
-        }
-        return isFullyVisible()
+        revealInStudioDrawer(target, drawer: drawer, scrollingUp: true,
+            maxSwipes: maxSwipes, fullyVisible: true)
     }
 
     @discardableResult
@@ -3859,28 +4001,8 @@ final class V1SmokeUITests: XCTestCase {
         drawer: XCUIElement,
         maxSwipes: Int
     ) -> Bool {
-        func isFullyVisible() -> Bool {
-            target.exists &&
-                !target.frame.isEmpty &&
-                target.frame.minY >= drawer.frame.minY + 8 &&
-                target.frame.maxY <= drawer.frame.maxY - 24
-        }
-
-        if isFullyVisible() {
-            return true
-        }
-        for _ in 0..<maxSwipes {
-            if target.exists, target.frame.minY < drawer.frame.minY + 8 {
-                drawer.swipeDown()
-            } else {
-                drawer.swipeUp()
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.12))
-            if isFullyVisible() {
-                return true
-            }
-        }
-        return isFullyVisible()
+        revealInStudioDrawer(target, drawer: drawer, scrollingUp: true,
+            maxSwipes: maxSwipes, fullyVisible: true, requiresHittability: false)
     }
 
     private func assertHorizontallyContained(

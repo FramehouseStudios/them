@@ -3889,7 +3889,7 @@ struct RootExperienceView: View {
             }
         )
         .id(studioAccountIdentityGeneration)
-        .ignoresSafeArea()
+        .ignoresSafeArea(.container)
     }
 
     private var onboardingOverlay: some View {
