@@ -8932,7 +8932,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         // dirty writer copy, even before its queued conflict has surfaced.
         if !dirty, let existing = localDraftRecoveryStore.dirtyOrdinarySnapshot(ownerUserId: ownerID, projectId: normalizedProjectId),
            !existing.draft.utf8.elementsEqual(draft.utf8) { return }
-        localDraftRecoveryStore.save(
+        let recoverySaved = localDraftRecoveryStore.save(
             ownerUserId: ownerID,
             projectId: normalizedProjectId,
             draft: draft,
@@ -8940,6 +8940,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
             dirty: dirty,
             savedAt: savedAt
         )
+        if dirty && !recoverySaved {
+            errorText = "This page could not be secured locally. Keep it open and export it or retry Save."
+        }
         let hasDifferentPreservedConflict = recoveryCandidate.map {
             $0.projectId == normalizedProjectId &&
                 $0.isPreservedConflict &&
