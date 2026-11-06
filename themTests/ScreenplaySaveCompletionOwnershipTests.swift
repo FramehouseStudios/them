@@ -394,6 +394,14 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
     }
 
     func testOlderAcknowledgementPreservesStoredRecoveryAndCurrentEdit() async throws {
+        try await verifyAcknowledgementPreservesDifferentRecovery(savedAt: Date().timeIntervalSince1970 + 1)
+    }
+
+    func testSaveAcknowledgementDoesNotTrustRecoveryClockOrdering() async throws {
+        try await verifyAcknowledgementPreservesDifferentRecovery(savedAt: 1)
+    }
+
+    private func verifyAcknowledgementPreservesDifferentRecovery(savedAt: TimeInterval) async throws {
         let fixture = try SaveCompletionFixture()
         defer { fixture.close() }
         fixture.select("a", draft: fixture.a, base: "a-base")
@@ -407,7 +415,7 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         _ = fixture.model.mirrorDraftIntoLiveBridgeIfOwned(current)
         fixture.store.save(ownerUserId: fixture.owner, projectId: "a", draft: stored,
                            baseVersionId: "a-base", dirty: true,
-                           savedAt: Date().timeIntervalSince1970 + 1)
+                           savedAt: savedAt)
         fixture.peer.releaseFirst(.success)
         try await fixture.waitForSave(save)
         let recovery = fixture.store.payloads(ownerUserId: fixture.owner)["a"]

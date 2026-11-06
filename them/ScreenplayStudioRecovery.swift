@@ -668,12 +668,10 @@ struct ScreenplayLocalDraftRecoveryStore {
         _ = persistPayloads(all, ownerUserId: ownerUserId)
     }
 
-    func holdsNewerUnsavedWork(ownerUserId: String, projectId: String, than time: TimeInterval, differingFrom draft: String) -> Bool {
+    func holdsDifferentUnsavedWork(ownerUserId: String, projectId: String, differingFrom draft: String) -> Bool {
         let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let stored = payloads(ownerUserId: ownerUserId)[project],
-              stored["dirty"] as? Bool == true,
-              let savedAt = stored["savedAt"] as? TimeInterval,
-              savedAt > time else { return false }
+              stored["dirty"] as? Bool == true else { return false }
         guard let storedDraft = stored["draft"] as? String else { return true }
         return !storedDraft.utf8.elementsEqual(draft.utf8)
     }

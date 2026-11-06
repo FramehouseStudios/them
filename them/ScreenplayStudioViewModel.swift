@@ -7993,7 +7993,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                         draft: fountainDraft,
                         baseVersionId: serverVersion.id,
                         dirty: hasUnsavedDraftChanges,
-                        completingSaveCapturedAt: request.createdAt
+                        isSaveCompletion: true
                     )
                     return completion(serverVersion.id, confirmed: confirmed)
                 }
@@ -8106,7 +8106,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 infoText = hasUnsavedDraftChanges ? infoText : "Your latest words are already saved."
                 persistLocalDraftRecovery(projectId: request.projectId, draft: fountainDraft,
                     baseVersionId: evidence.versionID, dirty: hasUnsavedDraftChanges,
-                    completingSaveCapturedAt: request.createdAt)
+                    isSaveCompletion: true)
                 return completion(evidence.versionID, confirmed: evidence)
             }
             if conflictDetected {
@@ -8286,7 +8286,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 draft: fountainDraft,
                 baseVersionId: latestVersionID,
                 dirty: hasUnsavedDraftChanges,
-                completingSaveCapturedAt: request.createdAt
+                isSaveCompletion: true
             )
             await recomputeRevision(for: fountainDraft, source: request.source, api: draftSaveAPI, isCurrent: ownsCompletion)
             guard ownsCompletion() else { return completion(nextVersionId, confirmed: confirmed) }
@@ -8905,14 +8905,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
         baseVersionId: String,
         dirty: Bool,
         savedAt: TimeInterval = Date().timeIntervalSince1970,
-        completingSaveCapturedAt: TimeInterval? = nil
+        isSaveCompletion: Bool = false
     ) {
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else { return }
         let ownerID = currentStudioAuthContext().userID
-        if let completingSaveCapturedAt,
-           localDraftRecoveryStore.holdsNewerUnsavedWork(ownerUserId: ownerID, projectId: normalizedProjectId,
-                                                          than: completingSaveCapturedAt, differingFrom: draft) {
+        if isSaveCompletion,
+           localDraftRecoveryStore.holdsDifferentUnsavedWork(ownerUserId: ownerID, projectId: normalizedProjectId,
+                                                             differingFrom: draft) {
             if dirty {
                 switch secureRecoveryCopy(ownerUserId: ownerID, projectId: normalizedProjectId,
                                           draft: draft, baseVersionId: baseVersionId, savedAt: savedAt) {
