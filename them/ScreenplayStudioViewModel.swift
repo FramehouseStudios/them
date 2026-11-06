@@ -8914,11 +8914,18 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return
         }
         let ownerID = currentStudioAuthContext().userID
-        // An unknown startup base cannot supersede the known base for the
-        // same exact retained words. Keep the existing copy unchanged.
+        // An unknown startup base cannot supersede a known-base writer copy.
         if dirty, baseVersionId.isEmpty,
            let existing = localDraftRecoveryStore.dirtyOrdinarySnapshot(ownerUserId: ownerID, projectId: normalizedProjectId),
-           !existing.baseVersionId.isEmpty, existing.draft.utf8.elementsEqual(draft.utf8) {
+           !existing.baseVersionId.isEmpty {
+            if !existing.draft.utf8.elementsEqual(draft.utf8) {
+                switch secureRecoveryCopy(ownerUserId: ownerID, projectId: normalizedProjectId,
+                                          draft: draft, baseVersionId: baseVersionId, savedAt: savedAt) {
+                case .secured: break
+                case .occupied, .unconfirmed:
+                    errorText = "This page could not be secured locally. Keep it open and export it or retry Save."
+                }
+            }
             return
         }
         // A clean server observation is not authority to replace a different
