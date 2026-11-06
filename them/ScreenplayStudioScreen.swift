@@ -9074,8 +9074,8 @@ Current draft version:
 
         return draftAlertBanner(
             title: recoveryAlreadyOnPage ? "Recovery copy matches page" : "Unsaved local draft found",
-            message: recoveryAlreadyOnPage
-                ? "This recovery copy matches the current page. Keep it or discard the copy."
+            message: vm.recoveryOriginIsUnverified(recovery) ? "This older copy has no verified server. Review its words before recovering or discarding it."
+                : recoveryAlreadyOnPage ? "This recovery copy matches the current page. Keep it or discard the copy."
                 : recovery.overflowSnapshot != nil
                     ? "A newer page was kept separately. Recover it or discard this copy and keep the current page."
                     : "Saved \(savedText). Recover it or discard this copy and keep the current page.",

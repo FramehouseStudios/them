@@ -2333,8 +2333,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
         guard case .current(let serverVersion) = ScreenplaySaveHeadPreflight.evaluate(project),
               let serverDraft = serverVersion.draft else { return held("unverified_server") }
+        guard !localDraftRecoveryStore.ordinaryOriginIsForeign(ownerUserId: owner.userID,
+            projectId: project.id, backend: backend) else { return held("foreign_recovery_origin") }
         guard let recovery = localDraftRecoveryStore.recoverySnapshot(
-            ownerUserId: owner.userID, projectId: project.id, serverDraft: serverDraft) else { return held("no_recovery_snapshot") }
+            ownerUserId: owner.userID, projectId: project.id, serverDraft: serverDraft,
+            retainUnscopedMatching: true, backend: backend, filterByBackend: true) else { return held("no_recovery_snapshot") }
         let matching = parked.filter { row in
             row.draft.utf8.elementsEqual(recovery.draft.utf8) &&
                 row.baseVersionId.utf8.elementsEqual(recovery.baseVersionId.utf8) &&
@@ -2563,7 +2566,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
         if !selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let ownerUserID = currentStudioAuthContext().userID
             let ordinary = localDraftRecoveryStore.payloads(ownerUserId: ownerUserID)[selectedProjectID]?["draft"] as? String
-            if let ordinary, ordinary.utf8.elementsEqual(fountainDraft.utf8) {
+            if let ordinary, ordinary.utf8.elementsEqual(fountainDraft.utf8),
+               !localDraftRecoveryStore.ordinaryOriginIsForeign(ownerUserId: ownerUserID,
+                   projectId: selectedProjectID, backend: currentRecoveryBackend(projectID: selectedProjectID)) {
                 localDraftRecoveryStore.clearOrdinaryDraft(ownerUserId: ownerUserID, projectId: selectedProjectID)
             }
             evaluateLocalDraftRecovery(
@@ -2743,7 +2748,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let dirty = metadata.blankProject == true
             ? !fountainDraft.isEmpty : !fountainDraft.utf8.elementsEqual(receipt.entry.draft.utf8)
         guard localDraftRecoveryStore.saveInitialProjectReceipt(ownerUserId: receipt.owner.userID, projectId: receipt.project.id,
-            draft: fountainDraft, baseVersionId: receipt.versionID, dirty: dirty) else { return false }
+            draft: fountainDraft, baseVersionId: receipt.versionID, dirty: dirty, backendOrigin: metadata.backendURL) else { return false }
         clearTransientProjectStateForSelectionChange(to: receipt.project.id)
         upsertProject(receipt.project)
         selectedProject = receipt.project
@@ -4930,6 +4935,16 @@ final class ScreenplayStudioViewModel: ObservableObject {
         candidate.isPreservedConflict ? .preservedConflict : .ordinary
     }
 
+    func recoveryOriginIsUnverified(_ candidate: LocalDraftRecoveryCandidate) -> Bool {
+        guard candidate.journalSnapshot == nil, candidate.overflowSnapshot == nil else { return false }
+        if candidate.isPreservedConflict {
+            return !localDraftRecoveryStore.preservedSelectionHasVerifiedOrigin(ownerUserId: candidate.owner.userID,
+                projectId: candidate.projectId, draft: candidate.draft, baseVersionId: candidate.baseVersionId,
+                savedAt: candidate.savedAt, backend: currentRecoveryBackend(projectID: candidate.projectId))
+        }
+        return localDraftRecoveryStore.payloads(ownerUserId: candidate.owner.userID)[candidate.projectId]?["ordinaryBackendOrigin"] == nil
+    }
+
     private func recoveryCandidateIsCurrent(_ candidate: LocalDraftRecoveryCandidate) -> Bool {
         guard authContextIsCurrent(candidate.owner),
               ScreenplayProjectScopedState.matches(candidate.projectId, selectedProjectId: selectedProjectID) else { return false }
@@ -4952,6 +4967,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     ownerUserID: candidate.owner.userID, projectID: candidate.projectId,
                     backendURL: backend, documentID: expected.documentID) else { return false }
             return current.recordID == expected.recordID && current.contentDigest == expected.contentDigest
+        }
+        let backend = currentRecoveryBackend(projectID: candidate.projectId)
+        if candidate.isPreservedConflict {
+            guard localDraftRecoveryStore.preservedSelectionIsVisible(ownerUserId: candidate.owner.userID,
+                projectId: candidate.projectId, draft: candidate.draft, baseVersionId: candidate.baseVersionId,
+                savedAt: candidate.savedAt, backend: backend) else { return false }
+        } else {
+            guard !localDraftRecoveryStore.ordinaryOriginIsForeign(ownerUserId: candidate.owner.userID,
+                projectId: candidate.projectId, backend: backend) else { return false }
         }
         return localDraftRecoveryStore.matchRecoverySlot(
             ownerUserId: candidate.owner.userID, projectId: candidate.projectId,
@@ -5024,13 +5048,22 @@ final class ScreenplayStudioViewModel: ObservableObject {
             case .missing: break
             }
         }
+        let backend = currentRecoveryBackend(projectID: projectID)
+        let ordinaryIsForeign = localDraftRecoveryStore.ordinaryOriginIsForeign(ownerUserId: owner.userID,
+            projectId: projectID, backend: backend)
+        if ordinaryIsForeign || localDraftRecoveryStore.hasForeignPreservedCopies(ownerUserId: owner.userID, projectId: projectID, backend: backend) {
+            errorText = "A recovery copy belongs to another server and has been kept. Reopen that server to review it."
+        }
         guard let payload = localDraftRecoveryStore.payloads(ownerUserId: owner.userID)[projectID] else { return }
         for slot in [ScreenplayLocalDraftRecoverySlot.preservedConflict, .ordinary] where slot != excluded {
             let item: [String: Any]?
             switch slot {
-            case .ordinary: item = payload
+            case .ordinary: item = ordinaryIsForeign ? nil : payload
             case .preservedConflict:
-                if let snapshot = localDraftRecoveryStore.currentPreservedConflict(ownerUserId: owner.userID, projectId: projectID) {
+                if let snapshot = localDraftRecoveryStore.currentPreservedConflict(ownerUserId: owner.userID, projectId: projectID,
+                    backend: backend, filterByBackend: true),
+                   localDraftRecoveryStore.activatePreservedConflict(ownerUserId: owner.userID, projectId: projectID,
+                    draft: snapshot.draft, baseVersionId: snapshot.baseVersionId, savedAt: snapshot.savedAt, backend: backend) {
                     item = ["draft": snapshot.draft, "baseVersionId": snapshot.baseVersionId,
                             "savedAt": snapshot.savedAt, "dirty": true]
                 } else { item = nil }
@@ -5051,16 +5084,17 @@ final class ScreenplayStudioViewModel: ObservableObject {
         guard let candidate = recoveryCandidate, candidate.isPreservedConflict,
               candidate.overflowSnapshot == nil, candidate.journalSnapshot == nil, recoveryCandidateIsCurrent(candidate) else { return false }
         return localDraftRecoveryStore.hasMultiplePreservedConflicts(ownerUserId: candidate.owner.userID,
-                                                                     projectId: candidate.projectId)
+            projectId: candidate.projectId, backend: currentRecoveryBackend(projectID: candidate.projectId), filterByBackend: true)
     }
 
     func reviewNextRecoveryCopy() {
         guard let candidate = recoveryCandidate, canReviewNextRecoveryCopy,
               localDraftRecoveryStore.advancePreservedConflict(ownerUserId: candidate.owner.userID,
                 projectId: candidate.projectId, draft: candidate.draft,
-                baseVersionId: candidate.baseVersionId, savedAt: candidate.savedAt),
+                baseVersionId: candidate.baseVersionId, savedAt: candidate.savedAt,
+                backend: currentRecoveryBackend(projectID: candidate.projectId), filterByBackend: true),
               let next = localDraftRecoveryStore.currentPreservedConflict(ownerUserId: candidate.owner.userID,
-                                                                            projectId: candidate.projectId) else {
+                projectId: candidate.projectId, backend: currentRecoveryBackend(projectID: candidate.projectId), filterByBackend: true) else {
             errorText = "The recovery copies changed or could not be confirmed. Your stored work was kept."
             return
         }
@@ -5102,6 +5136,19 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
         let currentIsDirty = hasUnsavedDraftChanges || draftHasUnsavedExactChanges(fountainDraft)
         if currentIsDirty && !fountainDraft.utf8.elementsEqual(candidate.draft.utf8) {
+            // A page the writer just reviewed can need a new scoped copy
+            // before switching. Do not show that newly created duplicate as
+            // another unreviewed decision, but keep its bytes on disk.
+            let currentWasReviewed = recoveryReviewOwner == candidate.owner && recoveryReviewProjectID == candidate.projectId &&
+                reviewedRecoveryCopies.contains { $0.draft == Data(fountainDraft.utf8) }
+            let backend = currentRecoveryBackend(projectID: candidate.projectId)
+            let before: Set<String>? = if currentWasReviewed, let backend,
+                case let .present(records) = overflowRecoveryStore.journalCopies(ownerUserID: candidate.owner.userID,
+                    projectID: candidate.projectId, backendURL: backend) {
+                Set(records.map(\.recordID))
+            } else if currentWasReviewed, let backend,
+                case .missing = overflowRecoveryStore.journalCopies(ownerUserID: candidate.owner.userID,
+                    projectID: candidate.projectId, backendURL: backend) { [] } else { nil }
             let preserved = secureRecoveryCopy(
                 ownerUserId: candidate.owner.userID, projectId: candidate.projectId,
                 draft: fountainDraft, baseVersionId: latestVersionID)
@@ -5111,13 +5158,24 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 errorText = "The current page could not be kept alongside the recovery copy. Export it before replacing it."
                 return
             }
+            if let before, let backend,
+               case let .present(records) = overflowRecoveryStore.journalCopies(ownerUserID: candidate.owner.userID,
+                   projectID: candidate.projectId, backendURL: backend) {
+                for snapshot in records where !before.contains(snapshot.recordID) &&
+                    snapshot.draft.utf8.elementsEqual(fountainDraft.utf8) && snapshot.baseVersionID.utf8.elementsEqual(latestVersionID.utf8) {
+                    let duplicate = LocalDraftRecoveryCandidate(owner: candidate.owner, projectId: candidate.projectId,
+                        draft: snapshot.draft, baseVersionId: snapshot.baseVersionID, savedAt: snapshot.savedAt,
+                        isPreservedConflict: false, journalSnapshot: snapshot)
+                    reviewedRecoveryCopies.insert(recoveryReviewIdentity(duplicate))
+                }
+            }
         }
         isHydratingDraft = true
         fountainDraft = candidate.draft
         isHydratingDraft = false
         // An unknown base remains unknown; adopting the displayed server base
         // would give recovered words authority they have not established.
-        latestVersionID = candidate.journalSnapshot == nil ? candidate.baseVersionId : ""
+        latestVersionID = candidate.journalSnapshot == nil && !recoveryOriginIsUnverified(candidate) ? candidate.baseVersionId : ""
         loadedDraftProjectID = candidate.projectId
         isManualDraftEditing = true
         lastManualDraftEditAt = Date()
@@ -5275,8 +5333,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 selectedPage: page, saveFlightChanged: draftSaveFlightGeneration != flightGeneration,
                 ownerUserID: owner.userID, projectID: project
             ) { return }
-            localDraftRecoveryStore.clearMatchingRecovery(ownerUserId: owner.userID, projectId: project,
-                draft: root.draft, baseVersionId: root.baseVersionId)
+            _ = localDraftRecoveryStore.clearMatchingRecoveryIfOriginSafe(ownerUserId: owner.userID, projectId: project,
+                draft: root.draft, baseVersionId: root.baseVersionId, backend: currentRecoveryBackend(projectID: project))
             selectedProject = detail
             upsertProject(detail)
             applyServerDraft(serverDraft, versionId: version.id, allowOverwriteDirtyLocalDraft: true)
@@ -5454,7 +5512,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
         guard !fountainDraft.utf8.elementsEqual(selectedPage.utf8) else { return false }
         let stored = localDraftRecoveryStore.saveIfOrdinaryVacantOrMatching(
-            ownerUserId: ownerUserID, projectId: projectID, draft: fountainDraft, baseVersionId: latestVersionID)
+            ownerUserId: ownerUserID, projectId: projectID, draft: fountainDraft, baseVersionId: latestVersionID,
+            backendOrigin: currentRecoveryBackend(projectID: projectID))
         hasUnsavedDraftChanges = true
         conflictState = nil
         autosaveStatusText = "Unsaved changes"
@@ -7956,7 +8015,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             // distinct recovery copy already stored for this project.
             _ = localDraftRecoveryStore.saveIfOrdinaryVacantOrMatching(
                 ownerUserId: request.ownerUserId, projectId: request.projectId,
-                draft: fountainDraft, baseVersionId: recoveryBase)
+                draft: fountainDraft, baseVersionId: recoveryBase, backendOrigin: request.deliveryOrigin?.backendURL)
             autosaveStatusText = "Save needs attention"
             infoText = "Your page is still open but may not survive closing THEM. Export it or try Save again."
             errorText = "The local save queue could not be secured: \(error.localizedDescription)"
@@ -8481,8 +8540,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
               keptBase.utf8.elementsEqual(request.baseVersionId.utf8),
               keptDraft.utf8.elementsEqual(request.draft.utf8) else { return }
         // Only exact acknowledged words have authority to advance this slot.
-        localDraftRecoveryStore.save(ownerUserId: request.ownerUserId, projectId: request.projectId,
-            draft: keptDraft, baseVersionId: versionID, dirty: false)
+        // A legacy slot with unknown origin remains untouched; retain the
+        // acknowledged identity in a separate scoped copy instead.
+        let saved = localDraftRecoveryStore.save(ownerUserId: request.ownerUserId, projectId: request.projectId,
+            draft: keptDraft, baseVersionId: versionID, dirty: false, backendOrigin: request.deliveryOrigin?.backendURL)
+        if !saved, authContextIsCurrent(request.authContext), let origin = request.deliveryOrigin {
+            _ = overflowRecoveryStore.appendJournalCopy(ownerUserID: request.ownerUserId, projectID: request.projectId,
+                backendURL: origin.backendURL, documentID: origin.documentID, draft: keptDraft, baseVersionID: versionID)
+        }
     }
 
     private func emptyBaseDraftSavePreflight(
@@ -8914,12 +8979,24 @@ final class ScreenplayStudioViewModel: ObservableObject {
         case .missing: break
         }
         }
+        let backend = currentRecoveryBackend(projectID: normalizedProjectId)
+        if localDraftRecoveryStore.ordinaryOriginIsForeign(ownerUserId: owner.userID, projectId: normalizedProjectId, backend: backend) ||
+            localDraftRecoveryStore.hasForeignPreservedCopies(ownerUserId: owner.userID, projectId: normalizedProjectId, backend: backend) {
+            errorText = "A recovery copy belongs to another server and has been kept. Reopen that server to review it."
+        }
         guard let snapshot = localDraftRecoveryStore.recoverySnapshot(
             ownerUserId: owner.userID,
             projectId: normalizedProjectId,
-            serverDraft: serverDraft
+            serverDraft: serverDraft,
+            retainUnscopedMatching: true, backend: backend, filterByBackend: true
         ) else {
             recoveryCandidate = nil
+            return
+        }
+        if snapshot.isPreservedConflict && !localDraftRecoveryStore.activatePreservedConflict(ownerUserId: owner.userID,
+            projectId: normalizedProjectId, draft: snapshot.draft, baseVersionId: snapshot.baseVersionId,
+            savedAt: snapshot.savedAt, backend: backend) {
+            errorText = "Recovery copies changed or could not be confirmed. Your stored work was kept."
             return
         }
         let candidate = LocalDraftRecoveryCandidate(
@@ -8949,9 +9026,16 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return secureJournalCopy(ownerUserId: ownerUserId, projectId: projectId,
                 draft: draft, baseVersionId: baseVersionId, scope: active.origin, mayAdvanceEdit: true)
         }
+        if localDraftRecoveryStore.ordinaryOriginIsForeign(ownerUserId: ownerUserId, projectId: projectId,
+            backend: currentRecoveryBackend(projectID: projectId)) {
+            guard let scope = origin ?? currentRecoveryOrigin(projectID: projectId) else { return .unconfirmed }
+            return secureJournalCopy(ownerUserId: ownerUserId, projectId: projectId, draft: draft,
+                baseVersionId: baseVersionId, scope: scope, mayAdvanceEdit: allowJournalFastPath)
+        }
         let result = localDraftRecoveryStore.saveInVacantRecoverySlot(ownerUserId: ownerUserId,
             projectId: projectId, draft: draft, baseVersionId: baseVersionId, savedAt: savedAt,
-            preferPreservedConflict: preferPreservedConflict)
+            preferPreservedConflict: preferPreservedConflict,
+            backendOrigin: origin?.backendURL ?? currentRecoveryBackend(projectID: projectId))
         switch result {
         case .present, .stored: return .secured
         case .unconfirmed:
@@ -9076,7 +9160,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
             draft: draft,
             baseVersionId: baseVersionId,
             dirty: dirty,
-            savedAt: savedAt
+            savedAt: savedAt,
+            backendOrigin: currentRecoveryBackend(projectID: normalizedProjectId)
         )
         if dirty && !recoverySaved {
             let fallback = currentRecoveryOrigin(projectID: normalizedProjectId).map { scope in
@@ -9134,13 +9219,30 @@ final class ScreenplayStudioViewModel: ObservableObject {
             }
             return selectedRecovery
         }
-        let candidate = LocalDraftRecoveryCandidate(
+        var candidate = LocalDraftRecoveryCandidate(
             owner: currentStudioAuthContext(), projectId: normalizedProjectId,
             draft: draft,
             baseVersionId: baseVersionId,
             savedAt: savedAt,
             isPreservedConflict: false
         )
+        if !recoveryCandidateIsCurrent(candidate),
+           let backend = currentRecoveryBackend(projectID: normalizedProjectId) {
+            let result = overflowRecoveryStore.journalCopies(ownerUserID: candidate.owner.userID,
+                projectID: normalizedProjectId, backendURL: backend)
+            let copies: [ScreenplayRecoveryOverflowSnapshot]
+            switch result {
+            case .present(let records), .incomplete(let records): copies = records
+            case .missing, .unconfirmed: copies = []
+            }
+            if let snapshot = copies.last(where: {
+                $0.draft.utf8.elementsEqual(draft.utf8) && $0.baseVersionID.utf8.elementsEqual(baseVersionId.utf8)
+            }) {
+                candidate = LocalDraftRecoveryCandidate(owner: candidate.owner, projectId: normalizedProjectId,
+                    draft: snapshot.draft, baseVersionId: snapshot.baseVersionID, savedAt: snapshot.savedAt,
+                    isPreservedConflict: false, journalSnapshot: snapshot)
+            }
+        }
         guard recoveryCandidateIsCurrent(candidate) else {
             infoText = "This page could not be secured locally. Keep it open and export it or retry Save."
             return nil
@@ -9154,6 +9256,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private func clearLocalDraftRecovery(projectId: String) {
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else { return }
+        let owner = currentStudioAuthContext().userID
+        let backend = currentRecoveryBackend(projectID: normalizedProjectId)
+        guard localDraftRecoveryStore.canAutomaticallyRetireRecovery(ownerUserId: owner,
+            projectId: normalizedProjectId, backend: backend) else { return }
         localDraftRecoveryStore.clear(
             ownerUserId: currentStudioAuthContext().userID,
             projectId: normalizedProjectId
