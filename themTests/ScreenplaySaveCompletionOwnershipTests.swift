@@ -475,6 +475,32 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         XCTAssertEqual(fixture.model.recoveryCandidate?.draft, external)
     }
 
+    func testOfflineSaveRecognizesSeparateSecuredNewerPageWithoutPromisingRetry() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base")
+        let save = fixture.startSave()
+        defer { save.cancel() }
+        try await fixture.waitForFirstSave()
+        let other = fixture.a + "\nAnother stored copy."
+        fixture.store.save(ownerUserId: fixture.owner, projectId: "a", draft: other,
+                           baseVersionId: "a-base", dirty: true, savedAt: 1)
+        let latest = fixture.a + "\nThe current newer page."
+        fixture.model.fountainDraft = latest
+        fixture.model.noteManualDraftEdit()
+        let prior = fixture.store.payloads(ownerUserId: fixture.owner)["a"]
+        XCTAssertEqual((prior?["preservedConflict"] as? [String: Any])?["draft"] as? String, latest)
+        fixture.peer.releaseFirst(.offline)
+        try await fixture.waitForSave(save)
+        XCTAssertEqual(fixture.model.fountainDraft, latest)
+        XCTAssertFalse(fixture.model.infoText.localizedCaseInsensitiveContains("could not be secured"))
+        XCTAssertFalse(fixture.model.infoText.localizedCaseInsensitiveContains("will save when"))
+        XCTAssertTrue(fixture.model.infoText.localizedCaseInsensitiveContains("save"))
+        let queued = try await fixture.reloadQueueEntries()
+        XCTAssertEqual(queued.count, 1)
+        XCTAssertEqual(queued.first?.draft, fixture.a, "The newer current page is not in this queued request.")
+    }
+
     func testOfflineSaveDoesNotClaimNewerUnsecuredWordsAreSafe() async throws {
         let fixture = try SaveCompletionFixture()
         defer { fixture.close() }

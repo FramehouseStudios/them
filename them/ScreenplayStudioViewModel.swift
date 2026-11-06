@@ -8334,10 +8334,20 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 draft: currentDraft,
                 baseVersionId: request.baseVersionId
             )
-            let recoveryMatches = recovery.map {
+            var recoveryMatches = recovery.map {
                 $0.draft.utf8.elementsEqual(currentDraft.utf8) &&
                     $0.baseVersionId.utf8.elementsEqual(request.baseVersionId.utf8)
             } ?? false
+            if !recoveryMatches {
+                recoveryMatches = localDraftRecoveryStore.hasExactDirtyRecovery(ownerUserId: request.ownerUserId,
+                    projectId: request.projectId, draft: currentDraft, baseVersionId: request.baseVersionId)
+            }
+            if !recoveryMatches, let origin = currentRecoveryOrigin(projectID: request.projectId),
+               case let .present(snapshot) = overflowRecoveryStore.load(ownerUserID: request.ownerUserId,
+                    projectID: request.projectId, backendURL: origin.backendURL, documentID: origin.documentID) {
+                recoveryMatches = snapshot.draft.utf8.elementsEqual(currentDraft.utf8) &&
+                    snapshot.baseVersionID.utf8.elementsEqual(request.baseVersionId.utf8)
+            }
             let requestMatches = request.draft.utf8.elementsEqual(currentDraft.utf8)
             let requestIsDurable: Bool
             if requestMatches {
@@ -8353,7 +8363,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 await refreshDraftSaveOutboxStatus()
                 return nil
             }
-            if retryable {
+            if retryable && !requestIsDurable {
+                autosaveStatusText = "Unsaved changes"
+                infoText = "Your newer words are kept locally. Save them after reconnecting."
+                errorText = ""
+            } else if retryable {
                 autosaveStatusText = receiptUnconfirmed ? "Save confirmation pending" : "Queued locally - reconnecting"
                 infoText = receiptUnconfirmed
                     ? "The server response could not confirm your saved words. Your local draft is safe; any retry uses the same request."
