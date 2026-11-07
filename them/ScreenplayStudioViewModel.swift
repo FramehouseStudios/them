@@ -2509,13 +2509,61 @@ final class ScreenplayStudioViewModel: ObservableObject {
             baseVersionId: latestVersionID, preferPreservedConflict: true)
         switch result {
         case .secured:
-            // Prefer the exact page being displaced; retain any earlier copy on disk.
+            // Select the exact displaced page, even when older journal copies exist.
             let previous = recoveryCandidate
-            if previous.map({ !$0.draft.utf8.elementsEqual(text.utf8) }) ?? true {
-                surfaceRemainingRecovery(owner: owner, projectID: cleanProjectID)
-                if let previous, recoveryCandidate.map({ !$0.draft.utf8.elementsEqual(text.utf8) }) ?? true {
-                    recoveryCandidate = previous
+            if let backend = currentRecoveryBackend(projectID: cleanProjectID) {
+                let result = overflowRecoveryStore.journalCopies(ownerUserID: owner.userID,
+                    projectID: cleanProjectID, backendURL: backend)
+                let copies: [ScreenplayRecoveryOverflowSnapshot]
+                switch result {
+                case .present(let records): copies = records
+                case .incomplete(let records):
+                    copies = records
+                    errorText = "A recovery file could not be read and was kept. Review available copies and export your page."
+                case .missing, .unconfirmed: copies = []
                 }
+                if let exact = copies.last(where: {
+                    $0.draft.utf8.elementsEqual(text.utf8) && $0.baseVersionID.utf8.elementsEqual(latestVersionID.utf8)
+                }) {
+                    recoveryCandidate = LocalDraftRecoveryCandidate(owner: owner, projectId: cleanProjectID,
+                        draft: exact.draft, baseVersionId: exact.baseVersionID, savedAt: exact.savedAt,
+                        isPreservedConflict: false, journalSnapshot: exact)
+                }
+            }
+            func selectionMatches() -> Bool {
+                guard let candidate = recoveryCandidate else { return false }
+                return candidate.draft.utf8.elementsEqual(text.utf8) &&
+                    candidate.baseVersionId.utf8.elementsEqual(latestVersionID.utf8) && recoveryCandidateIsCurrent(candidate)
+            }
+            let backend = currentRecoveryBackend(projectID: cleanProjectID)
+            if !selectionMatches(), let scope = currentRecoveryOrigin(projectID: cleanProjectID),
+               case let .present(copy) = overflowRecoveryStore.load(ownerUserID: owner.userID, projectID: cleanProjectID,
+                    backendURL: scope.backendURL, documentID: scope.documentID),
+               copy.draft.utf8.elementsEqual(text.utf8), copy.baseVersionID.utf8.elementsEqual(latestVersionID.utf8) {
+                recoveryCandidate = LocalDraftRecoveryCandidate(owner: owner, projectId: cleanProjectID,
+                    draft: copy.draft, baseVersionId: copy.baseVersionID, savedAt: copy.savedAt,
+                    isPreservedConflict: false, overflowSnapshot: copy)
+            }
+            if !selectionMatches(), let copy = localDraftRecoveryStore.exactPreservedConflict(ownerUserId: owner.userID,
+                projectId: cleanProjectID, draft: text, baseVersionId: latestVersionID, backend: backend),
+               localDraftRecoveryStore.activatePreservedConflict(ownerUserId: owner.userID, projectId: cleanProjectID,
+                    draft: copy.draft, baseVersionId: copy.baseVersionId, savedAt: copy.savedAt, backend: backend) {
+                recoveryCandidate = LocalDraftRecoveryCandidate(owner: owner, projectId: cleanProjectID,
+                    draft: copy.draft, baseVersionId: copy.baseVersionId, savedAt: copy.savedAt, isPreservedConflict: true)
+            }
+            if !selectionMatches(), !localDraftRecoveryStore.ordinaryOriginIsForeign(ownerUserId: owner.userID,
+                projectId: cleanProjectID, backend: backend),
+               let copy = localDraftRecoveryStore.dirtyOrdinarySnapshot(ownerUserId: owner.userID, projectId: cleanProjectID),
+               copy.draft.utf8.elementsEqual(text.utf8), copy.baseVersionId.utf8.elementsEqual(latestVersionID.utf8) {
+                recoveryCandidate = LocalDraftRecoveryCandidate(owner: owner, projectId: cleanProjectID,
+                    draft: copy.draft, baseVersionId: copy.baseVersionId, savedAt: copy.savedAt, isPreservedConflict: false)
+            }
+            guard let selected = recoveryCandidate, selected.draft.utf8.elementsEqual(text.utf8),
+                  selected.baseVersionId.utf8.elementsEqual(latestVersionID.utf8), recoveryCandidateIsCurrent(selected) else {
+                recoveryCandidate = previous
+                autosaveStatusText = "Live sync paused"
+                errorText = "The exact local recovery copy could not be confirmed. Keep this page open and export it or retry Save."
+                return false
             }
             autosaveStatusText = "Local draft protected"
             infoText = "Your unsaved local draft is preserved while live sync loads the other device's text. Recover it or keep the server draft."

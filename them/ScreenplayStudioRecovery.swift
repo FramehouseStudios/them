@@ -376,6 +376,22 @@ struct ScreenplayLocalDraftRecoveryStore {
         return OfflineTalkRecoveryScope.sameBackend(recorded, backend)
     }
 
+    /// Locate one byte-exact visible copy without changing the stored queue.
+    func exactPreservedConflict(ownerUserId: String, projectId: String, draft: String,
+                                baseVersionId: String, backend: URL?) -> ScreenplayLocalDraftRecoverySnapshot? {
+        let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let payload = payloads(ownerUserId: ownerUserId)[project],
+              storedRecoverySlot(.preservedConflict, in: payload).candidate != nil else { return nil }
+        let matches = preservedConflicts(in: payload).filter {
+            exactRecoveryCandidate($0, draft: draft, baseVersionId: baseVersionId)
+        }
+        guard matches.count == 1, let copy = matches.first,
+              preservedOriginIsVisible(copy["backendOrigin"], backend: backend, filterByBackend: true),
+              let savedAt = copy["savedAt"] as? TimeInterval else { return nil }
+        return ScreenplayLocalDraftRecoverySnapshot(projectId: project, draft: draft,
+            baseVersionId: baseVersionId, savedAt: savedAt, isPreservedConflict: true)
+    }
+
     func preservedSelectionIsVisible(ownerUserId: String, projectId: String, draft: String,
                                      baseVersionId: String, savedAt: TimeInterval, backend: URL?) -> Bool {
         guard let payload = payloads(ownerUserId: ownerUserId)[projectId] else { return false }
