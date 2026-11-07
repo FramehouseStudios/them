@@ -7967,6 +7967,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                         return completion(serverVersion.id, confirmed: confirmed)
                     }
                     latestVersionID = serverVersion.id
+                    syncLiveDraftBridgeProjectContext()
                     lastSavedDraftFingerprint = fingerprint(for: request.draft)
                     lastSavedDraftExact = (request.ownerUserId, request.projectId, request.draft)
                     lastRevisionBaseDraft = request.draft
@@ -8085,6 +8086,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     return completion(evidence.versionID, confirmed: evidence)
                 }
                 latestVersionID = evidence.versionID
+                syncLiveDraftBridgeProjectContext()
                 lastSavedDraftFingerprint = fingerprint(for: request.draft)
                 lastSavedDraftExact = (request.ownerUserId, request.projectId, request.draft)
                 lastRevisionBaseDraft = request.draft
