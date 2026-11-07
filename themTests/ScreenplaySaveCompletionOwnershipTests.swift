@@ -460,6 +460,75 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         XCTAssertEqual(Data(stillHeld.draft.utf8), Data(continued.utf8))
     }
 
+    func testOlderAcknowledgementPreservesStoredRecoveryAndCurrentEdit() async throws {
+        try await verifyAcknowledgementPreservesDifferentRecovery(savedAt: Date().timeIntervalSince1970 + 1)
+    }
+
+    func testSaveAcknowledgementDoesNotTrustRecoveryClockOrdering() async throws {
+        try await verifyAcknowledgementPreservesDifferentRecovery(savedAt: 1)
+    }
+
+    private func verifyAcknowledgementPreservesDifferentRecovery(savedAt: TimeInterval) async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base")
+        let save = fixture.startSave()
+        defer { save.cancel() }
+        try await fixture.waitForFirstSave()
+        let stored = fixture.a + "\nStored newer recovery."
+        let current = fixture.a + "\nA different current edit."
+        fixture.model.fountainDraft = current
+        fixture.model.noteManualDraftEdit()
+        _ = fixture.model.mirrorDraftIntoLiveBridgeIfOwned(current)
+        fixture.store.save(ownerUserId: fixture.owner, projectId: "a", draft: stored,
+                           baseVersionId: "a-base", dirty: true,
+                           savedAt: savedAt)
+        fixture.peer.releaseFirst(.success)
+        try await fixture.waitForSave(save)
+        let recovery = fixture.store.payloads(ownerUserId: fixture.owner)["a"]
+        let preserved = recovery?["preservedConflict"] as? [String: Any]
+        XCTAssertEqual((recovery?["draft"] as? String).map { Data($0.utf8) }, Data(stored.utf8),
+                       "An older acknowledgement must not replace another newer recovery copy.")
+        XCTAssertEqual((preserved?["draft"] as? String).map { Data($0.utf8) }, Data(current.utf8),
+                       "The currently visible newer edit must also be durably retained.")
+        XCTAssertTrue(fixture.model.hasUnsavedDraftChanges)
+        XCTAssertEqual(fixture.model.recoveryCandidate?.draft, stored,
+                       "The other recovery copy must be visible and protected before typing continues.")
+        let continued = current + "\nMore words after the acknowledgement."
+        fixture.model.fountainDraft = continued
+        fixture.model.noteManualDraftEdit()
+        let afterTyping = fixture.store.payloads(ownerUserId: fixture.owner)["a"]
+        XCTAssertEqual((afterTyping?["draft"] as? String).map { Data($0.utf8) }, Data(stored.utf8),
+                       "Continued typing must not overwrite the other recovery copy.")
+        XCTAssertEqual((afterTyping?["preservedConflict"] as? [String: Any])?["draft"] as? String, current)
+        let origin = try fixture.currentOrigin()
+        guard case let .present(overflow) = fixture.overflow.load(ownerUserID: fixture.owner, projectID: "a",
+            backendURL: origin.backendURL, documentID: origin.documentID) else {
+            return XCTFail("The continued edit must be held in the scoped overflow copy.")
+        }
+        XCTAssertEqual(Data(overflow.draft.utf8), Data(continued.utf8))
+        let unsheltered = continued + "\nAnother edit when recovery is full."
+        fixture.model.fountainDraft = unsheltered
+        fixture.model.noteManualDraftEdit()
+        XCTAssertEqual(fixture.model.fountainDraft, unsheltered)
+        let reopened = ScreenplayRecoveryOverflowStore(rootDirectory: fixture.overflowDirectory)
+        guard case let .present(journal) = reopened.journalCopies(ownerUserID: fixture.owner, projectID: "a",
+                                                                  backendURL: origin.backendURL) else {
+            return XCTFail("The newer page must remain readable in the separate journal.")
+        }
+        XCTAssertTrue(journal.contains { Data($0.draft.utf8) == Data(unsheltered.utf8) })
+        XCTAssertFalse(fixture.model.infoText.localizedCaseInsensitiveContains("will save when"),
+                       "A locally retained newer page must not be promised an automatic retry.")
+        let afterFull = fixture.store.payloads(ownerUserId: fixture.owner)["a"]
+        XCTAssertEqual(afterFull?["draft"] as? String, stored)
+        XCTAssertEqual((afterFull?["preservedConflict"] as? [String: Any])?["draft"] as? String, current)
+        guard case let .present(stillHeld) = fixture.overflow.load(ownerUserID: fixture.owner, projectID: "a",
+            backendURL: origin.backendURL, documentID: origin.documentID) else {
+            return XCTFail("The occupied overflow copy must remain readable.")
+        }
+        XCTAssertEqual(Data(stillHeld.draft.utf8), Data(continued.utf8))
+    }
+
     func testFullSlotsJournalLatestEditForModelRecreation() throws {
         let fixture = try SaveCompletionFixture()
         defer { fixture.close() }
@@ -504,6 +573,190 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         let recovery = fixture.store.payloads(ownerUserId: fixture.owner)["a"]
         XCTAssertEqual(recovery?["draft"] as? String, fixture.a)
         XCTAssertEqual(recovery?["baseVersionId"] as? String, "a-base")
+    }
+
+    func testManualTypingProtectsDifferentUnsurfacedRecoveryCopy() throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base", scopedRecovery: true)
+        let firstEdit = fixture.a + "\nA first edit."
+        fixture.model.fountainDraft = firstEdit
+        fixture.model.noteManualDraftEdit()
+        let external = fixture.a + "\nA different stored recovery."
+        fixture.store.save(ownerUserId: fixture.owner, projectId: "a", draft: external,
+                           baseVersionId: "a-base", dirty: true, savedAt: 1, backendOrigin: try fixture.currentOrigin().backendURL)
+        let secondEdit = firstEdit + "\nAnother edit."
+        fixture.model.fountainDraft = secondEdit
+        fixture.model.noteManualDraftEdit()
+        let recovery = fixture.store.payloads(ownerUserId: fixture.owner)["a"]
+        XCTAssertEqual(recovery?["draft"] as? String, external)
+        XCTAssertEqual((recovery?["preservedConflict"] as? [String: Any])?["draft"] as? String, secondEdit)
+        XCTAssertEqual(fixture.model.recoveryCandidate?.draft, external)
+    }
+
+    func testParkedSaveDoesNotPromiseAutomaticRetry() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base")
+        let save = fixture.startSave()
+        defer { save.cancel() }
+        try await fixture.waitForFirstSave()
+        let rows = try await fixture.queue.entriesForTesting()
+        let id = try XCTUnwrap(rows.first?.id)
+        for _ in 0..<5 { try await fixture.queue.markRetryable(id: id, error: "offline") }
+        fixture.peer.releaseFirst(.offline)
+        try await fixture.waitForSave(save)
+        let parked = try await fixture.reloadQueueEntries()
+        XCTAssertEqual(parked.first?.status, .parked)
+        XCTAssertFalse(fixture.model.infoText.localizedCaseInsensitiveContains("will save when"))
+        XCTAssertFalse(fixture.model.autosaveStatusText.localizedCaseInsensitiveContains("reconnecting"))
+        XCTAssertTrue(fixture.model.infoText.localizedCaseInsensitiveContains("review"))
+    }
+
+    func testOfflineSaveRecognizesSeparateSecuredNewerPageWithoutPromisingRetry() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base")
+        let save = fixture.startSave()
+        defer { save.cancel() }
+        try await fixture.waitForFirstSave()
+        let other = fixture.a + "\nAnother stored copy."
+        fixture.store.save(ownerUserId: fixture.owner, projectId: "a", draft: other,
+                           baseVersionId: "a-base", dirty: true, savedAt: 1)
+        let latest = fixture.a + "\nThe current newer page."
+        fixture.model.fountainDraft = latest
+        fixture.model.noteManualDraftEdit()
+        let prior = fixture.store.payloads(ownerUserId: fixture.owner)["a"]
+        XCTAssertEqual((prior?["preservedConflict"] as? [String: Any])?["draft"] as? String, latest)
+        fixture.peer.releaseFirst(.offline)
+        try await fixture.waitForSave(save)
+        XCTAssertEqual(fixture.model.fountainDraft, latest)
+        XCTAssertFalse(fixture.model.infoText.localizedCaseInsensitiveContains("could not be secured"))
+        XCTAssertFalse(fixture.model.infoText.localizedCaseInsensitiveContains("will save when"))
+        XCTAssertTrue(fixture.model.infoText.localizedCaseInsensitiveContains("save"))
+        let queued = try await fixture.reloadQueueEntries()
+        XCTAssertEqual(queued.count, 1)
+        XCTAssertEqual(queued.first?.draft, fixture.a, "The newer current page is not in this queued request.")
+    }
+
+    func testOfflineSaveReportsNewerWordsOnlyAfterJournalRetainsThem() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base")
+        let save = fixture.startSave()
+        defer { save.cancel() }
+        try await fixture.waitForFirstSave()
+        let key = ScreenplayOwnerScopedStoragePolicy.storageKey(baseKey: fixture.store.key, ownerUserID: fixture.owner)
+        fixture.store.defaults.set("unreadable recovery", forKey: key)
+        let latest = fixture.a + "\nNewer words with unavailable recovery."
+        fixture.model.fountainDraft = latest
+        fixture.model.noteManualDraftEdit()
+        fixture.peer.releaseFirst(.offline)
+        try await fixture.waitForSave(save)
+        XCTAssertEqual(fixture.model.fountainDraft, latest)
+        let origin = try fixture.currentOrigin()
+        let reopened = ScreenplayRecoveryOverflowStore(rootDirectory: fixture.overflowDirectory)
+        guard case let .present(copies) = reopened.journalCopies(ownerUserID: fixture.owner, projectID: "a",
+                                                                 backendURL: origin.backendURL) else {
+            return XCTFail("The separate recovery journal must remain readable after reopening.")
+        }
+        XCTAssertTrue(copies.contains { Data($0.draft.utf8) == Data(latest.utf8) && $0.baseVersionID == "a-base" },
+                      "The separate journal must retain the latest exact page before reporting it secured.")
+        XCTAssertFalse(fixture.model.infoText.localizedCaseInsensitiveContains("will save when"),
+                       "A queued older page must not promise the newer page will be retried.")
+        XCTAssertTrue(fixture.model.infoText.localizedCaseInsensitiveContains("locally"),
+                      "The writer should know that the proven newer page is held locally.")
+        XCTAssertTrue(fixture.model.infoText.localizedCaseInsensitiveContains("save"),
+                      "The writer should know the newer page still needs saving.")
+        let queued = try await fixture.reloadQueueEntries()
+        XCTAssertEqual(queued.count, 1)
+        XCTAssertEqual(queued.first?.draft, fixture.a, "Only the earlier page was durably queued.")
+    }
+
+    func testManualTypingWarnsWhenRecoveryStoreCannotBeWritten() throws {
+        let fixture = try SaveCompletionFixture(rejectOverflowWrites: true)
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base")
+        let key = ScreenplayOwnerScopedStoragePolicy.storageKey(baseKey: fixture.store.key, ownerUserID: fixture.owner)
+        fixture.store.defaults.set("unreadable recovery", forKey: key)
+        let text = fixture.a + "\nWords that could not be secured."
+        fixture.model.fountainDraft = text
+        fixture.model.noteManualDraftEdit()
+        XCTAssertEqual(fixture.model.fountainDraft, text)
+        XCTAssertEqual(fixture.store.defaults.string(forKey: key), "unreadable recovery")
+        let message = fixture.model.infoText + " " + fixture.model.errorText
+        XCTAssertTrue(message.localizedCaseInsensitiveContains("export"),
+                      "The writer must be warned when neither recovery store can secure the page.")
+    }
+
+    func testOrdinaryTypingAdvancesOwnedRecoveryWithoutCreatingCopies() throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base", scopedRecovery: true)
+        fixture.model.fountainDraft = fixture.a + "\nFirst."
+        fixture.model.noteManualDraftEdit()
+        let next = fixture.model.fountainDraft + "\nSecond."
+        fixture.model.fountainDraft = next
+        fixture.model.noteManualDraftEdit()
+        let recovery = fixture.store.payloads(ownerUserId: fixture.owner)["a"]
+        XCTAssertEqual(recovery?["draft"] as? String, next)
+        XCTAssertNil(recovery?["preservedConflict"])
+        XCTAssertNil(fixture.model.recoveryCandidate)
+    }
+
+    func testOfflineTypingAdvancesTheSameLocallyBoundDocument() throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base")
+        fixture.originOverride.suppress = true
+        ScreenplayLiveDraftSyncService.shared.attach(to: fixture.model)
+        defer { ScreenplayLiveDraftSyncService.shared.detach() }
+        for suffix in ["one", "two", "three"] {
+            fixture.model.fountainDraft += "\n" + suffix
+            fixture.model.noteManualDraftEdit()
+        }
+        let recovery = fixture.store.payloads(ownerUserId: fixture.owner)["a"]
+        XCTAssertEqual(recovery?["draft"] as? String, fixture.model.fountainDraft)
+        XCTAssertNil(recovery?["preservedConflict"])
+        XCTAssertNil(fixture.model.recoveryCandidate)
+    }
+
+    func testRecoveryOwnershipDoesNotCrossDocuments() throws {
+        try verifyRecoveryOwnershipChangesOrigin(changeBackend: false)
+    }
+
+    func testRecoveryOwnershipDoesNotCrossBackends() throws {
+        try verifyRecoveryOwnershipChangesOrigin(changeBackend: true)
+    }
+
+    private func verifyRecoveryOwnershipChangesOrigin(changeBackend: Bool) throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base", scopedRecovery: true)
+        let original = fixture.a + "\nFirst document edit."
+        fixture.model.fountainDraft = original
+        fixture.model.noteManualDraftEdit()
+        let origin = try fixture.currentOrigin()
+        fixture.originOverride.value = ScreenplayDraftSaveOrigin(
+            documentID: changeBackend ? origin.documentID : "another-document",
+            backendURL: changeBackend ? URL(string: "https://another.example.invalid")! : origin.backendURL)
+        let next = fixture.a + "\nA different document edit."
+        fixture.model.fountainDraft = next
+        fixture.model.noteManualDraftEdit()
+        let recovery = fixture.store.payloads(ownerUserId: fixture.owner)["a"]
+        XCTAssertEqual(recovery?["draft"] as? String, original)
+        if changeBackend {
+            XCTAssertNil(fixture.model.recoveryCandidate, "A foreign-server copy must not be presented as this server's recovery.")
+            let newBackend = try XCTUnwrap(fixture.originOverride.value?.backendURL)
+            let reopened = ScreenplayRecoveryOverflowStore(rootDirectory: fixture.overflowDirectory)
+            guard case let .present(copies) = reopened.journalCopies(ownerUserID: fixture.owner, projectID: "a", backendURL: newBackend) else {
+                return XCTFail("The new server's page must be stored independently.")
+            }
+            XCTAssertTrue(copies.contains { Data($0.draft.utf8) == Data(next.utf8) })
+        } else {
+            XCTAssertEqual((recovery?["preservedConflict"] as? [String: Any])?["draft"] as? String, next)
+            XCTAssertEqual(fixture.model.recoveryCandidate?.draft, original)
+        }
     }
 
     func testSameDocumentNewerAEditsStayDirtyOnTheAcknowledgedBase() async throws {
@@ -873,6 +1126,12 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
 }
 
 @MainActor
+private final class RecoveryOriginOverride {
+    var value: ScreenplayDraftSaveOrigin?
+    var suppress = false
+}
+
+@MainActor
 private final class SaveCompletionFixture {
     let a = "INT. A - NIGHT\r\n\r\nA's cafe\u{0301} stays open. \t "
     let b = "INT. B - DAY\r\n\r\nB's exact words stay here.  \r\n"
@@ -880,6 +1139,7 @@ private final class SaveCompletionFixture {
     let queue: ScreenplayDraftSaveOutbox
     let store: ScreenplayLocalDraftRecoveryStore
     let overflow: ScreenplayRecoveryOverflowStore
+    let originOverride = RecoveryOriginOverride()
     let owner: String
     let peer: SaveCompletionPeer
     private let directory: URL
@@ -898,7 +1158,7 @@ private final class SaveCompletionFixture {
 
     nonisolated deinit {}
 
-    init() throws {
+    init(rejectOverflowWrites: Bool = false) throws {
         let bridge = ScreenplayLiveDraftBridge.shared
         let savedEnvironment = SaveCompletionEnvironmentSnapshot()
         bridge.reconcileAccountStorage()
@@ -924,7 +1184,11 @@ private final class SaveCompletionFixture {
         suite = "them.save-completion.\(UUID())"
         defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         store = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
-        overflow = ScreenplayRecoveryOverflowStore(rootDirectory: directory.appendingPathComponent("overflow"))
+        let protection: ((URL) throws -> Void)? = rejectOverflowWrites ? { _ in
+            throw CocoaError(.fileWriteNoPermission)
+        } : nil
+        overflow = ScreenplayRecoveryOverflowStore(rootDirectory: directory.appendingPathComponent("overflow"),
+                                                   fileProtectionEnforcer: protection)
         queue = ScreenplayDraftSaveOutbox(storageDirectory: directory)
         started = XCTestExpectation(description: "A's actual version request reached URLSession")
         peer = SaveCompletionPeer(started: started)
@@ -944,7 +1208,10 @@ private final class SaveCompletionFixture {
             requestIdentityProvider: { _ in identity }, backendURLProvider: { backend })
         let api = BackendMemoryAPI(session: session, baseURL: backend,
             requestIdentityProvider: { _ in identity }, projectWriteAuthRefresher: { _ in authenticatedState })
+        let override = originOverride
         let recoveryOrigin: (String) -> ScreenplayDraftSaveOrigin? = { projectID in
+            if override.suppress { return nil }
+            if let origin = override.value { return origin }
             guard bridge.draftOrigin.projectID == projectID, let documentID = bridge.draftOrigin.documentID else { return nil }
             return .init(documentID: documentID, backendURL: backend)
         }
@@ -956,7 +1223,7 @@ private final class SaveCompletionFixture {
         installedEnvironment = true
     }
 
-    func select(_ id: String, draft: String, base: String, dirty: Bool = false) {
+    func select(_ id: String, draft: String, base: String, dirty: Bool = false, scopedRecovery: Bool = false) {
         let data = try! JSONSerialization.data(withJSONObject: ["id": id, "title": id.uppercased()])
         let project = try! JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: data)
         model.projects = [project]
@@ -973,7 +1240,9 @@ private final class SaveCompletionFixture {
         model.autosaveStatusText = "Editing \(id)"
         model.infoText = "Current \(id) notice"
         model.errorText = "Current \(id) local status"
-        store.save(ownerUserId: owner, projectId: id, draft: draft, baseVersionId: base, dirty: dirty)
+        let backend = scopedRecovery ? BackendAuthClient.resolvedBackendBaseURL() : nil
+        XCTAssertTrue(store.save(ownerUserId: owner, projectId: id, draft: draft, baseVersionId: base,
+                                 dirty: dirty, backendOrigin: backend))
     }
 
     func reloadQueueEntries() async throws -> [ScreenplayDraftSaveOutboxEntry] {

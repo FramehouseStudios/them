@@ -1567,6 +1567,63 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     }
 
     @MainActor
+    func testCleanRemoteWhitespaceChangeAdoptsExactNewVersion() {
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "clean-whitespace-refresh-\(UUID().uuidString)"
+        let previous = "INT. ROOM - NIGHT\n\nA door opens.\n"
+        let remote = "INT. ROOM - NIGHT\n\nA door opens.\n\n"
+        model.applyServerDraft(previous, versionId: "v1")
+        model.applyServerDraft(remote, versionId: "v2")
+        XCTAssertEqual(Data(model.fountainDraft.utf8), Data(remote.utf8),
+                       "A clean page must show the exact bytes of its adopted server version.")
+        XCTAssertEqual(model.latestVersionID, "v2")
+        XCTAssertFalse(model.hasUnsavedDraftChanges)
+    }
+
+    @MainActor
+    func testSameVersionWhitespaceMismatchDoesNotReplaceLocalPage() {
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "same-version-whitespace-\(UUID().uuidString)"
+        let local = "INT. ROOM - NIGHT\n\nA door opens.\n"
+        model.applyServerDraft(local, versionId: "v1")
+        model.applyServerDraft(local + "\n", versionId: "v1")
+        XCTAssertEqual(Data(model.fountainDraft.utf8), Data(local.utf8))
+        XCTAssertEqual(model.latestVersionID, "v1")
+    }
+
+    @MainActor
+    func testUnversionedWhitespaceRefreshCannotEraseKnownPageBase() {
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "unversioned-whitespace-\(UUID().uuidString)"
+        let local = "INT. ROOM - NIGHT\n\nA door opens.\n"
+        model.applyServerDraft(local, versionId: "v1")
+        model.applyServerDraft(local + "\n", versionId: "")
+        XCTAssertEqual(Data(model.fountainDraft.utf8), Data(local.utf8))
+        XCTAssertEqual(model.latestVersionID, "v1", "An unversioned observation cannot erase the known save base.")
+    }
+
+    @MainActor
+    func testDirtyWhitespaceRemainsLocalWhenRemoteWhitespaceChanges() {
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "dirty-whitespace-refresh-\(UUID().uuidString)"
+        let previous = "INT. ROOM - NIGHT\n\nA door opens.\n"
+        let local = previous + " "
+        let remote = previous + "\n"
+        model.applyServerDraft(previous, versionId: "v1")
+        model.fountainDraft = local
+        model.noteManualDraftEdit()
+        model.applyServerDraft(remote, versionId: "v2")
+        XCTAssertEqual(Data(model.fountainDraft.utf8), Data(local.utf8))
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertEqual(model.latestVersionID, "v1")
+        XCTAssertEqual(model.conflictState?.serverVersionId, "v2")
+    }
+
+    @MainActor
     func testRemoteRefreshKeepsUnsavedWhitespaceAndRaisesConflict() {
         let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
         model.autosaveEnabled = false
@@ -1879,6 +1936,39 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertEqual(store.payloads(ownerUserId: owner)["partial"]?["baseVersionId"] as? String, "old")
         defaults.set(["partial": ["preservedConflict": ["backendOrigin": "https://alpha.example.test", "draft": "Keep me"]]], forKey: key)
         XCTAssertFalse(store.canAutomaticallyRetireRecovery(ownerUserId: owner, projectId: "partial", backend: a))
+    }
+
+    @MainActor
+    func testExactRecoveryEvidenceRequiresMatchingBackend() {
+        let owner = "recovery-proof-owner"
+        let a = URL(string: "https://alpha.example.test")!
+        let b = URL(string: "https://beta.example.test")!
+        XCTAssertTrue(store.save(ownerUserId: owner, projectId: "scoped", draft: "words", baseVersionId: "base",
+            dirty: true, backendOrigin: a))
+        XCTAssertTrue(store.hasExactDirtyRecovery(ownerUserId: owner, projectId: "scoped", draft: "words", baseVersionId: "base", backend: a))
+        XCTAssertFalse(store.hasExactDirtyRecovery(ownerUserId: owner, projectId: "scoped", draft: "words", baseVersionId: "base", backend: b))
+        XCTAssertFalse(store.hasExactDirtyRecovery(ownerUserId: owner, projectId: "scoped", draft: "words", baseVersionId: "base", backend: nil))
+        XCTAssertTrue(store.save(ownerUserId: owner, projectId: "legacy", draft: "words", baseVersionId: "base", dirty: true))
+        XCTAssertFalse(store.hasExactDirtyRecovery(ownerUserId: owner, projectId: "legacy", draft: "words", baseVersionId: "base", backend: a))
+    }
+
+    @MainActor
+    func testLiveVersionAdoptionDoesNotRetireUnverifiedMatchingRecovery() {
+        let owner = "legacy-live-adoption-owner"
+        let project = "legacy-live-adoption-project"
+        let text = "INT. ROOM - DAY\n\nWriter words."
+        let backend = URL(string: "https://alpha.example.test")!
+        let identity = ScreenplayStudioAuthContext(userID: owner, sessionIntentGeneration: 1)
+        let origin = ScreenplayDraftSaveOrigin(documentID: "document", backendURL: backend)
+        XCTAssertTrue(store.save(ownerUserId: owner, projectId: project, draft: text, baseVersionId: "old", dirty: true))
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store,
+            recoveryOriginProvider: { _ in origin }, studioAuthContextProvider: { identity })
+        model.selectedProjectID = project
+        model.fountainDraft = text
+        model.adoptRemoteLiveVersion("new", projectID: project, draftChecksum: LiveDraftText.checksum(text))
+        XCTAssertEqual(model.latestVersionID, "new")
+        XCTAssertEqual(store.payloads(ownerUserId: owner)[project]?["draft"] as? String, text)
+        XCTAssertEqual(store.payloads(ownerUserId: owner)[project]?["baseVersionId"] as? String, "old")
     }
 
     @MainActor

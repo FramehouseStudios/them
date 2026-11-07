@@ -837,6 +837,29 @@ struct ScreenplayLocalDraftRecoveryStore {
         _ = persistPayloads(all, ownerUserId: ownerUserId)
     }
 
+    func hasExactDirtyRecovery(ownerUserId: String, projectId: String, draft: String,
+                               baseVersionId: String, backend: URL?) -> Bool {
+        let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let backend, let stored = payloads(ownerUserId: ownerUserId)[project] else { return false }
+        func matches(_ copy: [String: Any], originKey: String) -> Bool {
+            guard copy["dirty"] as? Bool == true,
+                  let text = copy["draft"] as? String, let base = copy["baseVersionId"] as? String,
+                  let originText = copy[originKey] as? String, let origin = URL(string: originText),
+                  OfflineTalkRecoveryScope.sameBackend(origin, backend) else { return false }
+            return text.utf8.elementsEqual(draft.utf8) && base.utf8.elementsEqual(baseVersionId.utf8)
+        }
+        return matches(stored, originKey: "ordinaryBackendOrigin") ||
+            preservedConflicts(in: stored).contains { matches($0, originKey: "backendOrigin") }
+    }
+
+    func holdsDifferentUnsavedWork(ownerUserId: String, projectId: String, differingFrom draft: String) -> Bool {
+        let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let stored = payloads(ownerUserId: ownerUserId)[project],
+              stored["dirty"] as? Bool == true else { return false }
+        guard let storedDraft = stored["draft"] as? String else { return true }
+        return !storedDraft.utf8.elementsEqual(draft.utf8)
+    }
+
     func clear(ownerUserId: String, projectId: String) {
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else { return }
