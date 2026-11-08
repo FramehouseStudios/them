@@ -2509,13 +2509,26 @@ final class ScreenplayStudioViewModel: ObservableObject {
             baseVersionId: latestVersionID, preferPreservedConflict: true)
         switch result {
         case .secured:
-            // Prefer the exact page being displaced; retain any earlier copy on disk.
+            // The current page may have changed while live sync prepared a snapshot.
+            guard fountainDraft.utf8.elementsEqual(text.utf8) else {
+                autosaveStatusText = "Live sync paused"
+                errorText = "The page changed while live sync was preparing. Keep this page open and export it or retry Save."
+                return false
+            }
             let previous = recoveryCandidate
-            if previous.map({ !$0.draft.utf8.elementsEqual(text.utf8) }) ?? true {
+            if previous.map({ !$0.draft.utf8.elementsEqual(text.utf8) ||
+                !$0.baseVersionId.utf8.elementsEqual(latestVersionID.utf8) }) ?? true {
                 surfaceRemainingRecovery(owner: owner, projectID: cleanProjectID)
                 if let previous, recoveryCandidate.map({ !$0.draft.utf8.elementsEqual(text.utf8) }) ?? true {
                     recoveryCandidate = previous
                 }
+            }
+            guard let selected = recoveryCandidate, selected.draft.utf8.elementsEqual(text.utf8),
+                  selected.baseVersionId.utf8.elementsEqual(latestVersionID.utf8), recoveryCandidateIsCurrent(selected) else {
+                recoveryCandidate = previous
+                autosaveStatusText = "Live sync paused"
+                errorText = "The exact local recovery copy could not be confirmed. Keep this page open and export it or retry Save."
+                return false
             }
             autosaveStatusText = "Local draft protected"
             infoText = "Your unsaved local draft is preserved while live sync loads the other device's text. Recover it or keep the server draft."
