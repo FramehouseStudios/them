@@ -9306,8 +9306,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     draft: draft, baseVersionId: baseVersionId, savedAt: savedAt, allowJournalFastPath: isManualEdit)
                 switch result {
                 case .secured: break
-                case .occupied: infoText = "Other recovery copies are stored. Export this page before closing or retry Save."
-                case .unconfirmed: infoText = "This page could not be secured locally. Keep it open and export it or retry Save."
+                case .occupied: errorText = "Other recovery copies are stored. Export this page before closing or retry Save."
+                case .unconfirmed: errorText = "This page could not be secured locally. Keep it open and export it or retry Save."
                 }
             }
             return
