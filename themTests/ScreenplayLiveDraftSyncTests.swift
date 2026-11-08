@@ -575,7 +575,10 @@ final class ScreenplayLiveDraftSyncServiceTests: XCTestCase {
         transport.emit("op", #"{"seq":1,"device_id":"ios-phone","op":{"start":\#(remoteOp.start),"delete_count":\#(remoteOp.deleteCount),"insert":"\#(remoteOp.insert)"},"checksum":"\#(LiveDraftText.checksum(remote))"}"#)
         await waitUntil { model.fountainDraft == remote && model.recoveryCandidate?.draft == local }
         XCTAssertEqual(model.recoveryCandidate?.draft, local)
-        XCTAssertEqual(store.dirtyOrdinarySnapshot(ownerUserId: ownerUserID, projectId: projectID)?.draft, local)
+        XCTAssertEqual(store.dirtyOrdinarySnapshot(ownerUserId: ownerUserID, projectId: projectID)?.draft, base,
+                       "The older unverified copy must remain untouched.")
+        XCTAssertEqual(store.currentPreservedConflict(ownerUserId: ownerUserID, projectId: projectID)?.draft, local,
+                       "The displaced newest page must be stored as a separate recovery copy.")
 
         // More channel text can arrive before the typing device announces its
         // saved version. Those intermediate remote snapshots are not new local
@@ -597,11 +600,13 @@ final class ScreenplayLiveDraftSyncServiceTests: XCTestCase {
             serverDraft: remoteFollowUp
         )
         XCTAssertEqual(snapshot?.draft, local)
-        XCTAssertEqual(relaunchedStore.dirtyOrdinarySnapshot(ownerUserId: ownerUserID, projectId: projectID)?.draft, local)
+        XCTAssertEqual(relaunchedStore.dirtyOrdinarySnapshot(ownerUserId: ownerUserID, projectId: projectID)?.draft, base)
+        XCTAssertEqual(relaunchedStore.currentPreservedConflict(ownerUserId: ownerUserID, projectId: projectID)?.draft, local)
 
         model.restoreDraftFromRecovery()
         XCTAssertEqual(model.fountainDraft, local)
-        XCTAssertNil(model.recoveryCandidate)
+        XCTAssertEqual(model.recoveryCandidate?.draft, base,
+                       "The older unverified copy remains available for a separate review.")
         service.detach()
     }
 
