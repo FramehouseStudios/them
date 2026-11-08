@@ -1,5 +1,8 @@
 import SwiftUI
 import ScreenplayStudio
+#if os(iOS)
+import UIKit
+#endif
 
 /// Navigation belongs to the drawer viewport, not the scrolling panel body.
 struct ScreenplayStudioPinnedInspectorTabs<Tabs: View>: ViewModifier {
@@ -37,6 +40,12 @@ struct ScreenplayStudioComposerVisibility: ViewModifier {
                 guard expanded && focused else { return }
                 reveal(focused: true)
             }
+#if os(iOS)
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
+                guard expanded && focused else { return }
+                reveal(focused: true)
+            }
+#endif
     }
 
     private func reveal(focused: Bool) {
@@ -44,7 +53,7 @@ struct ScreenplayStudioComposerVisibility: ViewModifier {
             await Task.yield()
             withAnimation(.easeOut(duration: 0.20)) {
                 proxy.scrollTo(focused ? "studio.prompt.anchor" : "studio.composer.anchor",
-                               anchor: focused ? .center : .top)
+                               anchor: .top)
             }
         }
     }

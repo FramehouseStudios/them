@@ -456,6 +456,58 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         XCTAssertEqual(Data(stillHeld.draft.utf8), Data(continued.utf8))
     }
 
+    func testUnknownBaseEditKeepsOlderAndNewerWordsSeparate() throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base", dirty: true)
+        fixture.store.save(ownerUserId: fixture.owner, projectId: "a", draft: fixture.a,
+                           baseVersionId: "a-base", dirty: true)
+        let newer = fixture.a + "\nNewer unknown-base words."
+        fixture.model.latestVersionID = ""
+        fixture.model.fountainDraft = newer
+        fixture.model.noteManualDraftEdit()
+        let recovery = fixture.store.payloads(ownerUserId: fixture.owner)["a"]
+        XCTAssertEqual(recovery?["draft"] as? String, fixture.a)
+        XCTAssertEqual(recovery?["baseVersionId"] as? String, "a-base")
+        let preserved = recovery?["preservedConflict"] as? [String: Any]
+        XCTAssertEqual(preserved?["draft"] as? String, newer)
+        XCTAssertEqual(preserved?["baseVersionId"] as? String, "")
+    }
+
+    func testFullRecoverySlotsWarnAndKeepEarlierCopies() throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base", dirty: true)
+        fixture.store.save(ownerUserId: fixture.owner, projectId: "a", draft: fixture.a,
+                           baseVersionId: "a-base", dirty: true)
+        fixture.model.latestVersionID = ""
+        let newer = fixture.a + "\nSecond copy."
+        fixture.model.fountainDraft = newer
+        fixture.model.noteManualDraftEdit()
+        let continued = newer + "\nThird copy."
+        fixture.model.fountainDraft = continued
+        fixture.model.noteManualDraftEdit()
+        let origin = try fixture.currentOrigin()
+        guard case let .present(overflow) = fixture.overflow.load(ownerUserID: fixture.owner, projectID: "a",
+            backendURL: origin.backendURL, documentID: origin.documentID) else {
+            return XCTFail("The third copy must be secured before the full-slot check.")
+        }
+        XCTAssertEqual(Data(overflow.draft.utf8), Data(continued.utf8))
+        let latest = continued + "\nNewest words."
+        fixture.model.fountainDraft = latest
+        fixture.model.noteManualDraftEdit()
+        XCTAssertEqual(Data(fixture.model.fountainDraft.utf8), Data(latest.utf8))
+        XCTAssertTrue(fixture.model.errorText.localizedCaseInsensitiveContains("export"))
+        let stored = fixture.store.payloads(ownerUserId: fixture.owner)["a"]
+        XCTAssertEqual(stored?["draft"] as? String, fixture.a)
+        XCTAssertEqual((stored?["preservedConflict"] as? [String: Any])?["draft"] as? String, newer)
+        guard case let .present(stillHeld) = fixture.overflow.load(ownerUserID: fixture.owner, projectID: "a",
+            backendURL: origin.backendURL, documentID: origin.documentID) else {
+            return XCTFail("The existing overflow copy must remain available.")
+        }
+        XCTAssertEqual(Data(stillHeld.draft.utf8), Data(continued.utf8))
+    }
+
     func testManualTypingProtectsDifferentUnsurfacedRecoveryCopy() throws {
         let fixture = try SaveCompletionFixture()
         defer { fixture.close() }
@@ -616,6 +668,19 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         XCTAssertEqual(recovery?["draft"] as? String, original)
         XCTAssertEqual((recovery?["preservedConflict"] as? [String: Any])?["draft"] as? String, next)
         XCTAssertEqual(fixture.model.recoveryCandidate?.draft, original)
+    }
+
+    func testStartupEditDoesNotEraseKnownRecoveryBase() throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base", dirty: true)
+        fixture.store.save(ownerUserId: fixture.owner, projectId: "a", draft: fixture.a,
+                           baseVersionId: "a-base", dirty: true)
+        fixture.model.latestVersionID = ""
+        fixture.model.noteManualDraftEdit()
+        let recovery = fixture.store.payloads(ownerUserId: fixture.owner)["a"]
+        XCTAssertEqual(recovery?["draft"] as? String, fixture.a)
+        XCTAssertEqual(recovery?["baseVersionId"] as? String, "a-base")
     }
 
     func testSameDocumentNewerAEditsStayDirtyOnTheAcknowledgedBase() async throws {
