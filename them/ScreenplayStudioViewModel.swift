@@ -2512,7 +2512,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             // A stale live-sync snapshot must not replace the writer's current page.
             guard fountainDraft.utf8.elementsEqual(text.utf8) else {
                 autosaveStatusText = "Live sync paused"
-                errorText = "The page changed while live sync was preparing. Your copies were kept; review the page before continuing."
+                errorText = "The page changed while live sync was preparing. Keep this page open and export it or retry Save."
                 return false
             }
             // Select the exact displaced page, even when older journal copies exist.

@@ -1504,6 +1504,8 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertTrue(model.preserveLocalDraftForLiveSyncRecovery(first, projectID: projectID))
         XCTAssertFalse(model.preserveLocalDraftForLiveSyncRecovery(second, projectID: projectID),
                        "A stale snapshot must not authorize replacing the currently visible page.")
+        XCTAssertTrue(model.errorText.localizedCaseInsensitiveContains("export"),
+                      "The current page needs an actionable warning until its latest words are confirmed.")
         XCTAssertEqual(model.recoveryCandidate?.draft, first)
 
         model.restoreDraftFromRecovery()
