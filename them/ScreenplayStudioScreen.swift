@@ -468,8 +468,6 @@ struct ScreenplayStudioScreen: View {
             "parked_draft_save_count": vm.parkedDraftSaveCount,
             "manual_save_trigger_count": uiTestManualSaveTriggerCount,
             "debug_automation_session": IOThemRuntime.isStudioAutomationSession,
-            "debug_auth_session_authenticated": BackendAuthClient.currentAuthSessionState().isAuthenticated,
-            "debug_auth_header_present": BackendAuthClient.authorizationHeaderValue() != nil,
             "debug_project_client_owner": liveDraftBridge.usesDebugClientTokenOwner(
                 forProjectID: vm.selectedProjectID
             ),
@@ -4424,9 +4422,9 @@ private func refreshStudioCreativeInstincts(
 
             if !vm.errorText.isEmpty {
                 Text(vm.errorText)
-                    .font(.system(size: 11, weight: .medium, design: .default))
+                    .font(.system(size: 13, weight: .medium, design: .default))
                     .foregroundStyle(Color.red.opacity(0.82))
-                    .lineLimit(1)
+                    .fixedSize(horizontal: false, vertical: true)
             } else if voiceFeedbackOpacity > 0.01 && !lastVoiceFeedback.isEmpty {
                 Text(lastVoiceFeedback)
                     .font(.system(size: 11, weight: .regular, design: .default))

@@ -1175,6 +1175,7 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
         XCTAssertTrue(context.emotionalContinuity.isEmpty)
         XCTAssertFalse(snapshot.pageWritePrompt.isEmpty)
         XCTAssertTrue(context.continuityNotes.contains { $0.contains("craft guidance, not accepted events") })
+        XCTAssertFalse(context.continuityNotes.contains { $0.localizedCaseInsensitiveContains("suggested next scene: the next scene") })
         XCTAssertFalse(ScreenplayFeatureWorkflowContextPersistencePolicy.shouldRefreshProjectRestoreContext(
             current: context, projectID: "empty-outline", versionID: "v1", now: context.createdAt.addingTimeInterval(60)),
             "A current no-outline projection must not trigger a refresh loop")
@@ -1383,6 +1384,7 @@ final class ScreenplayFeatureWorkflowPlannerTests: XCTestCase {
             "The missing tape has not paid off."
         ])
         XCTAssertTrue(context.continuityNotes.contains("Feature Compass accepted batch: Latest: L210-L248, 39 lines"))
+        XCTAssertTrue(context.continuityNotes.contains("Feature Compass suggested next scene: INT. COURTHOUSE HALLWAY - NIGHT"))
         XCTAssertEqual(context.emotionalContinuity, "Mara must lie in public to protect the person she is starting to trust.")
         XCTAssertEqual(context.pageCount, 42)
         XCTAssertEqual(context.targetPages, 110)

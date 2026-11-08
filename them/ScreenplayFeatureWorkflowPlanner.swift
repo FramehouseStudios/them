@@ -234,7 +234,9 @@ struct ScreenplayFeatureWorkflowSessionContext: Codable, Equatable {
         ], limit: 6, itemLimit: 140)
         self.continuityNotes = Self.cleanList([
             "Feature Compass accepted batch: \(snapshot.acceptedBatchDetail)",
-            "Feature Compass suggested next scene: \(snapshot.nextSceneTitle)",
+            snapshot.nextSceneTitle.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare(
+                ScreenplayFeatureWorkflowPlanner.unknownNextSceneTitle) == .orderedSame
+                ? "" : "Feature Compass suggested next scene: \(snapshot.nextSceneTitle)",
             "Feature Compass craft guidance, not accepted events: \(snapshot.structuralObligation)",
             snapshot.featureSequenceTitle.isEmpty ? "" : "Feature sequence guidance: \(snapshot.featureSequenceTitle)",
             snapshot.comingNextSequence.isEmpty ? "" : "Coming next sequence guidance: \(snapshot.comingNextSequence)"
@@ -410,6 +412,7 @@ struct ScreenplayFeatureWorkflowSessionContext: Codable, Equatable {
 
 @MainActor
 enum ScreenplayFeatureWorkflowPlanner {
+    static let unknownNextSceneTitle = "the next scene"
     static func buildSnapshot(
         project: BackendScreenplayProjectSummary?,
         outline: BackendScreenplayOutline,
@@ -1169,10 +1172,10 @@ enum ScreenplayFeatureWorkflowPlanner {
     }
 
     private static func sceneTitle(_ scene: BackendScreenplayScene?) -> String {
-        guard let scene else { return "the next scene" }
+        guard let scene else { return unknownNextSceneTitle }
         let slugline = clean(scene.slugline ?? "", fallback: "")
         if !slugline.isEmpty { return slugline }
-        return clean(scene.title, fallback: "the next scene")
+        return clean(scene.title, fallback: unknownNextSceneTitle)
     }
 
     private static func sceneDetail(_ scene: BackendScreenplayScene?, fallback: String) -> String {
