@@ -3699,6 +3699,8 @@ final class V1SmokeUITests: XCTestCase {
 
         let fixture = try await seedBackendRestoreContractFixture(baseURL: baseURL)
         let marker = "SAVE-CONFLICT-\(UUID().uuidString.uppercased())"
+        var recoveryEnvironment = fixture.appLaunchEnvironment
+        recoveryEnvironment["THEM_STUDIO_AUTOMATION_SESSION_ID"] = "recovery-\(UUID().uuidString)"
         let expectedQueuedDraft = "\(fixture.expectedDraft)\n\n\(marker)"
         var app = launchApp(
             openStudio: true,
@@ -3706,7 +3708,7 @@ final class V1SmokeUITests: XCTestCase {
             restoreProjectID: fixture.projectID,
             restoreVersionID: fixture.versionID,
             restoreLoadToken: fixture.loadToken,
-            launchEnvironment: fixture.appLaunchEnvironment
+            launchEnvironment: recoveryEnvironment
         )
 
         XCTAssertTrue(app.otherElements["studio.surface"].waitForExistence(timeout: 12))
@@ -3758,7 +3760,7 @@ final class V1SmokeUITests: XCTestCase {
         app = launchApp(
             openStudio: true,
             resetState: false,
-            launchEnvironment: fixture.appLaunchEnvironment
+            launchEnvironment: recoveryEnvironment
         )
         defer { app.terminate() }
 
@@ -3804,7 +3806,7 @@ final class V1SmokeUITests: XCTestCase {
 
         app.terminate()
         app = launchApp(openStudio: true, resetState: false,
-                        launchEnvironment: fixture.appLaunchEnvironment)
+                        launchEnvironment: recoveryEnvironment)
         XCTAssertTrue(app.otherElements["studio.surface"].waitForExistence(timeout: 12))
         var relaunchedConflict: [String: Any] = [:]
         XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 75) { snapshot in
