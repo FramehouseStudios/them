@@ -8916,11 +8916,25 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return
         }
         let ownerID = currentStudioAuthContext().userID
+        // An unknown startup base cannot supersede a known-base writer copy.
+        if dirty, baseVersionId.isEmpty,
+           let existing = localDraftRecoveryStore.dirtyOrdinarySnapshot(ownerUserId: ownerID, projectId: normalizedProjectId),
+           !existing.baseVersionId.isEmpty {
+            if !existing.draft.utf8.elementsEqual(draft.utf8) {
+                switch secureRecoveryCopy(ownerUserId: ownerID, projectId: normalizedProjectId,
+                                          draft: draft, baseVersionId: baseVersionId, savedAt: savedAt) {
+                case .secured: break
+                case .occupied, .unconfirmed:
+                    errorText = "This page could not be secured locally. Keep it open and export it or retry Save."
+                }
+            }
+            return
+        }
         // A clean server observation is not authority to replace a different
         // dirty writer copy, even before its queued conflict has surfaced.
         if !dirty, let existing = localDraftRecoveryStore.dirtyOrdinarySnapshot(ownerUserId: ownerID, projectId: normalizedProjectId),
            !existing.draft.utf8.elementsEqual(draft.utf8) { return }
-        localDraftRecoveryStore.save(
+        let recoverySaved = localDraftRecoveryStore.save(
             ownerUserId: ownerID,
             projectId: normalizedProjectId,
             draft: draft,
@@ -8928,6 +8942,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
             dirty: dirty,
             savedAt: savedAt
         )
+        if dirty && !recoverySaved {
+            errorText = "This page could not be secured locally. Keep it open and export it or retry Save."
+        }
         let hasDifferentPreservedConflict = recoveryCandidate.map {
             $0.projectId == normalizedProjectId &&
                 $0.isPreservedConflict &&

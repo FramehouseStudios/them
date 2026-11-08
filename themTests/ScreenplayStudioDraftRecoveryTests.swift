@@ -831,6 +831,23 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     }
 
     @MainActor
+    func testFailedOrdinaryRecoveryWriteWarnsAndKeepsPageVisible() {
+        let owner = "recovery-write-failure-owner"
+        let key = ScreenplayOwnerScopedStoragePolicy.storageKey(baseKey: recoveryKey, ownerUserID: owner)
+        defaults.set("unreadable recovery root", forKey: key)
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store,
+            studioAuthContextProvider: { .init(userID: owner, sessionIntentGeneration: 1) })
+        model.autosaveEnabled = false
+        model.selectedProjectID = "project"
+        model.fountainDraft = "Exact new words\r\n"
+        model.noteManualDraftEdit()
+        XCTAssertEqual(Data(model.fountainDraft.utf8), Data("Exact new words\r\n".utf8))
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertTrue(model.errorText.localizedCaseInsensitiveContains("export"))
+        XCTAssertEqual(defaults.string(forKey: key), "unreadable recovery root")
+    }
+
+    @MainActor
     func testConditionalRecoveryDoesNotMistakeMalformedStorageForAnOccupiedCopy() {
         store.save(ownerUserId: ownerUserID, projectId: "bad", draft: "Old", baseVersionId: "base", dirty: true)
         var payloads = store.payloads(ownerUserId: ownerUserID)
