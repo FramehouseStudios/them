@@ -1501,8 +1501,11 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         model.selectedProjectID = projectID
         model.fountainDraft = first
 
-        model.preserveLocalDraftForLiveSyncRecovery(first, projectID: projectID)
-        model.preserveLocalDraftForLiveSyncRecovery(second, projectID: projectID)
+        XCTAssertTrue(model.preserveLocalDraftForLiveSyncRecovery(first, projectID: projectID))
+        XCTAssertFalse(model.preserveLocalDraftForLiveSyncRecovery(second, projectID: projectID),
+                       "A stale snapshot must not authorize replacing the currently visible page.")
+        XCTAssertTrue(model.errorText.localizedCaseInsensitiveContains("export"),
+                      "The current page needs an actionable warning until its latest words are confirmed.")
         XCTAssertEqual(model.recoveryCandidate?.draft, first)
 
         model.restoreDraftFromRecovery()
@@ -2234,10 +2237,53 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         guard case let .present(afterDebounce) = overflow.journalCopies(ownerUserID: owner, projectID: project,
             backendURL: origin.backendURL) else { return XCTFail("Expected the editor journal") }
         XCTAssertEqual(afterDebounce.map(\.draft), ["Active editor words"], "A duplicate observer must reuse the verified exact copy")
+        model.fountainDraft = "Independent live-sync copy"
         XCTAssertTrue(model.preserveLocalDraftForLiveSyncRecovery("Independent live-sync copy", projectID: project))
         guard case let .present(records) = overflow.journalCopies(ownerUserID: owner, projectID: project,
             backendURL: origin.backendURL) else { return XCTFail("Expected both recovery copies") }
         XCTAssertEqual(Set(records.map(\.draft)), Set(["Active editor words", "Independent live-sync copy"]))
+        XCTAssertEqual(model.recoveryCandidate?.draft, "Independent live-sync copy",
+                       "Live sync must select the exact page it is about to replace, not an older journal copy.")
+    }
+
+    @MainActor
+    func testLiveSyncSelectsExactLocalSlotDespiteOlderJournal() throws {
+        let owner = "live-exact-slot-owner"
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let overflow = ScreenplayRecoveryOverflowStore(rootDirectory: root)
+        let origin = ScreenplayDraftSaveOrigin(documentID: "document", backendURL: URL(string: "https://example.test")!)
+        let identity = ScreenplayStudioAuthContext(userID: owner, sessionIntentGeneration: 1)
+        for usePreserved in [false, true] {
+            let project = usePreserved ? "preserved-project" : "ordinary-project"
+            let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store, overflowRecoveryStore: overflow,
+                recoveryOriginProvider: { _ in origin }, studioAuthContextProvider: { identity })
+            model.selectedProjectID = project
+            model.applyStructuralUITestDraft("Saved page", versionID: "base")
+            let latest = "The exact newest page."
+            if usePreserved {
+                XCTAssertTrue(store.save(ownerUserId: owner, projectId: project, draft: "Older ordinary", baseVersionId: "base",
+                    dirty: true, backendOrigin: origin.backendURL))
+                guard case .stored(.preservedConflict) = store.saveInVacantRecoverySlot(ownerUserId: owner, projectId: project,
+                    draft: latest, baseVersionId: "base", preferPreservedConflict: true, backendOrigin: origin.backendURL) else {
+                    return XCTFail("The preserved fixture must be stored.")
+                }
+            } else {
+                XCTAssertTrue(store.save(ownerUserId: owner, projectId: project, draft: latest, baseVersionId: "base",
+                    dirty: true, backendOrigin: origin.backendURL))
+            }
+            guard case .stored = overflow.appendJournalCopy(ownerUserID: owner, projectID: project, backendURL: origin.backendURL,
+                documentID: origin.documentID, draft: "Older journal", baseVersionID: "base") else {
+                return XCTFail("The older journal fixture must be stored.")
+            }
+            model.fountainDraft = latest
+            XCTAssertTrue(model.preserveLocalDraftForLiveSyncRecovery(latest, projectID: project))
+            XCTAssertEqual(model.recoveryCandidate?.draft, latest)
+            XCTAssertEqual(model.recoveryCandidate?.isPreservedConflict, usePreserved)
+            guard case let .present(records) = overflow.journalCopies(ownerUserID: owner, projectID: project,
+                backendURL: origin.backendURL) else { return XCTFail("The older journal must remain readable.") }
+            XCTAssertTrue(records.contains { $0.draft == "Older journal" })
+        }
     }
 
     @MainActor
