@@ -2509,6 +2509,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
             baseVersionId: latestVersionID, preferPreservedConflict: true)
         switch result {
         case .secured:
+            // A stale live-sync snapshot must not replace the writer's current page.
+            guard fountainDraft.utf8.elementsEqual(text.utf8) else {
+                autosaveStatusText = "Live sync paused"
+                errorText = "The page changed while live sync was preparing. Your copies were kept; review the page before continuing."
+                return false
+            }
             // Select the exact displaced page, even when older journal copies exist.
             let previous = recoveryCandidate
             if let backend = currentRecoveryBackend(projectID: cleanProjectID) {

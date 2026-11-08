@@ -1501,8 +1501,9 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         model.selectedProjectID = projectID
         model.fountainDraft = first
 
-        model.preserveLocalDraftForLiveSyncRecovery(first, projectID: projectID)
-        model.preserveLocalDraftForLiveSyncRecovery(second, projectID: projectID)
+        XCTAssertTrue(model.preserveLocalDraftForLiveSyncRecovery(first, projectID: projectID))
+        XCTAssertFalse(model.preserveLocalDraftForLiveSyncRecovery(second, projectID: projectID),
+                       "A stale snapshot must not authorize replacing the currently visible page.")
         XCTAssertEqual(model.recoveryCandidate?.draft, first)
 
         model.restoreDraftFromRecovery()
@@ -2234,6 +2235,7 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         guard case let .present(afterDebounce) = overflow.journalCopies(ownerUserID: owner, projectID: project,
             backendURL: origin.backendURL) else { return XCTFail("Expected the editor journal") }
         XCTAssertEqual(afterDebounce.map(\.draft), ["Active editor words"], "A duplicate observer must reuse the verified exact copy")
+        model.fountainDraft = "Independent live-sync copy"
         XCTAssertTrue(model.preserveLocalDraftForLiveSyncRecovery("Independent live-sync copy", projectID: project))
         guard case let .present(records) = overflow.journalCopies(ownerUserID: owner, projectID: project,
             backendURL: origin.backendURL) else { return XCTFail("Expected both recovery copies") }
