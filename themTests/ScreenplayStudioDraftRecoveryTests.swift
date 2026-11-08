@@ -1657,6 +1657,21 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     }
 
     @MainActor
+    func testRepeatedInitialReceiptWithVerifiedBackendKeepsOneRecoveryCopy() {
+        let owner = "initial-binding-owner"
+        let project = "initial-binding-project"
+        let backend = URL(string: "https://example.test")!
+        XCTAssertTrue(store.saveInitialProjectReceipt(ownerUserId: owner, projectId: project,
+            draft: "", baseVersionId: "", dirty: false, backendOrigin: backend))
+        XCTAssertTrue(store.saveInitialProjectReceipt(ownerUserId: owner, projectId: project,
+            draft: "", baseVersionId: "", dirty: false, backendOrigin: backend))
+        let payload = store.payloads(ownerUserId: owner)[project]
+        XCTAssertEqual(payload?["ordinaryBackendOrigin"] as? String, "https://example.test")
+        XCTAssertEqual(payload?["draft"] as? String, "")
+        XCTAssertNil(payload?["preservedConflict"])
+    }
+
+    @MainActor
     func testInitialReceiptPreservesBothDirtyCopiesAndRefusesThird() {
         let project = "initial-receipt-slots"
         XCTAssertTrue(store.save(ownerUserId: ownerUserID, projectId: project, draft: "earlier", baseVersionId: "v1", dirty: true))
