@@ -23,7 +23,9 @@ final class V1SmokeUITests: XCTestCase {
 
     func test_studio_page_accepts_complete_direct_typing() throws {
 #if os(iOS)
-        let app = launchApp(openStudio: true)
+        let app = launchApp(openStudio: true, launchEnvironment: [
+            "THEM_STUDIO_AUTOMATION_SESSION_ID": "typing-\(UUID().uuidString)"
+        ])
         defer { app.terminate() }
 
         let editor = app.textViews["studio.draft.editor"]
