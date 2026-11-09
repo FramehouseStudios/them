@@ -298,6 +298,25 @@ final class ScreenplayPromptBuilderTests: XCTestCase {
         XCTAssertFalse(result.fallbackReason.isEmpty)
     }
 
+    func testLocalFeatureFallbackPreservesRequestedPagesBeyondTarget() async {
+        let backend = PromptBackendSpy(error: PromptBackendSpy.Error.offline)
+        let builder = ScreenplayPromptBuilder()
+        for (page, target, expected) in [(118, 0, "p119-p123 / 120"), (131, 120, "p132-p136 / 120"), (88, 90, "p89-p93 / 90")] {
+            let result = await builder.buildModelPrompt(
+                backend: backend,
+                request: ScreenplayPromptBuilder.Request(
+                    persona: "LOCAL PERSONA", userInput: "Write the next five pages.",
+                    pageCount: page, targetPages: target,
+                    screenplayTaskHint: "Write the next five pages.",
+                    isScreenplayMode: true, shouldWriteToPage: true
+                )
+            )
+            XCTAssertFalse(result.usedBackendAssembly)
+            XCTAssertTrue(result.prompt.contains("Estimated position: p\(page) / \(target > 0 ? target : 120)"))
+            XCTAssertTrue(result.prompt.contains("Page target window: \(expected)"), result.prompt)
+        }
+    }
+
     @MainActor
     func testSessionContinuitySnapshotDecodesRicherFeatureMemoryRestore() throws {
         let data = Data("""
