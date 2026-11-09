@@ -70,7 +70,7 @@ struct MagicMomentAuthResumeProofView: View {
 
     var body: some View {
         Text("Magic moment submissions \(proof.pageStartCount). Voice starts \(proof.voiceStartCount).")
-            .font(.system(size: 1))
+            .font(IOThemTypography.UI.caption)
             .foregroundStyle(Color.clear)
             .frame(width: 1, height: 1)
             .allowsHitTesting(false)
