@@ -445,6 +445,20 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         XCTAssertEqual(Data(stillHeld.draft.utf8), Data(continued.utf8))
     }
 
+    func testCleanUnknownBaseObservationCannotEraseDirtyRecovery() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base")
+        fixture.model.autosaveEnabled = false
+        fixture.store.save(ownerUserId: fixture.owner, projectId: "a", draft: fixture.a,
+                           baseVersionId: "a-base", dirty: true)
+        fixture.model.latestVersionID = ""
+        await fixture.model.handleDraftDebouncedChange(fixture.a)
+        let recovery = fixture.store.dirtyOrdinarySnapshot(ownerUserId: fixture.owner, projectId: "a")
+        XCTAssertEqual(recovery?.draft, fixture.a)
+        XCTAssertEqual(recovery?.baseVersionId, "a-base")
+    }
+
     func testStartupEditDoesNotEraseKnownRecoveryBase() throws {
         let fixture = try SaveCompletionFixture()
         defer { fixture.close() }
