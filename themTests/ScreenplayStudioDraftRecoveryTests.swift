@@ -2709,6 +2709,9 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
         XCTAssertEqual(ScreenplayFeatureProgressionGuide.defaultTargetPages, 120)
         let recommended = ScreenplayFeatureProgressionGuide.guide(actPosition: "", currentPage: 60)
         XCTAssertEqual(recommended.progressText, "p60 / 120")
+        let beyondTarget = ScreenplayFeatureProgressionGuide.guide(actPosition: "", currentPage: 131)
+        XCTAssertEqual(beyondTarget.progressText, "p131 / 120")
+        XCTAssertEqual(beyondTarget.currentAct, "Act III")
         for pages in [60, 90, 110, 120, 150, 180] {
             let opening = ScreenplayFeatureProgressionGuide.guide(actPosition: "", currentPage: 1, targetPages: pages)
             let middle = ScreenplayFeatureProgressionGuide.guide(actPosition: "", currentPage: pages / 2, targetPages: pages)

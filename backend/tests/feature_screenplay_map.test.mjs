@@ -34,6 +34,27 @@ test("feature recommendation is 120 pages with all three acts, not a fixed lengt
   }
 });
 
+test("feature map preserves a writer's page position beyond the recommended target", () => {
+  const block = buildFeatureScreenplayMapBlock({
+    sessionContext: { pageCount: 131, targetPages: 120, act: "Act III",
+      sceneAssignment: "The last choice costs her the station." },
+    screenplayTask: { intent: "finish_feature", requestedPages: 5, featureScope: "page_batch" },
+  });
+  assert.ok(block.includes("current_position: p131 / 120"));
+  assert.ok(block.includes("current_page_position: p131 / 120"));
+  assert.ok(block.includes("starting_position: p131 / 120"));
+  assert.ok(block.includes("target_window: p132-p136 / 120"));
+  assert.ok(!block.includes("current_position: p120 / 120"));
+});
+
+test("requested pages can cross the recommended target without truncation", () => {
+  const block = buildFeatureScreenplayMapBlock({
+    sessionContext: { pageCount: 118, targetPages: 120 },
+    screenplayTask: { intent: "finish_feature", requestedPages: 5, featureScope: "page_batch" },
+  });
+  assert.ok(block.includes("target_window: p119-p123 / 120"));
+});
+
 test("[feature-screenplay-map] maps page position into feature sequence pressure", () => {
   const sequence = findSequenceForPage(47, DEFAULT_FEATURE_TARGET_PAGES);
   assert.equal(sequence.act, "Act II");

@@ -38,7 +38,7 @@ struct ScreenplayFeatureProgressionGuide: Equatable {
         let next = nextStep(after: step)
         let range = pageRange(for: step, targetPages: target)
         let progress = safePage > 0 && !lowPageConflictsWithAct
-            ? "p\(min(safePage, target)) / \(target)"
+            ? "p\(safePage) / \(target)"
             : "Act estimate"
         let firstMove = step.nextMoves.first ?? "Advance the next irreversible character choice."
         let nextScenePlan = "\(step.act) - \(step.label): \(step.obligation) \(firstMove)"
