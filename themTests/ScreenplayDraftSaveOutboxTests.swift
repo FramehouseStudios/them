@@ -4733,6 +4733,44 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: manifest), beforeBytes)
     }
 
+    func testVolatileFollowerReconciliationPreservesQueueWhenStorageFails() async throws {
+        let failMarker = storageDirectory.appendingPathComponent("fail-next-write")
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory, manifestWriter: { data, url in
+            if FileManager.default.fileExists(atPath: failMarker.path) {
+                throw NSError(domain: "ScreenplayDraftSaveOutboxTests", code: 12)
+            }
+            try data.write(to: url, options: .atomic)
+        })
+        let authority = ScreenplayDraftSaveRequestAuthority(id: UUID(), generation: 1)
+        let saved = try makeOrderedManualEntry(id: "confirmed", draft: "Exact words", createdAt: 100, authority: authority)
+        var passive = makeEntry(id: "volatile", draft: saved.draft, createdAt: 101,
+                                source: "studio_autosave", origin: saved.deliveryOrigin, authority: authority)
+        passive.saveOrderingVersion = 1
+        let child = try makeOrderedManualEntry(id: "later", draft: "Newer writer words", createdAt: 102, authority: authority)
+        _ = try await store.admitPendingSave(child, following: passive)
+        let beforeRows = try await store.entriesForTesting()
+        XCTAssertEqual(beforeRows.count, 1)
+        XCTAssertEqual(beforeRows.first?.status, .parked)
+        XCTAssertNotNil(beforeRows.first?.savePredecessor)
+        let manifest = storageDirectory.appendingPathComponent("queue.json")
+        let beforeBytes = try Data(contentsOf: manifest)
+        try Data().write(to: failMarker)
+        do {
+            try await store.absorbConfirmedVolatilePassiveFollower(passive, confirmedBy: saved, versionID: "server-v2")
+            XCTFail("A failed reconciliation write must not report success")
+        } catch {
+            XCTAssertEqual((error as NSError).domain, "ScreenplayDraftSaveOutboxTests")
+            XCTAssertEqual((error as NSError).code, 12)
+        }
+        let afterRows = try await store.entriesForTesting()
+        XCTAssertEqual(afterRows, beforeRows)
+        XCTAssertEqual(try Data(contentsOf: manifest), beforeBytes)
+        let reopened = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let reopenedRows = try await reopened.entriesForTesting()
+        XCTAssertEqual(reopenedRows, beforeRows)
+        XCTAssertEqual(reopenedRows.first?.draft, "Newer writer words")
+    }
+
     func testConfirmedManualSaveRetiresIdenticalDeclaredPassiveFollower() async throws {
         let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let authority = ScreenplayDraftSaveRequestAuthority(id: UUID(), generation: 1)
