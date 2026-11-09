@@ -595,6 +595,27 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         XCTAssertEqual(queued.first?.draft, fixture.a, "Only the earlier page was durably queued.")
     }
 
+    func testOlderSaveDoesNotClearWarningForUnsecuredNewerWords() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base")
+        let save = fixture.startSave()
+        defer { save.cancel() }
+        try await fixture.waitForFirstSave()
+        let key = ScreenplayOwnerScopedStoragePolicy.storageKey(baseKey: fixture.store.key, ownerUserID: fixture.owner)
+        fixture.store.defaults.set("unreadable recovery", forKey: key)
+        let latest = fixture.a + "\nNewer words with unavailable recovery."
+        fixture.model.fountainDraft = latest
+        fixture.model.noteManualDraftEdit()
+        fixture.peer.releaseFirst(.success)
+        try await fixture.waitForSave(save)
+        XCTAssertEqual(fixture.model.fountainDraft, latest)
+        XCTAssertTrue(fixture.model.hasUnsavedDraftChanges)
+        XCTAssertTrue(fixture.model.errorText.localizedCaseInsensitiveContains("export"),
+                      "An older acknowledgement must not clear the warning for unsecured newer words.")
+        XCTAssertTrue(fixture.model.infoText.localizedCaseInsensitiveContains("export"))
+    }
+
     func testManualTypingWarnsWhenRecoveryStoreCannotBeWritten() throws {
         let fixture = try SaveCompletionFixture()
         defer { fixture.close() }
