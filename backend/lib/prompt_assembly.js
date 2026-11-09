@@ -545,6 +545,7 @@ function inferScreenplayTask(userInput = "") {
     /\b(act\s*(?:ii|2|two)|second act)\b.*\b(movie|film|feature|screenplay|script)\b/,
     /\b(act\s*(?:iii|3|three)|third act|final act)\b.*\b(movie|film|feature|screenplay|script)\b/,
     /\b(90|ninety|100|one hundred|110|120)\s*(?:page|pages)\b/,
+    /\b(?:i\s+(?:want|need)|aim(?:ing)?\s+for|target(?:ing)?|plan(?:ning)?\s+for)\b.{0,30}\b(?:[6-9]\d|[1-9]\d{2,})\s*(?:-|\s)?pages?\b/,
     /\b(next|another)\s+(?:5|five|10|ten|15|fifteen)\s+pages?\b/,
     /\b(write|draft|continue)\b.*\b(act two|second act|act three|third act|final act|final sequence)\b/,
     /\b(act two|second act|act three|third act|final act|final sequence)\b.*\b(write|draft|continue)\b/,

@@ -1153,6 +1153,16 @@ test("[screenplay-task] story writing does not swallow planning, advice, revisio
   }
 });
 
+test("[screenplay-task] recognizes flexible feature-length targets", () => {
+  for (const prompt of ["I want 80 pages", "I want 120 pages", "I want 130 pages", "aiming for 140 pages"]) {
+    const task = inferScreenplayTask(prompt);
+    assert.equal(task.intent, "finish_feature", prompt);
+    assert.equal(task.requestedPages, undefined, `${prompt} is a target, not a page batch`);
+  }
+  assert.equal(inferScreenplayTask("write 5 pages").requestedPages, 5);
+  assert.equal(inferScreenplayTask("Rewrite the line in my 130-page script").intent, "rewrite_scene");
+});
+
 test("[screenplay-task] inferScreenplayTask handles targeted Clementine Studio modes", () => {
   assert.equal(inferScreenplayTask("Replace that line with something sharper.").intent, "rewrite_scene");
   assert.equal(inferScreenplayTask("Keep writing from here without restarting the scene.").intent, "continue_script");
