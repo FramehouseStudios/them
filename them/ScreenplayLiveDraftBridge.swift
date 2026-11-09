@@ -5275,6 +5275,9 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
             pendingInsertion = nil // Revoke a delayed live fallback; its durable intention stays kept.
         }
         let queuedInsertMode = pendingInsertion?.mode
+        if !rollbackDraft && (isStreamingDraftPreviewActive || queuedInsertMode == .streamPreview || queuedInsertMode == .streamCommit || queuedInsertMode == .streamCancel) {
+            isStreamingDraftPreviewActive = false; streamingPreviewText = ""; streamingPreviewBaseDraft = ""; pendingInsertion = nil
+        }
         let hadQueuedSyncedInsert = queuedInsertMode == .streamInsertProgress
             || queuedInsertMode == .streamInsertFinalize
             || queuedInsertMode == .streamInsertCancel
@@ -8870,6 +8873,12 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
         }
 
         private func interruptStreamingInsertForUserEditIfNeeded() {
+            if streamingPreviewRange != nil {
+                _ = ScreenplayLiveDraftBridge.shared.cancelStreamPreservingCurrentDraft(reason: .manualTyping)
+                resetStreamingPreviewState()
+                parent.insertionRequest = nil; parent.pendingReplacementTarget = nil; parent.submittedReplacementTarget = nil
+                return
+            }
             if voiceRevealContentRange != nil {
                 ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
                     kind: "voice-reveal-manual-edit-interrupt",
@@ -8927,6 +8936,21 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
             guard !request.requiresLivePageContext || request.livePageContext != nil else { return }
             if let context = request.livePageContext,
                !context.permitsDelivery(in: ScreenplayLiveDraftBridge.shared) { return }
+            let target = request.replacementTarget ?? parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
+            let startsReplacement = request.mode == .insert || request.mode == .voiceRevealPrepare ||
+                (request.mode == .streamPreview && streamingPreviewRange == nil) ||
+                (request.mode == .streamInsertProgress && streamingInsertRange == nil) ||
+                (request.mode == .streamCommit && streamingPreviewRange == nil) ||
+                (request.mode == .streamInsertFinalize && streamingInsertRange == nil)
+            if startsReplacement, let target, let textView,
+               !screenplayReplacementTargetIsCurrent(target, in: textView.string) {
+                lastAppliedInsertionID = request.id
+                DispatchQueue.main.async { [weak self] in
+                    guard self?.parent.insertionRequest?.id == request.id else { return }
+                    ScreenplayLiveDraftBridge.shared.autoInsertStatusText = "The rewrite target changed. Review the reply before applying it."
+                }
+                return
+            }
             switch request.mode {
             case .insert:
                 applyStandardInsertion(request)
@@ -10332,18 +10356,18 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
 
             if candidateRange.length > 0 {
                 let candidateText = ns.substring(with: candidateRange).trimmingCharacters(in: .whitespacesAndNewlines)
-                if candidateText.caseInsensitiveCompare(cleanTarget) == .orderedSame {
+                if candidateText.utf8.elementsEqual(cleanTarget.utf8) {
                     ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
                         kind: "resolve-match-line-range",
                         target: target,
                         detail: "Matched replacement target using stored line range."
                     )
-                    return (candidateRange, true)
+                    return (ns.range(of: cleanTarget, options: [.literal], range: candidateRange), true)
                 }
             }
 
             if !cleanTarget.isEmpty {
-                let exactRange = ns.range(of: cleanTarget)
+                let exactRange = ns.range(of: cleanTarget, options: [.literal], range: candidateRange)
                 if exactRange.location != NSNotFound {
                     ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
                         kind: "resolve-match-exact",
@@ -10352,30 +10376,7 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
                     )
                     return (exactRange, true)
                 }
-
-                let caseInsensitiveRange = ns.range(
-                    of: cleanTarget,
-                    options: [.caseInsensitive]
-                )
-                if caseInsensitiveRange.location != NSNotFound {
-                    ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
-                        kind: "resolve-match-case-insensitive",
-                        target: target,
-                        detail: "Matched replacement target using case-insensitive text."
-                    )
-                    return (caseInsensitiveRange, true)
-                }
             }
-
-            if candidateRange.length > 0 {
-                ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
-                    kind: "resolve-fallback-line-range",
-                    target: target,
-                    detail: "Fell back to stored line range without exact text match."
-                )
-                return (candidateRange, true)
-            }
-
             ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
                 kind: "resolve-fallback-selection",
                 target: target,
@@ -11229,7 +11230,9 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
         private func interruptStreamingInsertForUserEditIfNeeded() {
             let hadStreamingInsert = streamingInsertRange != nil
             let hadVoiceReveal = voiceRevealContentRange != nil
-            guard hadStreamingInsert || hadVoiceReveal else { return }
+            let hadPreview = streamingPreviewRange != nil
+            guard hadStreamingInsert || hadVoiceReveal || hadPreview else { return }
+            if hadPreview { resetStreamingPreviewState() }
             let replacementTarget = parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
             traceReplacementTarget(
                 kind: hadVoiceReveal
@@ -11283,6 +11286,21 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             guard !request.requiresLivePageContext || request.livePageContext != nil else { return }
             if let context = request.livePageContext,
                !context.permitsDelivery(in: ScreenplayLiveDraftBridge.shared) { return }
+            let target = request.replacementTarget ?? parent.pendingReplacementTarget ?? parent.submittedReplacementTarget
+            let startsReplacement = request.mode == .insert || request.mode == .voiceRevealPrepare ||
+                (request.mode == .streamPreview && streamingPreviewRange == nil) ||
+                (request.mode == .streamInsertProgress && streamingInsertRange == nil) ||
+                (request.mode == .streamCommit && streamingPreviewRange == nil) ||
+                (request.mode == .streamInsertFinalize && streamingInsertRange == nil)
+            if startsReplacement, let target, let textView,
+               !screenplayReplacementTargetIsCurrent(target, in: textView.text ?? "") {
+                lastAppliedInsertionID = request.id
+                DispatchQueue.main.async { [weak self] in
+                    guard self?.parent.insertionRequest?.id == request.id else { return }
+                    ScreenplayLiveDraftBridge.shared.autoInsertStatusText = "The rewrite target changed. Review the reply before applying it."
+                }
+                return
+            }
             switch request.mode {
             case .insert:
                 applyStandardInsertion(request)
@@ -12672,18 +12690,18 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
 
             if candidateRange.length > 0 {
                 let candidateText = ns.substring(with: candidateRange).trimmingCharacters(in: .whitespacesAndNewlines)
-                if candidateText.caseInsensitiveCompare(cleanTarget) == .orderedSame {
+                if candidateText.utf8.elementsEqual(cleanTarget.utf8) {
                     traceReplacementTarget(
                         kind: "ios-resolve-match-line-range",
                         target: target,
                         detail: "Matched replacement target using stored line range."
                     )
-                    return (candidateRange, true)
+                    return (ns.range(of: cleanTarget, options: [.literal], range: candidateRange), true)
                 }
             }
 
             if !cleanTarget.isEmpty {
-                let exactRange = ns.range(of: cleanTarget)
+                let exactRange = ns.range(of: cleanTarget, options: [.literal], range: candidateRange)
                 if exactRange.location != NSNotFound {
                     traceReplacementTarget(
                         kind: "ios-resolve-match-exact",
@@ -12692,27 +12710,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                     )
                     return (exactRange, true)
                 }
-
-                let caseInsensitiveRange = ns.range(of: cleanTarget, options: [.caseInsensitive])
-                if caseInsensitiveRange.location != NSNotFound {
-                    traceReplacementTarget(
-                        kind: "ios-resolve-match-case-insensitive",
-                        target: target,
-                        detail: "Matched replacement target using case-insensitive text."
-                    )
-                    return (caseInsensitiveRange, true)
-                }
             }
-
-            if candidateRange.length > 0 {
-                ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
-                    kind: "ios-resolve-fallback-line-range",
-                    target: target,
-                    detail: "Fell back to stored line range without exact text match."
-                )
-                return (candidateRange, true)
-            }
-
             ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
                 kind: "ios-resolve-fallback-selection",
                 target: target,
