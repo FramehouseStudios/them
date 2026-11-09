@@ -380,6 +380,70 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         XCTAssertEqual(fixture.peer.writes.last?.bindings, [binding])
     }
 
+    func testUnscopedPassiveFollowerDoesNotCreateHeldLegacySave() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base", dirty: true)
+        fixture.model.autosaveEnabled = true
+        let save = fixture.startSave()
+        defer {
+            ScreenplayLiveDraftSyncService.shared.attach(to: fixture.model)
+            fixture.peer.releaseFirst(.offline)
+            save.cancel()
+        }
+        try await fixture.waitForFirstSave()
+        ScreenplayLiveDraftSyncService.shared.detach()
+        await fixture.model.debugDispatchPassiveSave()
+        let rows = try await fixture.reloadQueueEntries()
+        XCTAssertEqual(rows.count, 1, "An unverified passive observation must not create an unscoped save.")
+        XCTAssertTrue(rows.allSatisfy { $0.deliveryOrigin != nil })
+        let recovery = fixture.store.dirtyOrdinarySnapshot(ownerUserId: fixture.owner, projectId: "a")
+        XCTAssertEqual(recovery.map { Data($0.draft.utf8) }, Data(fixture.a.utf8))
+    }
+
+    func testUnscopedPassiveFollowerWithNewWordsRemainsDurable() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base", dirty: true)
+        fixture.model.autosaveEnabled = true
+        let save = fixture.startSave()
+        defer {
+            ScreenplayLiveDraftSyncService.shared.attach(to: fixture.model)
+            fixture.peer.releaseFirst(.offline)
+            save.cancel()
+        }
+        try await fixture.waitForFirstSave()
+        let newer = fixture.a + "\nA newer exact writer line."
+        fixture.model.fountainDraft = newer
+        fixture.model.noteManualDraftEdit()
+        ScreenplayLiveDraftSyncService.shared.detach()
+        await fixture.model.debugDispatchPassiveSave()
+        let rows = try await fixture.reloadQueueEntries()
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertTrue(rows.contains { $0.draft.utf8.elementsEqual(newer.utf8) },
+                      "Distinct writer words must remain durable when origin capture fails.")
+    }
+
+    func testUnscopedPassiveFollowerForOtherProjectRemainsDurable() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base", dirty: true)
+        fixture.model.autosaveEnabled = true
+        let save = fixture.startSave()
+        defer {
+            ScreenplayLiveDraftSyncService.shared.attach(to: fixture.model)
+            fixture.peer.releaseFirst(.offline)
+            save.cancel()
+        }
+        try await fixture.waitForFirstSave()
+        fixture.select("b", draft: fixture.a, base: "a-base", dirty: true)
+        ScreenplayLiveDraftSyncService.shared.detach()
+        await fixture.model.debugDispatchPassiveSave()
+        let rows = try await fixture.reloadQueueEntries()
+        XCTAssertTrue(rows.contains { $0.projectId == "b" && $0.draft.utf8.elementsEqual(fixture.a.utf8) },
+                      "A different project's words must not be absorbed by the active save.")
+    }
+
     func testPassiveAutosaveWithNewerWordsRemainsDurableBehindInflightSave() async throws {
         let fixture = try SaveCompletionFixture()
         defer { fixture.close() }
@@ -787,19 +851,6 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         XCTAssertEqual(reopened.latestVersionID, "")
     }
 
-    func testStartupEditDoesNotEraseKnownRecoveryBase() throws {
-        let fixture = try SaveCompletionFixture()
-        defer { fixture.close() }
-        fixture.select("a", draft: fixture.a, base: "a-base", dirty: true)
-        fixture.store.save(ownerUserId: fixture.owner, projectId: "a", draft: fixture.a,
-                           baseVersionId: "a-base", dirty: true)
-        fixture.model.latestVersionID = ""
-        fixture.model.noteManualDraftEdit()
-        let recovery = fixture.store.payloads(ownerUserId: fixture.owner)["a"]
-        XCTAssertEqual(recovery?["draft"] as? String, fixture.a)
-        XCTAssertEqual(recovery?["baseVersionId"] as? String, "a-base")
-    }
-
     func testManualTypingProtectsDifferentUnsurfacedRecoveryCopy() throws {
         let fixture = try SaveCompletionFixture()
         defer { fixture.close() }
@@ -1003,6 +1054,111 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
             XCTAssertEqual((recovery?["preservedConflict"] as? [String: Any])?["draft"] as? String, next)
             XCTAssertEqual(fixture.model.recoveryCandidate?.draft, original)
         }
+    }
+
+    func testUnknownBaseSameTextIsSecuredForDifferentBackend() throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a + "\nServer baseline", base: "a-base", scopedRecovery: true)
+        fixture.model.fountainDraft = fixture.a
+        let original = try fixture.currentOrigin()
+        XCTAssertTrue(fixture.store.save(ownerUserId: fixture.owner, projectId: "a", draft: fixture.a,
+            baseVersionId: "a-base", dirty: true, backendOrigin: original.backendURL))
+        let other = ScreenplayDraftSaveOrigin(documentID: original.documentID,
+            backendURL: URL(string: "https://another.example.invalid")!)
+        fixture.originOverride.value = other
+        fixture.model.latestVersionID = ""
+        fixture.model.noteManualDraftEdit()
+        let recovery = fixture.store.payloads(ownerUserId: fixture.owner)["a"]
+        XCTAssertEqual(recovery?["draft"] as? String, fixture.a)
+        XCTAssertEqual(recovery?["baseVersionId"] as? String, "a-base")
+        guard case let .present(copies) = fixture.overflow.journalCopies(ownerUserID: fixture.owner,
+            projectID: "a", backendURL: other.backendURL) else { return XCTFail("Current backend needs its own recovery copy.") }
+        XCTAssertTrue(copies.contains { $0.draft.utf8.elementsEqual(fixture.a.utf8) && $0.baseVersionID.isEmpty })
+    }
+
+    func testUnknownBaseSameTextIsSecuredForDifferentDocument() throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a + "\nServer baseline", base: "a-base", scopedRecovery: true)
+        fixture.model.fountainDraft = fixture.a
+        let original = try fixture.currentOrigin()
+        XCTAssertTrue(fixture.store.save(ownerUserId: fixture.owner, projectId: "a", draft: fixture.a,
+            baseVersionId: "a-base", dirty: true, backendOrigin: original.backendURL))
+        let other = ScreenplayDraftSaveOrigin(documentID: "other-document", backendURL: original.backendURL)
+        fixture.originOverride.value = other
+        fixture.model.latestVersionID = ""
+        fixture.model.noteManualDraftEdit()
+        let recovery = fixture.store.payloads(ownerUserId: fixture.owner)["a"]
+        XCTAssertEqual(recovery?["baseVersionId"] as? String, "a-base")
+        guard case let .present(copies) = fixture.overflow.journalCopies(ownerUserID: fixture.owner,
+            projectID: "a", backendURL: other.backendURL) else { return XCTFail("Current document needs its own recovery copy.") }
+        XCTAssertTrue(copies.contains { $0.documentID == other.documentID && $0.draft.utf8.elementsEqual(fixture.a.utf8) && $0.baseVersionID.isEmpty })
+    }
+
+    func testRepeatedUnknownBaseObservationKeepsOneScopedCopy() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a + "\nServer baseline", base: "a-base", scopedRecovery: true)
+        let origin = try fixture.currentOrigin()
+        XCTAssertTrue(fixture.store.save(ownerUserId: fixture.owner, projectId: "a", draft: fixture.a,
+            baseVersionId: "a-base", dirty: true, backendOrigin: origin.backendURL))
+        fixture.model.fountainDraft = fixture.a
+        fixture.model.latestVersionID = ""
+        await fixture.model.handleDraftDebouncedChange(fixture.a)
+        await fixture.model.handleDraftDebouncedChange(fixture.a)
+        guard case let .present(copies) = fixture.overflow.journalCopies(ownerUserID: fixture.owner,
+            projectID: "a", backendURL: origin.backendURL) else { return XCTFail("A scoped copy is required.") }
+        let matching = copies.filter { $0.documentID == origin.documentID && $0.baseVersionID.isEmpty &&
+            $0.draft.utf8.elementsEqual(fixture.a.utf8) }
+        XCTAssertEqual(matching.count, 1)
+        let discarded = try XCTUnwrap(matching.first)
+        XCTAssertEqual(fixture.overflow.removeJournalCopyIfMatching(ownerUserID: fixture.owner,
+            projectID: "a", backendURL: origin.backendURL, documentID: origin.documentID, expected: discarded), .deleted)
+        await fixture.model.handleDraftDebouncedChange(fixture.a)
+        guard case let .present(replacements) = fixture.overflow.journalCopies(ownerUserID: fixture.owner,
+            projectID: "a", backendURL: origin.backendURL) else { return XCTFail("The current page needs a new scoped copy.") }
+        XCTAssertTrue(replacements.contains { $0.recordID != discarded.recordID && $0.documentID == origin.documentID &&
+            $0.baseVersionID.isEmpty && $0.draft.utf8.elementsEqual(fixture.a.utf8) })
+    }
+
+    func testUnknownBaseWithoutVerifiedOriginWarnsWhenCopyIsUnscoped() throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base", dirty: true)
+        fixture.originOverride.suppress = true
+        fixture.model.latestVersionID = ""
+        fixture.model.noteManualDraftEdit()
+        let recovery = fixture.store.payloads(ownerUserId: fixture.owner)["a"]
+        XCTAssertEqual(recovery?["baseVersionId"] as? String, "a-base")
+        XCTAssertTrue(fixture.model.errorText.contains("could not be secured locally"))
+    }
+
+    func testCleanUnknownBaseObservationCannotEraseDirtyRecovery() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base")
+        fixture.model.autosaveEnabled = false
+        fixture.store.save(ownerUserId: fixture.owner, projectId: "a", draft: fixture.a,
+                           baseVersionId: "a-base", dirty: true)
+        fixture.model.latestVersionID = ""
+        await fixture.model.handleDraftDebouncedChange(fixture.a)
+        let recovery = fixture.store.dirtyOrdinarySnapshot(ownerUserId: fixture.owner, projectId: "a")
+        XCTAssertEqual(recovery?.draft, fixture.a)
+        XCTAssertEqual(recovery?.baseVersionId, "a-base")
+    }
+
+    func testStartupEditDoesNotEraseKnownRecoveryBase() throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base", dirty: true)
+        fixture.store.save(ownerUserId: fixture.owner, projectId: "a", draft: fixture.a,
+                           baseVersionId: "a-base", dirty: true)
+        fixture.model.latestVersionID = ""
+        fixture.model.noteManualDraftEdit()
+        let recovery = fixture.store.payloads(ownerUserId: fixture.owner)["a"]
+        XCTAssertEqual(recovery?["draft"] as? String, fixture.a)
+        XCTAssertEqual(recovery?["baseVersionId"] as? String, "a-base")
     }
 
     func testSameDocumentNewerAEditsStayDirtyOnTheAcknowledgedBase() async throws {

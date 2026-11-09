@@ -1903,6 +1903,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private let overflowRecoveryStore: ScreenplayRecoveryOverflowStore
     private var activeJournalEdit: (owner: ScreenplayStudioAuthContext, projectID: String,
                                     origin: ScreenplayDraftSaveOrigin, lease: ScreenplayRecoveryJournalLease)?
+    private var passiveJournalCopy: (owner: ScreenplayStudioAuthContext, projectID: String,
+                                     origin: ScreenplayDraftSaveOrigin, lease: ScreenplayRecoveryJournalLease)?
 #if DEBUG
     private var didSeedJournalFullSlotsUITest = false
     @Published var debugJournalFixtureStatus = "idle"
@@ -7800,6 +7802,23 @@ final class ScreenplayStudioViewModel: ObservableObject {
         // Acquire the flight before the first actor hop. A save captured on
         // the old base must not race a queue drain across this suspension.
         if isDraftSaveInFlight {
+            // A transiently unavailable capture cannot create a legacy-looking
+            // row for the exact passive projection of an owned active request.
+            // Compare every writer target after restoring only the verified
+            // origin; distinct words or metadata must still be retained.
+            if request.outboxEntry.isPassiveAutosave, request.deliveryOrigin == nil,
+               !request.hasExplicitBaseSelection, request.conflictTicket == nil,
+               let active = activeDraftSaveRequest, active.conflictTicket == nil,
+               let origin = active.deliveryOrigin,
+               authContextIsCurrent(request.authContext),
+               ScreenplayStudioAuthContextPolicy.matches(expected: active.authContext, current: request.authContext),
+               ScreenplayLiveDraftBridge.shared.draftOrigin.projectID == request.projectId,
+               ScreenplayLiveDraftBridge.shared.draftOrigin.documentID == origin.documentID,
+               origin.permitsBackend(BackendAuthClient.resolvedBackendBaseURL()) {
+                var scopedProjection = request.outboxEntry
+                scopedProjection.deliveryOrigin = origin
+                if scopedProjection.hasSameTargetIgnoringBindingUpdateTime(as: active.outboxEntry) { return }
+            }
             // A passive copy of an already active, exactly scoped save carries
             // no new writer intent. Avoid admitting it after its predecessor
             // has already been acknowledged and removed from the outbox.
@@ -9281,9 +9300,25 @@ final class ScreenplayStudioViewModel: ObservableObject {
             case .occupied, .unconfirmed: return .unconfirmed
             }
         }
+        if !mayAdvanceEdit, let cached = passiveJournalCopy, cached.owner == owner,
+           cached.projectID == projectId, cached.origin == scope,
+           cached.lease.matches(draft: draft, baseVersionID: baseVersionId),
+           case let .present(snapshot) = overflowRecoveryStore.advanceJournalEdit(cached.lease,
+               ownerUserID: ownerUserId, projectID: projectId, backendURL: scope.backendURL,
+               documentID: scope.documentID, draft: draft, baseVersionID: baseVersionId) {
+            let candidate = LocalDraftRecoveryCandidate(owner: owner, projectId: projectId,
+                draft: snapshot.draft, baseVersionId: snapshot.baseVersionID, savedAt: snapshot.savedAt,
+                isPreservedConflict: false, journalSnapshot: snapshot)
+            let identity = recoveryReviewIdentity(candidate)
+            if !reviewedRecoveryCopies.contains(identity),
+               recoveryCandidate.map({ recoveryReviewIdentity($0) != identity }) ?? true {
+                return .secured
+            }
+        }
         guard let lease = overflowRecoveryStore.beginJournalEdit(ownerUserID: ownerUserId, projectID: projectId,
             backendURL: scope.backendURL, documentID: scope.documentID, draft: draft, baseVersionID: baseVersionId) else { return .unconfirmed }
         if mayAdvanceEdit { activeJournalEdit = (owner, projectId, scope, lease) }
+        else { passiveJournalCopy = (owner, projectId, scope, lease) }
         return .secured
     }
 
@@ -9388,12 +9423,19 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return
         }
         // An unknown startup base cannot supersede a known-base writer copy.
-        if dirty, baseVersionId.isEmpty,
+        if baseVersionId.isEmpty,
            let existing = localDraftRecoveryStore.dirtyOrdinarySnapshot(ownerUserId: ownerID, projectId: normalizedProjectId),
            !existing.baseVersionId.isEmpty {
-            if !existing.draft.utf8.elementsEqual(draft.utf8) {
-                switch secureRecoveryCopy(ownerUserId: ownerID, projectId: normalizedProjectId,
-                                          draft: draft, baseVersionId: baseVersionId, savedAt: savedAt, allowJournalFastPath: isManualEdit) {
+            // Ordinary copies have no document identity. Preserve this edit
+            // under its verified document even when the bytes happen to match.
+            if dirty {
+                guard let origin = currentRecoveryOrigin(projectID: normalizedProjectId) else {
+                    errorText = "This page could not be secured locally. Keep it open and export it or retry Save."
+                    return
+                }
+                switch secureJournalCopy(ownerUserId: ownerID, projectId: normalizedProjectId,
+                                         draft: draft, baseVersionId: baseVersionId,
+                                         scope: origin, mayAdvanceEdit: isManualEdit) {
                 case .secured: break
                 case .occupied, .unconfirmed:
                     errorText = "This page could not be secured locally. Keep it open and export it or retry Save."
