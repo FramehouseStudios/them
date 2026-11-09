@@ -466,6 +466,7 @@ struct ScreenplayStudioScreen: View {
             "is_saving": vm.isSaving,
             "queued_draft_save_count": vm.queuedDraftSaveCount,
             "parked_draft_save_count": vm.parkedDraftSaveCount,
+            "parked_save_relationships": vm.debugParkedSaveRelationships,
             "manual_save_trigger_count": uiTestManualSaveTriggerCount,
             "debug_automation_session": IOThemRuntime.isStudioAutomationSession,
             "debug_project_client_owner": liveDraftBridge.usesDebugClientTokenOwner(

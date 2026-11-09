@@ -1853,6 +1853,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private var conflictGeneration: UInt64 = 0
     @Published var queuedDraftSaveCount: Int = 0
     @Published var parkedDraftSaveCount: Int = 0
+#if DEBUG
+    @Published var debugParkedSaveRelationships: [String] = []
+#endif
     @Published private var pendingInitialProject: ScreenplayDraftSaveOutboxEntry?
     var hasPendingInitialProject: Bool {
         guard let entry = pendingInitialProject, let metadata = entry.initialization else { return false }
@@ -7296,6 +7299,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let projectID = selectedProjectID
         let backendURL = BackendAuthClient.resolvedBackendBaseURL()
         let snapshot = await draftSaveOutbox.snapshot(ownerUserId: ownerUserId)
+#if DEBUG
+        let debugParkedRelationships = await draftSaveOutbox.debugParkedRelationships(ownerUserId: ownerUserId, projectId: projectID)
+#endif
         let hasUnconfirmedReceipt = if let origin = currentRecoveryOrigin(projectID: projectID) {
             (try? await draftSaveOutbox.hasActiveUnconfirmedReceipt(
                 projectId: projectID, ownerUserId: ownerUserId, deliveryOrigin: origin)) ?? false
@@ -7319,6 +7325,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
         if hasPendingInitialProject, projectID.isEmpty { hasUnsavedDraftChanges = true }
         queuedDraftSaveCount = snapshot.activeCount
         parkedDraftSaveCount = snapshot.parkedCount
+#if DEBUG
+        debugParkedSaveRelationships = debugParkedRelationships
+#endif
         if unconfirmedQueueUpdate?.ownerUserID == ownerUserId,
            unconfirmedQueueUpdate?.projectID == projectID {
             autosaveStatusText = "Save needs attention"

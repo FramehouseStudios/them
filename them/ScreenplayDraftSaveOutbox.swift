@@ -409,6 +409,27 @@ actor ScreenplayDraftSaveOutbox {
         networkMonitor = nil
     }
 
+#if DEBUG
+    // Test-only relationships, with no screenplay text, identifiers, or hashes.
+    func debugParkedRelationships(ownerUserId: String, projectId: String) -> [String] {
+        guard (try? loadIfNeeded()) != nil else { return ["storage_unreadable"] }
+        let rows = entries.filter { $0.ownerUserId == ownerUserId &&
+            ($0.status == .parked || ($0.initialization == nil && !hasValidDeliveryScope($0))) }
+        guard let first = rows.first else { return [] }
+        return rows.map { row in
+            [row.projectId == projectId ? "current_project" : "other_project",
+             row.status == .parked ? "parked" : "invalid_scope",
+             hasValidDeliveryScope(row) ? "valid_scope" : "invalid_scope",
+             row.isPassiveAutosave ? "passive" : "nonpassive",
+             row.draft.utf8.elementsEqual(first.draft.utf8) ? "same_draft" : "different_draft",
+             row.baseVersionId == first.baseVersionId ? "same_base" : "different_base",
+             row.deliveryOrigin == first.deliveryOrigin ? "same_origin" : "different_origin",
+             row.savePredecessor == nil ? "no_predecessor" : "has_predecessor",
+             row.hasSameTargetIgnoringBindingUpdateTime(as: first) ? "same_target" : "different_target"].joined(separator: ",")
+        }
+    }
+#endif
+
     func snapshot(ownerUserId: String? = nil) -> ScreenplayDraftSaveOutboxSnapshot {
         do {
             try loadIfNeeded()
