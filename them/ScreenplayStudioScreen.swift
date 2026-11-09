@@ -9028,7 +9028,7 @@ Current draft version:
                     tint: Color.red.opacity(0.88)
                 )
             }
-            if !vm.infoText.isEmpty {
+            if !vm.infoText.isEmpty && vm.infoText != vm.errorText {
                 studioRailStatusRow(
                     vm.infoText,
                     systemImage: "info.circle.fill",

@@ -8490,7 +8490,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
             )
             await recomputeRevision(for: fountainDraft, source: request.source, api: draftSaveAPI, isCurrent: ownsCompletion)
             guard ownsCompletion() else { return completion(nextVersionId, confirmed: confirmed) }
-            if !errorText.isEmpty {
+            let recoveryWarningForUnsavedDraft = hasUnsavedDraftChanges && errorText == infoText &&
+                (errorText == "This page could not be secured locally. Keep it open and export it or retry Save." ||
+                 errorText == "Other recovery copies are stored. Export this page before closing or retry Save.")
+            if !errorText.isEmpty && !recoveryWarningForUnsavedDraft {
                 errorText = ""
             }
             return completion(nextVersionId, confirmed: confirmed)
@@ -9306,8 +9309,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     draft: draft, baseVersionId: baseVersionId, savedAt: savedAt, allowJournalFastPath: isManualEdit)
                 switch result {
                 case .secured: break
-                case .occupied: errorText = "Other recovery copies are stored. Export this page before closing or retry Save."
-                case .unconfirmed: errorText = "This page could not be secured locally. Keep it open and export it or retry Save."
+                case .occupied:
+                    errorText = "Other recovery copies are stored. Export this page before closing or retry Save."
+                    infoText = errorText
+                case .unconfirmed:
+                    errorText = "This page could not be secured locally. Keep it open and export it or retry Save."
+                    infoText = errorText
                 }
             }
             return
@@ -9350,6 +9357,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     infoText = "Your current page has a separate local copy. The usual recovery storage could not be confirmed; review your recovery copies."
                 } else {
                     errorText = "This page could not be secured locally. Keep it open and export it or retry Save."
+                    infoText = errorText
                 }
             }
             return
