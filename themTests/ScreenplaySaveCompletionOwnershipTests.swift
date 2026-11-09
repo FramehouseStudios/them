@@ -155,6 +155,231 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         try await fixture.waitForSave(save)
     }
 
+    func testSuspendedPassiveAdmissionDoesNotDispatchAfterManualConfirmation() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer {
+            fixture.model.debugBeforePendingSaveAdmission = nil
+            fixture.close()
+        }
+        fixture.select("a", draft: fixture.a, base: "a-base", dirty: true)
+        fixture.model.autosaveEnabled = true
+        let decoder = JSONDecoder()
+        fixture.model.screenplayBindings = [try decoder.decode(BackendScreenplayBindingRecord.self,
+            from: Data("{\"draftSceneId\":\"manual-projection\",\"updatedAt\":100}".utf8))]
+        let manualSave = fixture.startSave()
+        defer { fixture.peer.releaseFirst(.offline); manualSave.cancel() }
+        try await fixture.waitForFirstSave()
+
+        let admissionStarted = expectation(description: "passive admission suspended")
+        let releaseAdmission = expectation(description: "release passive admission")
+        fixture.model.debugBeforePendingSaveAdmission = { _ in
+            admissionStarted.fulfill()
+            _ = await XCTWaiter.fulfillment(of: [releaseAdmission], timeout: 3)
+        }
+        fixture.model.screenplayBindings = [try decoder.decode(BackendScreenplayBindingRecord.self,
+            from: Data("{\"draftSceneId\":\"restored-derived-projection\",\"updatedAt\":200}".utf8))]
+        let passiveSave = Task { @MainActor in
+            await fixture.model.handleDraftDebouncedChange(fixture.a)
+        }
+        let admissionResult = await XCTWaiter.fulfillment(of: [admissionStarted], timeout: 3)
+        XCTAssertEqual(admissionResult, .completed)
+
+        fixture.peer.releaseFirst(.success)
+        try await fixture.waitForSave(manualSave)
+        releaseAdmission.fulfill()
+        await passiveSave.value
+
+        XCTAssertEqual(fixture.peer.writes.count, 1,
+            "A passive request suspended before admission must honor the manual save's fresh confirmation.")
+        let remaining = try await fixture.reloadQueueEntries()
+        XCTAssertTrue(remaining.isEmpty)
+        XCTAssertFalse(fixture.model.debugIsDraftSaveInFlight)
+        XCTAssertNil(fixture.model.debugActiveDraftSaveRequestID,
+            "Absorbing the suspended passive request must not leave a phantom volatile tail.")
+        XCTAssertEqual(fixture.model.screenplayBindings.first?.draftSceneId,
+            "restored-derived-projection")
+    }
+
+    func testSuspendedPassiveAbsorptionRebasesLaterDurableRequest() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer {
+            fixture.model.debugBeforePendingSaveAdmission = nil
+            fixture.close()
+        }
+        fixture.select("a", draft: fixture.a, base: "a-base", dirty: true)
+        fixture.model.autosaveEnabled = true
+        let decoder = JSONDecoder()
+        fixture.model.screenplayBindings = [try decoder.decode(BackendScreenplayBindingRecord.self,
+            from: Data("{\"draftSceneId\":\"manual-projection\",\"updatedAt\":100}".utf8))]
+        let manualSave = fixture.startSave()
+        defer { fixture.peer.releaseFirst(.offline); manualSave.cancel() }
+        try await fixture.waitForFirstSave()
+
+        let passiveAdmissionStarted = expectation(description: "passive admission suspended")
+        let releasePassiveAdmission = expectation(description: "release passive admission")
+        var suspendedRequestID: String?
+        var admissionCount = 0
+        fixture.model.debugBeforePendingSaveAdmission = { requestID in
+            admissionCount += 1
+            guard admissionCount == 1 else { return }
+            suspendedRequestID = requestID
+            passiveAdmissionStarted.fulfill()
+            _ = await XCTWaiter.fulfillment(of: [releasePassiveAdmission], timeout: 3)
+        }
+        fixture.model.screenplayBindings = [try decoder.decode(BackendScreenplayBindingRecord.self,
+            from: Data("{\"draftSceneId\":\"passive-derived-projection\",\"updatedAt\":200}".utf8))]
+        let passiveSave = Task { @MainActor in
+            await fixture.model.handleDraftDebouncedChange(fixture.a)
+        }
+        let admissionResult = await XCTWaiter.fulfillment(of: [passiveAdmissionStarted], timeout: 3)
+        XCTAssertEqual(admissionResult, .completed)
+
+        let newer = fixture.a + "\r\nA later exact request must remain ordered.  \t"
+        fixture.model.fountainDraft = newer
+        fixture.model.noteManualDraftEdit()
+        await fixture.model.manualSaveDraft()
+
+        var rows = try await fixture.reloadQueueEntries()
+        let parked = try XCTUnwrap(rows.first { $0.draft.utf8.elementsEqual(newer.utf8) })
+        XCTAssertEqual(parked.status, .parked)
+        XCTAssertEqual(parked.lastError, ScreenplayDraftSaveOutbox.unprovenPredecessorReason)
+        XCTAssertEqual(parked.savePredecessor?.requestID, suspendedRequestID)
+
+        fixture.peer.releaseFirst(.success)
+        try await fixture.waitForSave(manualSave)
+        releasePassiveAdmission.fulfill()
+        await passiveSave.value
+
+        rows = try await fixture.reloadQueueEntries()
+        let rebased = try XCTUnwrap(rows.first { $0.draft.utf8.elementsEqual(newer.utf8) })
+        XCTAssertEqual(rebased.status, .pending)
+        XCTAssertEqual(rebased.baseVersionId, "a-ack-1")
+        XCTAssertNil(rebased.savePredecessor)
+        XCTAssertEqual(fixture.peer.writes.count, 1,
+            "Absorbing the passive follower must not itself create a duplicate version.")
+
+        await fixture.model.resumeQueuedDraftSavesIfNeeded(force: true)
+        XCTAssertEqual(fixture.peer.writes.count, 2)
+        XCTAssertEqual(fixture.peer.writes.last?.base, "a-ack-1")
+        XCTAssertEqual(fixture.peer.writes.last.map { Data($0.draft.utf8) }, Data(newer.utf8))
+        let remaining = try await fixture.reloadQueueEntries()
+        XCTAssertTrue(remaining.isEmpty)
+    }
+
+    func testConfirmedPassiveReconciliationFencesNewAdmission() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer {
+            fixture.model.debugAfterConfirmedDraftSave = nil
+            fixture.model.debugBeforePendingSaveAdmission = nil
+            fixture.model.debugBeforeConfirmedPassiveReconciliation = nil
+            fixture.close()
+        }
+        fixture.select("a", draft: fixture.a, base: "a-base", dirty: true)
+        fixture.model.autosaveEnabled = true
+        let decoder = JSONDecoder()
+        fixture.model.screenplayBindings = [try decoder.decode(BackendScreenplayBindingRecord.self,
+            from: Data("{\"draftSceneId\":\"manual-projection\",\"updatedAt\":100}".utf8))]
+
+        let confirmedSaveHeld = expectation(description: "confirmed save held before flight cleanup")
+        let releaseConfirmedSave = expectation(description: "release confirmed save")
+        var confirmationCount = 0
+        fixture.model.debugAfterConfirmedDraftSave = { _ in
+            confirmationCount += 1
+            guard confirmationCount == 1 else { return }
+            confirmedSaveHeld.fulfill()
+            _ = await XCTWaiter.fulfillment(of: [releaseConfirmedSave], timeout: 3)
+        }
+        let manualSave = fixture.startSave()
+        defer { fixture.peer.releaseFirst(.offline); manualSave.cancel() }
+        try await fixture.waitForFirstSave()
+
+        let passiveAdmissionStarted = expectation(description: "passive admission suspended")
+        let releasePassiveAdmission = expectation(description: "release passive admission")
+        var admissionCount = 0
+        fixture.model.debugBeforePendingSaveAdmission = { _ in
+            admissionCount += 1
+            guard admissionCount == 1 else { return }
+            passiveAdmissionStarted.fulfill()
+            _ = await XCTWaiter.fulfillment(of: [releasePassiveAdmission], timeout: 3)
+        }
+        fixture.model.screenplayBindings = [try decoder.decode(BackendScreenplayBindingRecord.self,
+            from: Data("{\"draftSceneId\":\"passive-derived-projection\",\"updatedAt\":200}".utf8))]
+        let passiveSave = Task { @MainActor in
+            await fixture.model.handleDraftDebouncedChange(fixture.a)
+        }
+        let passiveAdmissionResult = await XCTWaiter.fulfillment(of: [passiveAdmissionStarted], timeout: 3)
+        XCTAssertEqual(passiveAdmissionResult, .completed)
+
+        fixture.peer.releaseFirst(.success)
+        let confirmationResult = await XCTWaiter.fulfillment(of: [confirmedSaveHeld], timeout: 3)
+        XCTAssertEqual(confirmationResult, .completed)
+        XCTAssertTrue(fixture.model.debugIsDraftSaveInFlight)
+
+        let reconciliationFenced = expectation(description: "volatile passive tail fenced")
+        let releaseReconciliation = expectation(description: "release passive reconciliation")
+        var reconciliationCount = 0
+        fixture.model.debugBeforeConfirmedPassiveReconciliation = { _ in
+            reconciliationCount += 1
+            guard reconciliationCount == 1 else { return }
+            reconciliationFenced.fulfill()
+            _ = await XCTWaiter.fulfillment(of: [releaseReconciliation], timeout: 3)
+        }
+        releasePassiveAdmission.fulfill()
+        let reconciliationResult = await XCTWaiter.fulfillment(of: [reconciliationFenced], timeout: 3)
+        XCTAssertEqual(reconciliationResult, .completed)
+        XCTAssertTrue(fixture.model.debugIsDraftSaveInFlight)
+        XCTAssertNil(fixture.model.debugActiveDraftSaveRequestID,
+            "The confirmed passive follower must not remain visible across reconciliation.")
+
+        let newer = fixture.a + "\r\nA request captured during reconciliation stays durable.  \t"
+        fixture.model.fountainDraft = newer
+        fixture.model.noteManualDraftEdit()
+        await fixture.model.manualSaveDraft()
+
+        let rows = try await fixture.reloadQueueEntries()
+        let pending = try XCTUnwrap(rows.first { $0.draft.utf8.elementsEqual(newer.utf8) })
+        XCTAssertEqual(pending.status, .pending)
+        XCTAssertEqual(pending.baseVersionId, "a-ack-1")
+        XCTAssertNil(pending.savePredecessor)
+
+        releaseReconciliation.fulfill()
+        await passiveSave.value
+        releaseConfirmedSave.fulfill()
+        try await fixture.waitForSave(manualSave)
+
+        XCTAssertEqual(fixture.peer.writes.count, 2)
+        XCTAssertEqual(fixture.peer.writes.map(\.source), ["studio_manual", "studio_manual"])
+        XCTAssertEqual(fixture.peer.writes.last?.base, "a-ack-1")
+        XCTAssertEqual(fixture.peer.writes.last.map { Data($0.draft.utf8) }, Data(newer.utf8))
+        let remaining = try await fixture.reloadQueueEntries()
+        XCTAssertTrue(remaining.isEmpty)
+    }
+
+    func testLaterIndependentPassiveMetadataSaveIsNotAbsorbedByOldConfirmation() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base", dirty: true)
+        fixture.model.autosaveEnabled = true
+        let save = fixture.startSave()
+        defer { fixture.peer.releaseFirst(.offline); save.cancel() }
+        try await fixture.waitForFirstSave()
+        fixture.peer.releaseFirst(.success)
+        try await fixture.waitForSave(save)
+
+        let binding = try JSONDecoder().decode(BackendScreenplayBindingRecord.self,
+            from: Data("{\"draftSceneId\":\"independent-later-projection\",\"updatedAt\":300}".utf8))
+        fixture.model.screenplayBindings = [binding]
+        // This is a separately captured passive intent after the prior flight,
+        // not the suspended follower that named that flight as predecessor.
+        fixture.model.hasUnsavedDraftChanges = true
+        await fixture.model.debugDispatchPassiveSave()
+
+        XCTAssertEqual(fixture.peer.writes.count, 2,
+            "An old confirmation must not absorb an independent later metadata-only save.")
+        XCTAssertEqual(fixture.peer.writes.last?.source, "studio_autosave")
+        XCTAssertEqual(fixture.peer.writes.last?.bindings, [binding])
+    }
+
     func testPassiveAutosaveWithNewerWordsRemainsDurableBehindInflightSave() async throws {
         let fixture = try SaveCompletionFixture()
         defer { fixture.close() }
