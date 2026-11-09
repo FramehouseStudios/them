@@ -2377,6 +2377,9 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertEqual(model.selectedProjectID, entry.projectId, "project scope")
         XCTAssertTrue(model.fountainDraft.utf8.elementsEqual(current.utf8), "draft scope")
         XCTAssertTrue(model.adoptInitialProjectReceipt(receipt), "Receipt must be accepted before checking recovery preservation")
+        model.autosaveEnabled = false
+        await model.handleDraftDebouncedChange(current)
+        XCTAssertFalse(model.hasUnsavedDraftChanges, "The confirmed first page must remain clean after its observer runs.")
         let kept = recovery.dirtyOrdinarySnapshot(ownerUserId: owner.userID, projectId: entry.projectId)
         XCTAssertEqual(kept.map { Data($0.draft.utf8) }, Data(earlier.utf8))
         XCTAssertEqual(kept?.baseVersionId, "earlier-base")
