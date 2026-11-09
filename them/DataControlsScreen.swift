@@ -61,7 +61,7 @@ private enum DataControlAction: Identifiable, Equatable {
         case .clearParkedOutbox(let ids, _):
             return "This deletes \(ids.count) confirmed parked \(ids.count == 1 ? "turn" : "turns") in this account and backend, including any received replies held there. Export first if you need the work. Other accounts and newly arrived turns are not deleted. This cannot be undone."
         case .resumeInterruptedTalk:
-            return "The app closed before queue setup finished. Your exact request was recovered; recovery has not retried it automatically. The original network attempt may already have reached the server. Export first if you want a copy. Queue it with its original request ID for the usual online retry; sending may use Clementine credits."
+            return "This recovered request has not been retried, but the original may have reached the server. Export a copy first if needed. Queue it with its original ID; retrying may use Clementine credits."
         case .discardOutlineRecovery(_, _, let confirmedEntryIDs, _):
             let removalCount = confirmedEntryIDs.count
             let noun = removalCount == 1 ? "saved outline snapshot" : "causally linked outline snapshots"
