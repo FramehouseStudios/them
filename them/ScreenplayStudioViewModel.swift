@@ -7592,6 +7592,23 @@ final class ScreenplayStudioViewModel: ObservableObject {
         // Acquire the flight before the first actor hop. A save captured on
         // the old base must not race a queue drain across this suspension.
         if isDraftSaveInFlight {
+            // A transiently unavailable capture cannot create a legacy-looking
+            // row for the exact passive projection of an owned active request.
+            // Compare every writer target after restoring only the verified
+            // origin; distinct words or metadata must still be retained.
+            if request.outboxEntry.isPassiveAutosave, request.deliveryOrigin == nil,
+               !request.hasExplicitBaseSelection, request.conflictTicket == nil,
+               let active = activeDraftSaveRequest, active.conflictTicket == nil,
+               let origin = active.deliveryOrigin,
+               authContextIsCurrent(request.authContext),
+               ScreenplayStudioAuthContextPolicy.matches(expected: active.authContext, current: request.authContext),
+               ScreenplayLiveDraftBridge.shared.draftOrigin.projectID == request.projectId,
+               ScreenplayLiveDraftBridge.shared.draftOrigin.documentID == origin.documentID,
+               origin.permitsBackend(BackendAuthClient.resolvedBackendBaseURL()) {
+                var scopedProjection = request.outboxEntry
+                scopedProjection.deliveryOrigin = origin
+                if scopedProjection.hasSameTargetIgnoringBindingUpdateTime(as: active.outboxEntry) { return }
+            }
             // A passive copy of an already active, exactly scoped save carries
             // no new writer intent. Avoid admitting it after its predecessor
             // has already been acknowledged and removed from the outbox.
