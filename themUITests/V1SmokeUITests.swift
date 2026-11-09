@@ -103,7 +103,10 @@ final class V1SmokeUITests: XCTestCase {
         let app = launchApp(openStudio: true, openCommandBar: true)
         defer { app.terminate() }
         let prompt = element(identifier: "studio.prompt.field", in: app)
-        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+        guard waitForHittability(of: prompt, timeout: 8) else {
+            return XCTFail("The prompt field was not available to focus.")
+        }
+        prompt.tap()
         guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
         let keyboardSend = app.buttons["studio.prompt.keyboard-send"]
         XCTAssertTrue(keyboardSend.waitForExistence(timeout: 5))
@@ -154,13 +157,41 @@ final class V1SmokeUITests: XCTestCase {
 
     func test_studio_prompt_focus_exposes_single_send_action() throws {
 #if os(iOS)
-        let app = launchApp(openStudio: true, openCommandBar: true)
+        let app = launchApp(openStudio: true, structuralSeed: true)
         defer { app.terminate() }
 
+        let inspector = app.buttons["studio.sidebar.right.toggle"]
+        guard waitForHittability(of: inspector, timeout: 15) else {
+            XCTFail("The Studio inspector control was not tappable."); return
+        }
+        inspector.tap()
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        guard waitForStableFrame(of: drawer, timeout: 15) else {
+            XCTFail("The Studio inspector did not settle."); return
+        }
+        let openCommand = app.buttons["studio.commandbar.open"]
+        guard revealInStudioDrawer(openCommand, drawer: drawer, scrollingUp: true, maxSwipes: 12) else {
+            XCTFail("The command bar control was not available."); return
+        }
+        openCommand.tap()
         let field = element(identifier: "studio.prompt.field", in: app)
-        XCTAssertTrue(field.waitForExistence(timeout: 10), "The Studio prompt field was missing.")
-        XCTAssertTrue(field.isHittable, "The Studio prompt field was not tappable.")
+        guard waitForHittability(of: field, timeout: 15) else {
+            XCTFail("The Studio prompt field was not tappable."); return
+        }
         field.tap()
+        guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
+        let promptText = "Help me shape this scene"
+        field.typeText(promptText)
+        XCTAssertTrue(waitForHittability(of: field, timeout: 8),
+            "The focused prompt must remain visible above the keyboard while writing.")
+        // On loaded simulators typeText can return before all synthesized key
+        // events arrive. Wait for the exact text; do not type it a second time.
+        let delivered = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", promptText), object: field
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [delivered], timeout: 8), .completed,
+            "The prompt did not receive the complete typed sentence.")
+        XCTAssertEqual(field.value as? String, promptText)
 
         let inlineSend = app.buttons["studio.prompt.send"]
         XCTAssertTrue(inlineSend.exists, "The composer must retain its single visible Send action.")
@@ -1346,11 +1377,15 @@ final class V1SmokeUITests: XCTestCase {
             "Studio did not open against the temporary writer-loop backend.\n\(app.debugDescription)"
         )
 
-        let leftDrawerToggle = app.buttons["studio.sidebar.left.toggle"]
-        XCTAssertTrue(waitForHittability(of: leftDrawerToggle, timeout: writerLoopWait(5)))
-        if !element(identifier: "studio.sidebar.left.drawer", in: app).exists {
-            leftDrawerToggle.tap()
+        let createProjectAction = app.buttons["Create Project"]
+        guard waitForHittability(of: createProjectAction, timeout: writerLoopWait(15)) else {
+            XCTFail("The page did not expose its Create Project action after loading."); return
         }
+        createProjectAction.tap()
+        guard element(identifier: "studio.sidebar.left.drawer", in: app).waitForExistence(timeout: writerLoopWait(8)) else {
+            XCTFail("Create Project did not open the Projects drawer."); return
+        }
+        let leftDrawerToggle = app.buttons["studio.sidebar.left.toggle"]
         let projectTitleField = app.textFields["New project title"]
         XCTAssertTrue(
             waitForHittability(of: projectTitleField, timeout: writerLoopWait(8)),
@@ -1628,6 +1663,10 @@ final class V1SmokeUITests: XCTestCase {
                 .waitForExistence(timeout: writerLoopWait(10)),
             "Markdown export did not confirm the native Files save.\n\(app.debugDescription)"
         )
+        guard waitForNativeFilesExporter(in: app, presented: false, timeout: writerLoopWait(10)) else {
+            XCTFail("The Files exporter did not dismiss after saving; the app was not relaunched.")
+            return
+        }
         app.terminate()
 
         app = launchApp(
@@ -1737,11 +1776,19 @@ final class V1SmokeUITests: XCTestCase {
     }
 
     func test_inspector_navigation_stays_visible_while_panel_scrolls() {
-        let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true)
+        let app = launchApp(openStudio: true, structuralSeed: true)
         defer { app.terminate() }
+        let inspector = app.buttons["studio.sidebar.right.toggle"]
+        guard waitForHittability(of: inspector, timeout: 15) else {
+            XCTFail("The Studio inspector control was not tappable."); return
+        }
+        inspector.tap()
         let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        guard waitForStableFrame(of: drawer, timeout: 15) else {
+            XCTFail("The Studio inspector did not settle."); return
+        }
         let tab = app.buttons["studio.right-panel.draft"]
-        guard tab.waitForExistence(timeout: 8), tab.isHittable else {
+        guard waitForHittability(of: tab, timeout: 8) else {
             XCTFail("The inspector navigation must be visible before scrolling.")
             return
         }
@@ -1764,8 +1811,17 @@ final class V1SmokeUITests: XCTestCase {
     }
 
     func test_all_studio_inspector_tabs_route_to_real_panels_and_report_selection() {
-        let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true)
+        let app = launchApp(openStudio: true, structuralSeed: true)
         defer { app.terminate() }
+        let inspector = app.buttons["studio.sidebar.right.toggle"]
+        guard waitForHittability(of: inspector, timeout: 15) else {
+            XCTFail("The Studio inspector control was not tappable."); return
+        }
+        inspector.tap()
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        guard waitForStableFrame(of: drawer, timeout: 15) else {
+            XCTFail("The Studio inspector did not settle."); return
+        }
 
         let routes = [
             (tab: "draft", panel: "studio.draft.tools.pages"),
@@ -1775,13 +1831,11 @@ final class V1SmokeUITests: XCTestCase {
             (tab: "them", panel: "studio.them.panel"),
             (tab: "saved", panel: "studio.saved.save"),
         ]
-        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
-
         for route in routes {
             let tab = app.buttons["studio.right-panel.\(route.tab)"]
             // Navigation stays pinned; selecting it must not require a
             // scroll/reopen recovery sequence.
-            guard tab.waitForExistence(timeout: 8), tab.isHittable else {
+            guard waitForHittability(of: tab, timeout: 15) else {
                 XCTFail("Missing pinned \(route.tab) inspector tab")
                 return
             }
@@ -5404,6 +5458,26 @@ final class V1SmokeUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
         return !element.exists
+    }
+
+    /// Wait for the drawer's opening animation to finish before tapping a tab.
+    /// Existence and hittability alone can be true while its frame is moving.
+    private func waitForStableFrame(of element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        var previous = CGRect.null
+        var stableSince: Date?
+        while Date() < deadline {
+            let frame = element.exists ? element.frame : .null
+            if !frame.isNull, !frame.isEmpty, frame == previous {
+                if let stableSince, Date().timeIntervalSince(stableSince) >= 0.4 { return true }
+                if stableSince == nil { stableSince = Date() }
+            } else {
+                stableSince = nil
+                previous = frame
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        return false
     }
 
     private func waitForHittability(

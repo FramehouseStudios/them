@@ -2303,6 +2303,89 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     }
 
     @MainActor
+    func testRelaunchRestoresExactParkedWriterAfterServerPageWasPersisted() async throws {
+        let restoreOwner = try installAuthenticatedFixtureOwner()
+        defer { restoreOwner() }
+        let owner = ScreenplayStudioAuthContext.current()
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let local = "Exact queued writer words cafe\u{0301}.  \r\n"
+        let server = "Server collaborator words."
+        var entry = replacingOwner(of: makeEntry(id: "server-first-conflict", draft: local), with: owner.userID)
+        entry.deliveryOrigin = .init(documentID: "server-first-document", backendURL: BackendAuthClient.resolvedBackendBaseURL())
+        let bridge = ScreenplayLiveDraftBridge.shared
+        XCTAssertTrue(bridge.adoptLoadedProjectDraft(local, projectID: entry.projectId,
+            versionID: entry.baseVersionId, owner: owner, queuedEntry: entry))
+        bridge.draftText = server
+        try await queue.enqueue(entry)
+        _ = try await queue.retainConflict(entry)
+        let suite = "them.conflict-server-first.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite); ScreenplayLiveDraftSyncService.shared.detach() }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        XCTAssertTrue(recovery.save(ownerUserId: owner.userID, projectId: entry.projectId, draft: local,
+            baseVersionId: entry.baseVersionId, dirty: true))
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery, draftSaveOutbox: queue)
+        model.autosaveEnabled = false
+        model.selectedProjectID = entry.projectId
+        ScreenplayLiveDraftSyncService.shared.attach(to: model)
+        let project = try JSONDecoder().decode(BackendScreenplayProjectSummary.self,
+            from: JSONSerialization.data(withJSONObject: ["id": entry.projectId, "title": entry.title,
+                "activeVersionId": "server-v2", "versions": [["id": "server-v2", "draft": server]]]))
+        let restored = await model.hydrateDraftRestoringQueuedSaves(from: project)
+        XCTAssertTrue(restored)
+        XCTAssertEqual(Data(model.fountainDraft.utf8), Data(local.utf8))
+        XCTAssertEqual(Data(bridge.draftText.utf8), Data(local.utf8))
+        XCTAssertEqual(model.conflictState?.retainedRequest?.id, entry.id)
+        XCTAssertEqual(model.conflictState?.serverVersionId, "server-v2")
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        let rows = try await queue.entriesForTesting()
+        XCTAssertEqual(rows.first?.status, .parked)
+        XCTAssertEqual(rows.first.map { Data($0.draft.utf8) }, Data(local.utf8))
+    }
+
+    @MainActor
+    func testInitialProjectReceiptCannotOverwriteDifferentDirtyRecovery() async throws {
+        let restoreOwner = try installAuthenticatedFixtureOwner()
+        defer { restoreOwner() }
+        let owner = ScreenplayStudioAuthContext.current()
+        let identity = BackendAuthRequestIdentity(sessionEpoch: 0, userID: owner.userID, clientToken: "", accessToken: "", sessionIntentGeneration: owner.sessionIntentGeneration)
+        let backend = BackendAuthClient.resolvedBackendBaseURL()
+        let current = "The current page is acknowledged."
+        let earlier = "Earlier unsynced writer words.  \n"
+        var entry = replacingOwner(of: makeEntry(id: "initial-receipt-copy", draft: current), with: owner.userID)
+        entry.deliveryOrigin = .init(documentID: "initial-receipt-document", backendURL: backend)
+        let bridge = ScreenplayLiveDraftBridge.shared
+        XCTAssertTrue(bridge.adoptLoadedProjectDraft(current, projectID: entry.projectId,
+            versionID: entry.baseVersionId, owner: owner, queuedEntry: entry))
+        entry.initialization = .init(documentID: "initial-receipt-document", backendURL: backend, sourceProjectID: entry.projectId)
+        let suite = "them.initial-receipt-existing-recovery.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        XCTAssertTrue(recovery.save(ownerUserId: owner.userID, projectId: entry.projectId,
+            draft: earlier, baseVersionId: "earlier-base", dirty: true))
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery)
+        model.selectedProjectID = entry.projectId
+        model.fountainDraft = current
+        let project = try JSONDecoder().decode(BackendScreenplayProjectSummary.self,
+            from: JSONSerialization.data(withJSONObject: ["id": entry.projectId, "title": entry.title]))
+        let receipt = ScreenplayInitialProjectReceipt(entry: entry, project: project,
+            versionID: "new-version", owner: identity, localDraft: current)
+        XCTAssertTrue(ScreenplayStudioAuthContextPolicy.matches(expected: identity.ownerContext, current: ScreenplayStudioAuthContext.current()), "owner scope")
+        XCTAssertTrue(OfflineTalkRecoveryScope.sameBackend(backend, BackendAuthClient.resolvedBackendBaseURL()), "backend scope")
+        XCTAssertEqual(bridge.draftOrigin.documentID, "initial-receipt-document", "document scope")
+        XCTAssertEqual(model.selectedProjectID, entry.projectId, "project scope")
+        XCTAssertTrue(model.fountainDraft.utf8.elementsEqual(current.utf8), "draft scope")
+        XCTAssertTrue(model.adoptInitialProjectReceipt(receipt), "Receipt must be accepted before checking recovery preservation")
+        model.autosaveEnabled = false
+        await model.handleDraftDebouncedChange(current)
+        XCTAssertFalse(model.hasUnsavedDraftChanges, "The confirmed first page must remain clean after its observer runs.")
+        let kept = recovery.dirtyOrdinarySnapshot(ownerUserId: owner.userID, projectId: entry.projectId)
+        XCTAssertEqual(kept.map { Data($0.draft.utf8) }, Data(earlier.utf8))
+        XCTAssertEqual(kept?.baseVersionId, "earlier-base")
+    }
+
+    @MainActor
     func testRelaunchRestoresExactSameOriginConflictAndWriterChoice() async throws {
         let restoreOwner = try installAuthenticatedFixtureOwner()
         defer { restoreOwner() }
@@ -4563,6 +4646,22 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         let afterRows = try await store.entriesForTesting()
         XCTAssertEqual(afterRows, beforeRows)
         XCTAssertEqual(try Data(contentsOf: manifest), beforeBytes)
+    }
+
+    func testConfirmedManualSaveRetiresIdenticalDeclaredPassiveFollower() async throws {
+        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let authority = ScreenplayDraftSaveRequestAuthority(id: UUID(), generation: 1)
+        let first = try makeOrderedManualEntry(id: "manual-predecessor", draft: "Exact writer words", createdAt: 100, authority: authority)
+        _ = try await store.admitPendingSave(first, following: nil)
+        guard case .deliver(let active) = try await store.beginDelivery(first) else {
+            return XCTFail("Expected the manual save to begin delivery")
+        }
+        var passive = makeEntry(id: "passive-follower", draft: "Exact writer words", createdAt: 101, source: "studio_autosave", origin: first.deliveryOrigin, authority: authority)
+        passive.saveOrderingVersion = 1
+        _ = try await store.admitPendingSave(passive, following: active)
+        try await store.markSucceeded(id: active.id, serverVersionId: "verified-v2", mayRebaseDeclaredFollowers: true)
+        let rows = try await store.entriesForTesting()
+        XCTAssertFalse(rows.contains { $0.id == passive.id }, "The exact passive follower should not create a second server version")
     }
 
     func testDeclaredFollowerRebasesButIndependentAndExplicitBaseRequestsDoNot() async throws {
