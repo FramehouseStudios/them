@@ -5532,8 +5532,13 @@ final class V1SmokeUITests: XCTestCase {
             backToBrowse.tap()
             guard waitForDisappearance(of: backToBrowse, timeout: writerLoopWait(3)) else { return false }
         }
-        // The real leading close control has no stable identifier on all runtimes.
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.095, dy: 0.126)).tap()
+        // Files places Cancel differently across iOS versions. Target the
+        // accessible control instead of a coordinate that may hit Browse/Back.
+        let cancelButton = app.buttons["Cancel"]
+        let cancelOther = app.otherElements["Cancel"]
+        let cancel = cancelButton.exists ? cancelButton : cancelOther
+        guard cancel.waitForExistence(timeout: writerLoopWait(3)), cancel.isHittable else { return false }
+        cancel.tap()
         return waitForNativeFilesExporter(in: app, presented: false, timeout: writerLoopWait(8))
     }
 
