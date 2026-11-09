@@ -674,7 +674,7 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
     }
 
     func testOlderSaveDoesNotClearWarningForUnsecuredNewerWords() async throws {
-        let fixture = try SaveCompletionFixture()
+        let fixture = try SaveCompletionFixture(rejectOverflowWrites: true)
         defer { fixture.close() }
         fixture.select("a", draft: fixture.a, base: "a-base")
         let save = fixture.startSave()
