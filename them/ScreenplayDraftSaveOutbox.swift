@@ -831,7 +831,9 @@ actor ScreenplayDraftSaveOutbox {
                     comparableCompleted.hasExplicitBaseSelection = false
                     let acknowledgementAlreadySatisfiesFollower = !hasDeclaredDescendant &&
                         comparableQueued.hasSameTarget(as: comparableCompleted) &&
-                        queued.source.utf8.elementsEqual(completed.source.utf8) &&
+                        (queued.source.utf8.elementsEqual(completed.source.utf8) ||
+                         (queued.isPassiveAutosave && completed.source == "studio_manual" &&
+                          queued.deliveryOrigin != nil)) &&
                         queued.notes.utf8.elementsEqual(completed.notes.utf8)
                     if acknowledgementAlreadySatisfiesFollower {
                         satisfiedFollowerIDs.insert(queued.id)

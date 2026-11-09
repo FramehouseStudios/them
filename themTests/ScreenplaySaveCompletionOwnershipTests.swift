@@ -73,6 +73,24 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         XCTAssertTrue(remainingRows.isEmpty)
     }
 
+    func testConfirmedMatchingAutosaveReadbackDoesNotMarkExactPageDirtyAgain() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base", dirty: true)
+        fixture.model.autosaveEnabled = true
+        let save = Task { await fixture.model.handleDraftDebouncedChange(fixture.a) }
+        defer { fixture.peer.releaseFirst(.offline); save.cancel() }
+        try await fixture.waitForFirstSave()
+        XCTAssertEqual(fixture.peer.writes.first?.source, "studio_autosave")
+        fixture.peer.releaseFirst(.matchingConflict)
+        await save.value
+        XCTAssertEqual(fixture.model.latestVersionID, "a-remote")
+        XCTAssertFalse(fixture.model.hasUnsavedDraftChanges)
+        await fixture.model.handleDraftDebouncedChange(fixture.a)
+        XCTAssertFalse(fixture.model.hasUnsavedDraftChanges, "Confirmed exact words must remain clean.")
+        XCTAssertEqual(fixture.peer.writes.count, 1, "A later observer must not submit the same page again.")
+    }
+
     func testPassiveAutosaveMatchingInflightManualSaveDoesNotCreateAnotherRequest() async throws {
         let fixture = try SaveCompletionFixture()
         defer { fixture.close() }
@@ -375,6 +393,51 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         try await assertRejectedAStaysScoped(.offline, expectedStatus: .pending)
     }
 
+    func testUnknownBaseEditKeepsOlderAndNewerWordsSeparate() throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base", dirty: true)
+        fixture.store.save(ownerUserId: fixture.owner, projectId: "a", draft: fixture.a,
+                           baseVersionId: "a-base", dirty: true)
+        let newer = fixture.a + "\nNewer unknown-base words."
+        fixture.model.latestVersionID = ""
+        fixture.model.fountainDraft = newer
+        fixture.model.noteManualDraftEdit()
+        let recovery = fixture.store.payloads(ownerUserId: fixture.owner)["a"]
+        XCTAssertEqual(recovery?["draft"] as? String, fixture.a)
+        XCTAssertEqual(recovery?["baseVersionId"] as? String, "a-base")
+        let preserved = recovery?["preservedConflict"] as? [String: Any]
+        XCTAssertEqual(preserved?["draft"] as? String, newer)
+        XCTAssertEqual(preserved?["baseVersionId"] as? String, "")
+    }
+
+    func testCleanUnknownBaseObservationCannotEraseDirtyRecovery() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base")
+        fixture.model.autosaveEnabled = false
+        fixture.store.save(ownerUserId: fixture.owner, projectId: "a", draft: fixture.a,
+                           baseVersionId: "a-base", dirty: true)
+        fixture.model.latestVersionID = ""
+        await fixture.model.handleDraftDebouncedChange(fixture.a)
+        let recovery = fixture.store.dirtyOrdinarySnapshot(ownerUserId: fixture.owner, projectId: "a")
+        XCTAssertEqual(recovery?.draft, fixture.a)
+        XCTAssertEqual(recovery?.baseVersionId, "a-base")
+    }
+
+    func testStartupEditDoesNotEraseKnownRecoveryBase() throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base", dirty: true)
+        fixture.store.save(ownerUserId: fixture.owner, projectId: "a", draft: fixture.a,
+                           baseVersionId: "a-base", dirty: true)
+        fixture.model.latestVersionID = ""
+        fixture.model.noteManualDraftEdit()
+        let recovery = fixture.store.payloads(ownerUserId: fixture.owner)["a"]
+        XCTAssertEqual(recovery?["draft"] as? String, fixture.a)
+        XCTAssertEqual(recovery?["baseVersionId"] as? String, "a-base")
+    }
+
     func testSameDocumentNewerAEditsStayDirtyOnTheAcknowledgedBase() async throws {
         let fixture = try SaveCompletionFixture()
         defer { fixture.close() }
@@ -563,6 +626,62 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         XCTAssertEqual(rows.first.map { Data($0.draft.utf8) }, Data(fixture.a.utf8))
         XCTAssertTrue(fixture.peer.writes.isEmpty)
         XCTAssertFalse(fixture.model.debugIsDraftSaveInFlight)
+    }
+
+    func testQueuedConflictAfterServerHydrationKeepsWriterDraftOnPage() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        let writerDraft = fixture.a + "\r\nWriter's exact queued words.  \t"
+        let serverDraft = "Other A words"
+        fixture.select("a", draft: serverDraft, base: "a-remote")
+        fixture.store.save(ownerUserId: fixture.owner, projectId: "a", draft: writerDraft,
+            baseVersionId: "a-base", dirty: true)
+        var queued = ScreenplayDraftSaveOutboxEntry(id: UUID().uuidString, projectId: "a", ownerUserId: fixture.owner,
+            draft: writerDraft, title: "A", phase: "draft", notes: "", source: "studio_manual",
+            studioWriteAnchors: [], screenplayBindings: [], baseVersionId: "a-base", createdAt: 1, updatedAt: 1,
+            status: .pending, retries: 0, nextAttemptAt: 0, lastError: "")
+        queued.deliveryOrigin = try fixture.currentOrigin()
+        try await fixture.queue.enqueue(queued)
+        let drain = Task { await fixture.model.resumeQueuedDraftSavesIfNeeded(force: true) }
+        defer { fixture.peer.releaseFirst(.offline); drain.cancel() }
+        try await fixture.waitForFirstSave()
+        fixture.peer.releaseFirst(.conflict)
+        await drain.value
+        XCTAssertEqual(Data(fixture.model.fountainDraft.utf8), Data(writerDraft.utf8),
+            "A stale queued save must not leave the server copy presented as the writer's local conflict page")
+        XCTAssertTrue(fixture.model.hasUnsavedDraftChanges)
+        let rows = try await fixture.reloadQueueEntries()
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.status, .parked)
+        XCTAssertEqual(rows.first.map { Data($0.draft.utf8) }, Data(writerDraft.utf8))
+        let recovery = fixture.store.dirtyOrdinarySnapshot(ownerUserId: fixture.owner, projectId: "a")
+        XCTAssertEqual(recovery.map { Data($0.draft.utf8) }, Data(writerDraft.utf8))
+    }
+
+    func testQueuedConflictNeverOverwritesDifferentDirtyRecoveryCopy() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        let queuedDraft = fixture.a + "\nEarlier queued words."
+        let newerDraft = queuedDraft + "\nNewer exact words.  \t"
+        fixture.select("a", draft: "Other A words", base: "a-remote")
+        fixture.store.save(ownerUserId: fixture.owner, projectId: "a", draft: newerDraft,
+            baseVersionId: "a-base", dirty: true)
+        var queued = ScreenplayDraftSaveOutboxEntry(id: UUID().uuidString, projectId: "a", ownerUserId: fixture.owner,
+            draft: queuedDraft, title: "A", phase: "draft", notes: "", source: "studio_manual",
+            studioWriteAnchors: [], screenplayBindings: [], baseVersionId: "a-base", createdAt: 1, updatedAt: 1,
+            status: .pending, retries: 0, nextAttemptAt: 0, lastError: "")
+        queued.deliveryOrigin = try fixture.currentOrigin()
+        try await fixture.queue.enqueue(queued)
+        let drain = Task { await fixture.model.resumeQueuedDraftSavesIfNeeded(force: true) }
+        defer { fixture.peer.releaseFirst(.offline); drain.cancel() }
+        try await fixture.waitForFirstSave()
+        fixture.peer.releaseFirst(.conflict)
+        await drain.value
+        let recovery = fixture.store.dirtyOrdinarySnapshot(ownerUserId: fixture.owner, projectId: "a")
+        XCTAssertEqual(recovery.map { Data($0.draft.utf8) }, Data(newerDraft.utf8))
+        let rows = try await fixture.reloadQueueEntries()
+        XCTAssertEqual(rows.first?.status, .parked)
+        XCTAssertEqual(rows.first.map { Data($0.draft.utf8) }, Data(queuedDraft.utf8))
     }
 
     func testManualSaveBehindBackgroundDrainIsDispatchedExactlyOnce() async throws {
@@ -880,7 +999,7 @@ private struct SaveCompletionEnvironmentSnapshot {
 }
 
 private nonisolated final class SaveCompletionPeer: @unchecked Sendable {
-    enum Outcome: Equatable { case success, conflict, offline, versionIDOnly, wrongReceipt, nestedExactReceipt }
+    enum Outcome: Equatable { case success, conflict, matchingConflict, offline, versionIDOnly, wrongReceipt, nestedExactReceipt }
     struct Write {
         let project: String; let base: String; let draft: String; let id: String
         let phase: String; let source: String; let notes: String
@@ -943,6 +1062,17 @@ private nonisolated final class SaveCompletionPeer: @unchecked Sendable {
             transport.respond(status: 409, payload: ["status": "conflict", "conflict": true,
                 "project_id": write.project, "base_version_id": write.base, "server_version_id": "a-remote",
                 "server_version": ["id": "a-remote", "draft": "Other A words"]])
+        case .matchingConflict:
+            do {
+                let anchors = try JSONSerialization.jsonObject(with: JSONEncoder().encode(write.anchors))
+                let bindings = try JSONSerialization.jsonObject(with: JSONEncoder().encode(write.bindings))
+                transport.respond(status: 200, payload: ["status": "conflict", "conflict": true,
+                    "project_id": write.project, "server_version_id": "a-remote",
+                    "project": ["id": write.project, "title": write.project.uppercased(), "active_version_id": "a-remote"],
+                    "server_version": ["id": "a-remote", "project_id": write.project,
+                        "draft": write.draft, "phase": write.phase,
+                        "studio_write_anchors": anchors, "screenplay_bindings": bindings]])
+            } catch { transport.fail(error) }
         case .success, .versionIDOnly, .wrongReceipt, .nestedExactReceipt:
             let version = "\(write.project)-ack-\(number)"
             do {
