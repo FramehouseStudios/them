@@ -776,7 +776,7 @@ function buildPageTargetSizingLines({
 } = {}) {
   const requestedPages = requestedPageBatchFromTask(screenplayTask);
   const target = targetPagesFromContext({ targetPages });
-  const safeCurrentPage = currentPage > 0 ? clamp(currentPage, 1, target) : 0;
+  const safeCurrentPage = currentPage > 0 ? currentPage : 0;
   const activeAct = trimContextLine(requestedAct || explicitAct || sequence?.act, 120);
   const activeSequence = sequence || firstSequenceForActLabel(activeAct);
   const hasSizingContext = Boolean(requestedPages > 0 || safeCurrentPage > 0 || activeSequence || activeAct);
@@ -788,8 +788,8 @@ function buildPageTargetSizingLines({
   ];
 
   if (requestedPages > 0) {
-    const startPage = safeCurrentPage > 0 ? clamp(safeCurrentPage + 1, 1, target) : 0;
-    const endPage = startPage > 0 ? clamp(startPage + requestedPages - 1, startPage, target) : 0;
+    const startPage = safeCurrentPage > 0 ? safeCurrentPage + 1 : 0;
+    const endPage = startPage > 0 ? startPage + requestedPages - 1 : 0;
     const startSequence = startPage > 0 ? findSequenceForPage(startPage, target) : activeSequence;
     const endSequence = endPage > 0 ? findSequenceForPage(endPage, target) : activeSequence;
     const sceneTurnBudget = sceneTurnBudgetForPages(requestedPages);
@@ -812,8 +812,8 @@ function buildPageTargetSizingLines({
     if (stateChangeFloor > 0) lines.push(`    story_state_change_floor: at least ${stateChangeFloor} visible leverage/reveal/cost/tactic shift${stateChangeFloor === 1 ? "" : "s"} across the batch.`);
     lines.push("    sizing_rule: if model space is tight, complete the strongest contiguous page run with a clean handoff; never replace requested pages with an outline.");
   } else if (safeCurrentPage > 0) {
-    const startPage = clamp(safeCurrentPage + 1, 1, target);
-    const endPage = clamp(startPage + 4, startPage, target);
+    const startPage = safeCurrentPage + 1;
+    const endPage = startPage + 4;
     const nextRunSequence = findSequenceForPage(startPage, target) || activeSequence;
     lines.push(`    next_useful_run: p${startPage}-p${endPage} / ${target}`);
     if (nextRunSequence) lines.push(`    next_run_sequence: ${sequenceLabelWithRange(nextRunSequence, target)}`);
@@ -851,7 +851,7 @@ function buildFeaturePageBatchPlanLines({
     `    requested_pages: ${requestedPages}`,
   ];
   if (targetAct) lines.push(`    target_act: ${targetAct}`);
-  if (currentPage > 0) lines.push(`    starting_position: p${clamp(currentPage, 1, targetPages)} / ${targetPages}`);
+  if (currentPage > 0) lines.push(`    starting_position: p${currentPage} / ${targetPages}`);
   if (activeSequence) {
     lines.push(`    active_sequence_pressure: ${activeSequence.act} - ${activeSequence.label}: ${activeSequence.pressure}`);
     lines.push(`    structural_obligation_due_now: ${activeSequence.obligation}`);
@@ -948,7 +948,7 @@ function buildActSequenceObligationStackLines({
   }
 
   if (requestedPages > 0) lines.push(`    requested_batch: ${requestedPages} pages`);
-  if (currentPage > 0) lines.push(`    page_position: p${clamp(currentPage, 1, targetPages)} / ${targetPages}`);
+  if (currentPage > 0) lines.push(`    page_position: p${currentPage} / ${targetPages}`);
   if (actPressureState) lines.push(`    remembered_act_pressure: ${actPressureState}`);
   if (characterArcState) lines.push(`    changed_behavior_due: ${characterArcState}`);
 
@@ -1493,7 +1493,7 @@ function buildNextSceneExecutionBriefLines({
     const range = scaledRange(activeSequence, targetPages);
     lines.push(`    active_sequence_lane: ${activeSequence.act} - ${activeSequence.label} (p${range.start}-${range.end})`);
   }
-  if (currentPage > 0) lines.push(`    current_page_position: p${clamp(currentPage, 1, targetPages)} / ${targetPages}`);
+  if (currentPage > 0) lines.push(`    current_page_position: p${currentPage} / ${targetPages}`);
   if (requestedPages > 0) lines.push(`    requested_run: ${requestedPages} pages`);
   if (characterFocus.length) lines.push(`    character_focus: ${characterFocus.join(", ")}`);
   if (openingHandoff) lines.push(`    opening_handoff: ${openingHandoff}`);
@@ -1823,7 +1823,7 @@ function buildFeatureScreenplayMapBlock({ sessionContext = null, screenplayTask 
   if (currentPage > 0) {
     const current = sequence || FEATURE_SEQUENCE_TEMPLATE[0];
     const range = scaledRange(current, targetPages);
-    lines.push(`  current_position: p${clamp(currentPage, 1, targetPages)} / ${targetPages}`);
+    lines.push(`  current_position: p${currentPage} / ${targetPages}`);
     lines.push(`  current_sequence: ${current.act} - ${current.label} (p${range.start}-${range.end})`);
     if (explicitAct) lines.push(`  active_act_label: ${explicitAct}`);
     lines.push("  due_now:");
