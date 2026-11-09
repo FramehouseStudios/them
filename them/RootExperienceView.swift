@@ -751,10 +751,6 @@ struct RootExperienceView: View {
     @State private var lastNonEmptyPartialTranscriptHint = ""
     @State private var recentTurnWindow: [(user: String, assistant: String)] = []
     @State private var recentTurnWindowHistoryUpdatedAt: TimeInterval = 0
-    @State private var onboardingName = ""
-    @State private var onboardingSceneSeed = ""
-    @State private var isMagicMomentSubmitting = false
-    @State private var magicMomentOnboardingError = ""
     @AppStorage("auth_signed_in") private var authSignedIn: Bool = false
     @AppStorage("auth_session_token_deletion_pending")
     private var authSessionTokenDeletionPending: Bool = false
@@ -780,10 +776,6 @@ struct RootExperienceView: View {
     @State private var studioAccountIdentityGeneration = 0
     @State private var inFlightTalkTask: Task<Void, Never>?
     @State private var didBumpSessionThisLaunch = false
-    @FocusState private var onboardingNameFocused: Bool
-    @FocusState private var onboardingSceneFocused: Bool
-    @AccessibilityFocusState private var onboardingAccessibilityFocused: Bool
-    @AccessibilityFocusState private var onboardingStatusAccessibilityFocused: Bool
     #if os(macOS)
     @State private var keyMonitor: Any?
     #endif
@@ -921,14 +913,6 @@ struct RootExperienceView: View {
 #if DEBUG
     @State private var uiTestRealtimeNetworkFaultStage: ClementineRealtimeFaultStage?
     @State private var uiTestRealtimeNetworkFaultResult = ""
-    @AppStorage("ui_test_magic_moment_submission_count")
-    private var uiTestMagicMomentSubmissionCount = 0
-    @AppStorage("ui_test_magic_moment_voice_start_count")
-    private var uiTestMagicMomentVoiceStartCount = 0
-    @AppStorage("studio_debug_root_submit_prompt")
-    private var uiTestLastRootSubmitPrompt = ""
-    @AppStorage("studio_debug_root_submit_request_id")
-    private var uiTestLastRootSubmitRequestID = ""
 #endif
 #endif
     @State private var lastVisualContextEnvelope: ClementineVisualContextEnvelope?
@@ -1260,23 +1244,7 @@ struct RootExperienceView: View {
         }
 
         if IOThemRuntime.allowsUITestAuthenticationResumeFixture {
-            Text(
-                "Magic moment submissions \(uiTestMagicMomentSubmissionCount). " +
-                "Voice starts \(uiTestMagicMomentVoiceStartCount). " +
-                "Request \(uiTestLastRootSubmitRequestID). " +
-                "Prompt \(uiTestLastRootSubmitPrompt)"
-            )
-                .font(.system(size: 1))
-                .foregroundStyle(Color.clear)
-                .frame(width: 1, height: 1)
-                .allowsHitTesting(false)
-                .accessibilityIdentifier("onboarding.auth-resume.proof")
-                .accessibilityLabel(
-                    "Magic moment submissions \(uiTestMagicMomentSubmissionCount). " +
-                    "Voice starts \(uiTestMagicMomentVoiceStartCount). " +
-                    "Request \(uiTestLastRootSubmitRequestID). " +
-                    "Prompt \(uiTestLastRootSubmitPrompt)"
-                )
+            MagicMomentAuthResumeProofView()
                 .zIndex(101)
         }
 #endif
@@ -2511,12 +2479,7 @@ struct RootExperienceView: View {
             studioWasAuthenticatedSnapshot = session.isAuthenticated && !session.accessExpired
         }
         ensureSessionBumped()
-        onboardingName = evolution.preferredName
-        if evolution.needsOnboardingName {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                onboardingNameFocused = true
-            }
-        } else {
+        if !evolution.needsOnboardingName {
             #if DEBUG
             let shouldRestorePersistedSurface = ThemWorkspaceSurfaceRestorePolicy.shouldRestorePersistedSurface(
                 isRunningUITests: IOThemRuntime.isRunningUITests,
@@ -3224,14 +3187,8 @@ struct RootExperienceView: View {
                     )
                     .themDesktopSheetFrame(minWidth: 900, minHeight: 680)
                 }
-                .sheet(
-                    isPresented: profileAccountPresentationBinding,
-                    onDismiss: handleProfileAccountDismissed
-                ) {
-                    ProfileAccountScreen(
-                        onSessionChanged: handleAccountSessionChanged,
-                        onDone: dismissProfileAccount
-                    )
+                .sheet(isPresented: $showingProfileAccount) {
+                    ProfileAccountScreen(onSessionChanged: handleAccountSessionChanged)
                 }
         )
     }
@@ -3932,307 +3889,54 @@ struct RootExperienceView: View {
     }
 
     private var onboardingOverlay: some View {
-        ZStack {
-            Color.black.opacity(0.08)
-                .ignoresSafeArea()
-
-            VStack(spacing: 22) {
-                VStack(spacing: 8) {
-                    Text("Start your first page")
-                        .font(IOThemTypography.UI.editorialTitle)
-                        .foregroundStyle(IOThemColors.Text.primary)
-                        .multilineTextAlignment(.center)
-                        .accessibilityAddTraits(.isHeader)
-                        .accessibilityFocused($onboardingAccessibilityFocused)
-
-                    Text("Give io.them your name and, if you have one, the spark of a scene.")
-                        .font(IOThemTypography.UI.callout)
-                        .foregroundStyle(IOThemColors.Text.primary.opacity(0.82))
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                VStack(alignment: .leading, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 7) {
-                        Text("Your name")
-                            .font(IOThemTypography.UI.captionStrong)
-                            .foregroundStyle(IOThemColors.Text.primary.opacity(0.88))
-
-                        TextField("How should io.them address you?", text: $onboardingName)
-                            .font(IOThemTypography.UI.body)
-                            .foregroundStyle(IOThemColors.Text.primary)
-                            .textFieldStyle(.plain)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 12)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(IOThemColors.Shell.panelSoft)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .stroke(IOThemColors.Shell.stroke.opacity(0.64), lineWidth: 1)
-                            )
-                            .tint(IOThemColors.Accent.studio)
-                            .focused($onboardingNameFocused)
-                            .submitLabel(.next)
-                            .onSubmit {
-                                if canSubmitOnboarding {
-                                    onboardingSceneFocused = true
-                                }
-                            }
-                            .accessibilityLabel("Your name")
-                            .accessibilityHint("Required. Used to personalize your private writing workspace.")
-                            .accessibilityIdentifier("onboarding.name.field")
-                    }
-
-                    VStack(alignment: .leading, spacing: 7) {
-                        Text("Scene idea (optional)")
-                            .font(IOThemTypography.UI.captionStrong)
-                            .foregroundStyle(IOThemColors.Text.primary.opacity(0.88))
-
-                        TextField(
-                            "A detective finds a letter under a motel door…",
-                            text: $onboardingSceneSeed,
-                            axis: .vertical
-                        )
-                            .font(IOThemTypography.UI.body)
-                            .foregroundStyle(IOThemColors.Text.primary)
-                            .textFieldStyle(.plain)
-                            .lineLimit(3...5)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 12)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(IOThemColors.Shell.panelSoft)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .stroke(IOThemColors.Shell.stroke.opacity(0.64), lineWidth: 1)
-                            )
-                            .tint(IOThemColors.Accent.studio)
-                            .focused($onboardingSceneFocused)
-                            .submitLabel(.go)
-                            .onSubmit {
-                                startMagicMomentOnboarding()
-                            }
-                            .accessibilityLabel("Scene idea, optional")
-                            .accessibilityHint("Describe a scene spark, or leave this empty for a guided first page.")
-                            .accessibilityIdentifier("onboarding.scene.field")
-                    }
-                }
-
-                HStack(spacing: 10) {
-                    Button {
-                        startMagicMomentVoiceOnboarding()
-                    } label: {
-                        Text(magicMomentVoiceButtonTitle)
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.plain)
-                    .font(IOThemTypography.UI.bodyStrong)
-                    .foregroundStyle(IOThemColors.Accent.studio.opacity(canStartMagicMoment ? 1 : 0.44))
-                    .padding(.vertical, 11)
-                    .background(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(IOThemColors.Paper.surface)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .stroke(IOThemColors.Accent.studio.opacity(canStartMagicMoment ? 0.70 : 0.30), lineWidth: 1)
-                    )
-                    .disabled(!canStartMagicMoment)
-                    .accessibilityHint("Opens your private workspace and starts listening for a scene.")
-                    .accessibilityIdentifier("onboarding.voice-to-scene")
-
-                    Button {
-                        startMagicMomentOnboarding()
-                    } label: {
-                        Text(magicMomentPageButtonTitle)
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.plain)
-                    .font(IOThemTypography.UI.bodyStrong)
-                    .foregroundStyle(IOThemColors.Paper.surface.opacity(canStartMagicMoment ? 1 : 0.70))
-                    .padding(.vertical, 11)
-                    .background(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(IOThemColors.Accent.studio.opacity(canStartMagicMoment ? 1 : 0.42))
-                    )
-                    .disabled(!canStartMagicMoment)
-                    .accessibilityHint("Creates a private project and writes a first screenplay page from your scene idea.")
-                    .accessibilityIdentifier("onboarding.start-page")
-                }
-
-                Text(
-                    magicMomentOnboardingError.isEmpty
-                        ? "Your draft stays connected to your private account and syncs across your devices."
-                        : magicMomentOnboardingError
-                )
-                    .font(IOThemTypography.UI.caption)
-                    .foregroundStyle(
-                        magicMomentOnboardingError.isEmpty
-                            ? IOThemColors.Text.primary.opacity(0.76)
-                            : Color.red.opacity(0.92)
-                    )
-                    .multilineTextAlignment(.center)
-                    .lineLimit(3)
-                    .frame(minHeight: 34)
-                    .accessibilityFocused($onboardingStatusAccessibilityFocused)
-            }
-            .padding(28)
-            .frame(maxWidth: 430)
-            .background(
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .fill(IOThemColors.Paper.surface)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .stroke(IOThemColors.Shell.stroke.opacity(0.56), lineWidth: 1)
-            )
-            .shadow(color: IOThemColors.Paper.shadow, radius: 28, x: 0, y: 18)
-            .padding(.horizontal, 20)
-            .accessibilityElement(children: .contain)
-            .accessibilityAddTraits(.isModal)
-            .onAppear {
-                onboardingAccessibilityFocused = true
-            }
-        }
-    }
-
-    private var magicMomentNeedsSignInLabel: Bool {
-        !authSignedIn || authSessionTokenDeletionPending
-    }
-
-    private var magicMomentVoiceButtonTitle: String {
-        magicMomentNeedsSignInLabel ? "Sign in & Use Voice" : "Voice to Scene"
-    }
-
-    private var magicMomentPageButtonTitle: String {
-        if isMagicMomentSubmitting {
-            return showingProfileAccount ? "Waiting for sign-in…" : "Writing…"
-        }
-        return magicMomentNeedsSignInLabel ? "Sign in & Start Page" : "Start Page"
-    }
-
-    private var canSubmitOnboarding: Bool {
-        !onboardingName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    private var canStartMagicMoment: Bool {
-        canSubmitOnboarding && !isMagicMomentSubmitting
+        MagicMomentOnboardingFlow(
+            initialName: evolution.preferredName,
+            onAccountSessionChanged: handleAccountSessionChanged,
+            onStartPage: startAuthenticatedMagicMomentPage,
+            onStartVoice: startAuthenticatedMagicMomentVoice
+        )
     }
 
     @MainActor
-    private func authenticateBeforeMagicMoment(
-        _ requestedAction: ThemMagicMomentOnboardingPolicy.RequestedAction
-    ) -> Bool {
-        let session = BackendAuthClient.currentAuthSessionState()
-        let accessDecision = ThemWorkspaceAuthenticationPolicy.accessDecision(
-            isAuthenticated: session.isAuthenticated,
-            accessTokenExpired: session.accessExpired,
-            refreshTokenPresent: session.refreshTokenPresent,
-            isRunningUITests: IOThemRuntime.bypassesAuthenticationForUITests
-        )
-        let startDecision = ThemMagicMomentOnboardingPolicy.startDecision(
-            workspaceAccessDecision: accessDecision
-        )
-
-        guard startDecision != .proceed else { return true }
-
-        isMagicMomentSubmitting = requestedAction == .page
-        magicMomentOnboardingError =
-            "Sign in to save this draft to your private workspace and sync it across your devices."
-        resumeStudioAfterAccountSignIn = true
-
-        switch startDecision {
-        case .restorePersistedSession:
-            restorePersistedAuthSessionAndOpenStudio()
-        case .presentAccount:
-            openAccount(resumeStudioAfterSignIn: true)
-        case .proceed:
-            break
-        }
-        return false
-    }
-
-    @MainActor
-    private func startMagicMomentOnboarding() {
-        guard !isMagicMomentSubmitting else { return }
-        guard canSubmitOnboarding else {
-            onboardingNameFocused = true
-            return
-        }
-        guard authenticateBeforeMagicMoment(.page) else { return }
-
-        isMagicMomentSubmitting = true
-        resumeStudioAfterAccountSignIn = true
-        guard openStudio(authenticatedPreparation: {
-            _ = completeOnboarding(askForPersonality: false)
-        }) else {
-            magicMomentOnboardingError =
-                "Sign in to save this draft to your private workspace and sync it across your devices."
-            return
-        }
-        resumeStudioAfterAccountSignIn = false
-
-        let cleanName = onboardingName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let sceneSeed = normalizedMagicMomentSceneSeed()
-        let prompt = magicMomentFirstPagePrompt(name: cleanName, sceneSeed: sceneSeed)
-        let requestID = "magic-moment-\(UUID().uuidString.lowercased())"
+    private func startAuthenticatedMagicMomentPage(name: String, sceneSeed: String) async -> String? {
+        guard currentSessionIsAuthenticated else { return "Sign in before writing your first page." }
         let startedAt = Date()
+        openStudio()
+        guard currentSessionIsAuthenticated else { return "Your sign-in expired before the page could start." }
+        guard completeOnboarding(name: name, askForPersonality: false) else { return "Enter your name first." }
 
-        magicMomentOnboardingError = ""
+        let prompt = magicMomentFirstPagePrompt(name: name, sceneSeed: sceneSeed)
+        let requestID = "magic-moment-\(UUID().uuidString.lowercased())"
         screenplayDraftBridge.autoInsertStatusText = "io.them is writing the first page..."
         magicMomentPerceivedResponseMs = Date().timeIntervalSince(startedAt) * 1_000
-
-        Task { @MainActor in
-            await Task.yield()
-            let error = await submitStudioPrompt(prompt, routingMode: .page, requestID: requestID)
-            magicMomentLastDurationMs = Date().timeIntervalSince(startedAt) * 1_000
-            isMagicMomentSubmitting = false
-
-            if let error = error?.trimmingCharacters(in: .whitespacesAndNewlines), !error.isEmpty {
-                magicMomentOnboardingError = error
-                lastIssueSummary = error
-                screenplayDraftBridge.autoInsertStatusText = error
-                return
-            }
-
-            onboardingSceneSeed = ""
-            magicMomentOnboardingError = ""
+        await Task.yield()
+        let error = await submitStudioPrompt(prompt, routingMode: .page, requestID: requestID)
+        magicMomentLastDurationMs = Date().timeIntervalSince(startedAt) * 1_000
+        if let error = error?.trimmingCharacters(in: .whitespacesAndNewlines), !error.isEmpty {
+            lastIssueSummary = error
+            screenplayDraftBridge.autoInsertStatusText = error
+            return error
         }
+        return nil
     }
 
     @MainActor
-    private func startMagicMomentVoiceOnboarding() {
-        guard !isMagicMomentSubmitting else { return }
-        guard canSubmitOnboarding else {
-            onboardingNameFocused = true
-            return
-        }
-        guard authenticateBeforeMagicMoment(.voice) else { return }
-
-        isMagicMomentSubmitting = false
-        resumeStudioAfterAccountSignIn = true
-        guard openStudio(authenticatedPreparation: {
-            _ = completeOnboarding(askForPersonality: false)
-        }) else {
-            magicMomentOnboardingError =
-                "Sign in to save this draft to your private workspace and sync it across your devices."
-            return
-        }
-        resumeStudioAfterAccountSignIn = false
-        magicMomentOnboardingError = ""
-#if DEBUG
-        if IOThemRuntime.allowsUITestAuthenticationResumeFixture {
-            uiTestMagicMomentVoiceStartCount += 1
-        }
-#endif
+    private func startAuthenticatedMagicMomentVoice(name: String) -> String? {
+        guard currentSessionIsAuthenticated else { return "Sign in before using Voice to Scene." }
+        openStudio()
+        guard currentSessionIsAuthenticated else { return "Your sign-in expired before Voice to Scene could start." }
+        guard completeOnboarding(name: name, askForPersonality: false) else { return "Enter your name first." }
         startConversationLoopIfNeeded()
+        return nil
     }
 
-    private func normalizedMagicMomentSceneSeed() -> String {
-        let clean = onboardingSceneSeed.trimmingCharacters(in: .whitespacesAndNewlines)
+    private var currentSessionIsAuthenticated: Bool {
+        let session = BackendAuthClient.currentAuthSessionState()
+        return session.isAuthenticated && !session.accessExpired
+    }
+
+    private func normalizedMagicMomentSceneSeed(_ sceneSeed: String) -> String {
+        let clean = sceneSeed.trimmingCharacters(in: .whitespacesAndNewlines)
         if !clean.isEmpty { return clean }
         return "someone walks into a room carrying a secret they cannot say out loud yet"
     }
@@ -4241,7 +3945,7 @@ struct RootExperienceView: View {
         let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanSeed = sceneSeed.trimmingCharacters(in: .whitespacesAndNewlines)
         let displayName = cleanName.isEmpty ? "the writer" : cleanName
-        let impulse = cleanSeed.isEmpty ? normalizedMagicMomentSceneSeed() : cleanSeed
+        let impulse = cleanSeed.isEmpty ? normalizedMagicMomentSceneSeed(sceneSeed) : cleanSeed
         return """
         Write the first page of a screenplay scene for \(displayName).
 
@@ -4288,25 +3992,23 @@ struct RootExperienceView: View {
         showingMemories = true
     }
 
-    @discardableResult
-    private func openStudio(authenticatedPreparation: (() -> Void)? = nil) -> Bool {
+    private func openStudio() {
         let authSession = BackendAuthClient.currentAuthSessionState()
         switch ThemWorkspaceAuthenticationPolicy.accessDecision(
             isAuthenticated: authSession.isAuthenticated,
             accessTokenExpired: authSession.accessExpired,
             refreshTokenPresent: authSession.refreshTokenPresent,
-            isRunningUITests: IOThemRuntime.bypassesAuthenticationForUITests
+            isRunningUITests: IOThemRuntime.isRunningUITests
         ) {
         case .refreshPersistedSession:
             restorePersistedAuthSessionAndOpenStudio()
-            return false
+            return
         case .requireAccount:
             openAccount(resumeStudioAfterSignIn: true)
-            return false
+            return
         case .openWorkspace:
             break
         }
-        authenticatedPreparation?()
         cancelRealtimeStudioDraftStream(restorePreview: true)
         if !conversationLoopEnabled && (realtimeTransport.isLive || realtimeTransport.isBusy) {
             realtimeTransport.disconnect()
@@ -4344,7 +4046,6 @@ struct RootExperienceView: View {
                 await prewarmRealtimeIfNeeded(isScreenplayMode: true)
             }
         }
-        return true
     }
 
     @MainActor
@@ -4359,11 +4060,9 @@ struct RootExperienceView: View {
                     openAccount(resumeStudioAfterSignIn: true)
                     return
                 }
-                let shouldResumeAfterRefresh = resumeStudioAfterAccountSignIn
+                resumeStudioAfterAccountSignIn = false
                 handleAccountSessionChanged()
-                if !shouldResumeAfterRefresh {
-                    openStudio()
-                }
+                openStudio()
             } catch {
                 openAccount(resumeStudioAfterSignIn: true)
                 lastIssueSummary = "Your saved session could not be refreshed. Sign in again to continue into Studio."
@@ -4376,39 +4075,6 @@ struct RootExperienceView: View {
         showingProfileAccount = true
         if resumeStudioAfterSignIn {
             lastIssueSummary = "Sign in to open Studio and sync your screenplay projects."
-        }
-    }
-
-    private var profileAccountPresentationBinding: Binding<Bool> {
-        Binding(
-            get: { showingProfileAccount },
-            set: { isPresented in
-                guard showingProfileAccount != isPresented else { return }
-                if !isPresented {
-                    handleProfileAccountDismissed()
-                }
-                showingProfileAccount = isPresented
-            }
-        )
-    }
-
-    private func dismissProfileAccount() {
-        handleProfileAccountDismissed()
-        showingProfileAccount = false
-    }
-
-    private func handleProfileAccountDismissed() {
-        let dismissalDecision = ThemMagicMomentOnboardingPolicy.takeAccountDismissalDecision(
-            needsOnboardingName: evolution.needsOnboardingName,
-            shouldResumeAfterAccountSignIn: &resumeStudioAfterAccountSignIn
-        )
-        guard dismissalDecision == .preserveOnboardingDraft else { return }
-        isMagicMomentSubmitting = false
-        magicMomentOnboardingError =
-            "Sign in when you’re ready. Your name and scene idea are still here."
-        onboardingNameFocused = true
-        DispatchQueue.main.async {
-            onboardingStatusAccessibilityFocused = true
         }
     }
 
@@ -4448,27 +4114,11 @@ struct RootExperienceView: View {
             await screenplayDraftBridge.hydrateBackendCompanionState(force: true)
         }
 
-        let resumeDecision = ThemMagicMomentOnboardingPolicy.takeResumeDecision(
-            needsOnboardingName: evolution.needsOnboardingName,
-            shouldResumeAfterAccountSignIn: &resumeStudioAfterAccountSignIn,
-            pageSubmissionPending: isMagicMomentSubmitting
-        )
-
-        guard resumeDecision != .none else { return }
+        guard resumeStudioAfterAccountSignIn else { return }
+        resumeStudioAfterAccountSignIn = false
         showingProfileAccount = false
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-            switch resumeDecision {
-            case .start(.page):
-                isMagicMomentSubmitting = false
-                startMagicMomentOnboarding()
-            case .start(.voice):
-                startMagicMomentVoiceOnboarding()
-            case .openWorkspace:
-                isMagicMomentSubmitting = false
-                openStudio()
-            case .none:
-                break
-            }
+            openStudio()
         }
     }
 
@@ -4497,11 +4147,7 @@ struct RootExperienceView: View {
         case .closeStudio:
             closeStudio()
         case .toggleStudio:
-            if isStudioSurfaceActive {
-                closeStudio()
-            } else {
-                openStudio()
-            }
+            isStudioSurfaceActive ? closeStudio() : openStudio()
         }
     }
 
@@ -5178,9 +4824,7 @@ You're okay. Let's slow it down for one beat and get our footing back. Pick the 
         }
 
         if memoryDomain == .companion || memoryDomain == .mixed {
-            if let detectedName = evolution.updatePreferredNameFromUserTextIfPresent(cleanUser) {
-                onboardingName = detectedName
-            }
+            _ = evolution.updatePreferredNameFromUserTextIfPresent(cleanUser)
             _ = evolution.updatePersonaFromUserTextIfPresent(cleanUser)
             evolution.recordUserMessage(cleanUser)
         }
@@ -6316,13 +5960,10 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
     @MainActor
     @discardableResult
-    private func completeOnboarding(askForPersonality: Bool = true) -> Bool {
-        let clean = onboardingName.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func completeOnboarding(name: String, askForPersonality: Bool = true) -> Bool {
+        let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else { return false }
         evolution.setPreferredName(clean)
-        onboardingName = clean
-        onboardingNameFocused = false
-        onboardingSceneFocused = false
         if askForPersonality {
             verballyAskForPersonalityIfNeeded()
         }
@@ -7848,7 +7489,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
             if let persistedName = result.userName?.trimmingCharacters(in: .whitespacesAndNewlines),
                !persistedName.isEmpty {
                 evolution.setPreferredName(persistedName)
-                onboardingName = persistedName
             }
             await onTurnCommitted(
                 result.commit,
@@ -8006,11 +7646,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
     ) async -> String? {
         let cleanPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanPrompt.isEmpty else { return "Enter a Studio prompt first." }
-#if DEBUG
-        if IOThemRuntime.allowsUITestAuthenticationResumeFixture {
-            uiTestMagicMomentSubmissionCount += 1
-        }
-#endif
 #if DEBUG || os(macOS)
         setStudioDebugPreferenceString("root_submit_started", forKey: "studio_debug_root_submit_stage")
         setStudioDebugPreferenceString(cleanPrompt, forKey: "studio_debug_root_submit_prompt")

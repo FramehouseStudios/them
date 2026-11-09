@@ -255,16 +255,17 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(
             waitForAccessibilityText(
                 identifier: "onboarding.auth-resume.proof",
-                containing: scene,
+                containing: "Magic moment submissions 1.",
                 in: app,
                 timeout: 5
             ),
-            "The resumed request did not retain the writer’s original scene."
+            "The original page intent did not resume exactly once."
         )
         RunLoop.current.run(until: Date().addingTimeInterval(0.5))
         let proofLabel = proof.label
         XCTAssertTrue(proofLabel.contains("Magic moment submissions 1."), proofLabel)
-        XCTAssertFalse(proofLabel.contains("Request ."), proofLabel)
+        XCTAssertTrue(proofLabel.contains("Voice starts 0."), proofLabel)
+        XCTAssertFalse(proofLabel.contains(scene), "Private scene text leaked into the accessibility proof.")
 #else
         throw XCTSkip("The signed-in first-run resume fixture is covered on iPhone.")
 #endif

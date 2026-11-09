@@ -209,111 +209,69 @@ final class ThemWorkspaceNavigationCommandTests: XCTestCase {
         )
     }
 
-    func testMagicMomentResumesThePendingIntentOnlyAfterAccountSignIn() {
-        var shouldResumePage = true
-        XCTAssertEqual(
-            ThemMagicMomentOnboardingPolicy.takeResumeDecision(
-                needsOnboardingName: true,
-                shouldResumeAfterAccountSignIn: &shouldResumePage,
-                pageSubmissionPending: true
-            ),
-            .start(.page)
+    func testMagicMomentConsumesCapturedPageIntentExactlyOnce() {
+        let expected = ThemMagicMomentOnboardingPolicy.PendingIntent.page(
+            name: " Ava ",
+            sceneSeed: "A woman finds a blue key under a motel door."
         )
-        XCTAssertFalse(shouldResumePage)
-        XCTAssertEqual(
-            ThemMagicMomentOnboardingPolicy.takeResumeDecision(
-                needsOnboardingName: true,
-                shouldResumeAfterAccountSignIn: &shouldResumePage,
-                pageSubmissionPending: true
-            ),
-            .none
-        )
+        var pendingIntent: ThemMagicMomentOnboardingPolicy.PendingIntent? = expected
 
-        var shouldResumeVoice = true
         XCTAssertEqual(
-            ThemMagicMomentOnboardingPolicy.takeResumeDecision(
-                needsOnboardingName: true,
-                shouldResumeAfterAccountSignIn: &shouldResumeVoice,
-                pageSubmissionPending: false
-            ),
-            .start(.voice)
+            ThemMagicMomentOnboardingPolicy.takePendingIntent(&pendingIntent),
+            expected,
+            "Authentication resume must preserve the exact name and scene captured before sign-in."
         )
-        XCTAssertFalse(shouldResumeVoice)
-        XCTAssertEqual(
-            ThemMagicMomentOnboardingPolicy.takeResumeDecision(
-                needsOnboardingName: true,
-                shouldResumeAfterAccountSignIn: &shouldResumeVoice,
-                pageSubmissionPending: false
-            ),
-            .none
+        XCTAssertNil(pendingIntent)
+        XCTAssertNil(
+            ThemMagicMomentOnboardingPolicy.takePendingIntent(&pendingIntent),
+            "A late or duplicate authentication callback must not replay the page intent."
         )
-
-        var shouldNotResume = false
-        XCTAssertEqual(
-            ThemMagicMomentOnboardingPolicy.takeResumeDecision(
-                needsOnboardingName: true,
-                shouldResumeAfterAccountSignIn: &shouldNotResume,
-                pageSubmissionPending: true
-            ),
-            .none
-        )
-
-        var shouldOpenWorkspace = true
-        XCTAssertEqual(
-            ThemMagicMomentOnboardingPolicy.takeResumeDecision(
-                needsOnboardingName: false,
-                shouldResumeAfterAccountSignIn: &shouldOpenWorkspace,
-                pageSubmissionPending: true
-            ),
-            .openWorkspace
-        )
-        XCTAssertFalse(shouldOpenWorkspace)
     }
 
-    func testMagicMomentAccountDismissalAlwaysConsumesPendingResumeIntent() {
-        var shouldResumeOnboarding = true
-        XCTAssertEqual(
-            ThemMagicMomentOnboardingPolicy.takeAccountDismissalDecision(
-                needsOnboardingName: true,
-                shouldResumeAfterAccountSignIn: &shouldResumeOnboarding
-            ),
-            .preserveOnboardingDraft
-        )
-        XCTAssertFalse(shouldResumeOnboarding)
-        XCTAssertEqual(
-            ThemMagicMomentOnboardingPolicy.takeResumeDecision(
-                needsOnboardingName: true,
-                shouldResumeAfterAccountSignIn: &shouldResumeOnboarding,
-                pageSubmissionPending: true
-            ),
-            .none,
-            "A late authentication completion must not resume after dismissal."
-        )
-        XCTAssertEqual(
-            ThemMagicMomentOnboardingPolicy.takeAccountDismissalDecision(
-                needsOnboardingName: true,
-                shouldResumeAfterAccountSignIn: &shouldResumeOnboarding
-            ),
-            .none
+    func testMagicMomentConsumesCapturedVoiceIntentExactlyOnce() {
+        let expected = ThemMagicMomentOnboardingPolicy.PendingIntent.voice(name: "Ava")
+        var pendingIntent: ThemMagicMomentOnboardingPolicy.PendingIntent? = expected
+
+        XCTAssertEqual(ThemMagicMomentOnboardingPolicy.takePendingIntent(&pendingIntent), expected)
+        XCTAssertNil(ThemMagicMomentOnboardingPolicy.takePendingIntent(&pendingIntent))
+    }
+
+    func testMagicMomentAccountDismissalCancelsPendingIntent() {
+        var pendingIntent: ThemMagicMomentOnboardingPolicy.PendingIntent? = .page(
+            name: "Ava",
+            sceneSeed: "Keep this draft visible."
         )
 
-        var shouldResumeCompletedOnboarding = true
-        XCTAssertEqual(
-            ThemMagicMomentOnboardingPolicy.takeAccountDismissalDecision(
-                needsOnboardingName: false,
-                shouldResumeAfterAccountSignIn: &shouldResumeCompletedOnboarding
-            ),
-            .none
+        ThemMagicMomentOnboardingPolicy.cancelPendingIntent(&pendingIntent)
+
+        XCTAssertNil(pendingIntent)
+        XCTAssertNil(
+            ThemMagicMomentOnboardingPolicy.takePendingIntent(&pendingIntent),
+            "A late authentication completion must not resume after account dismissal."
         )
-        XCTAssertFalse(shouldResumeCompletedOnboarding)
-        XCTAssertEqual(
-            ThemMagicMomentOnboardingPolicy.takeResumeDecision(
-                needsOnboardingName: false,
-                shouldResumeAfterAccountSignIn: &shouldResumeCompletedOnboarding,
-                pageSubmissionPending: false
-            ),
-            .none,
-            "A late authentication completion must not open Studio after dismissal."
+    }
+
+    func testMagicMomentSuccessfulRestoreReconcilesAccountBeforeResume() {
+        var events: [String] = []
+
+        ThemMagicMomentOnboardingPolicy.reconcileThenResume(
+            reconcileAccountSession: { events.append("reconcile") },
+            resumePendingIntent: { events.append("resume") }
         )
+
+        XCTAssertEqual(events, ["reconcile", "resume"])
+    }
+
+    func testMagicMomentDismissalWinsRaceWithLateAuthenticationCallback() {
+        var pendingIntent: ThemMagicMomentOnboardingPolicy.PendingIntent? = .voice(name: "Ava")
+        var starts = 0
+
+        ThemMagicMomentOnboardingPolicy.cancelPendingIntent(&pendingIntent)
+        if ThemMagicMomentOnboardingPolicy.takePendingIntent(&pendingIntent) != nil {
+            starts += 1
+        }
+
+        XCTAssertEqual(starts, 0)
+        XCTAssertNil(pendingIntent)
     }
 }
