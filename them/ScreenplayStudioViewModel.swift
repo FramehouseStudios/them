@@ -1895,6 +1895,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private var unconfirmedQueueUpdate: (ownerUserID: String, projectID: String)?
     private var pendingDraftSaveRequest: DraftSaveRequest?
     private var activeDraftSaveRequest: DraftSaveRequest?
+    private var lastConfirmedDraftSave: (request: DraftSaveRequest, versionID: String,
+                                         evidence: ScreenplayConfirmedDraftSave)?
     private var shouldQueuePendingDraftSaveAfterFailure = false
     private let localDraftRecoveryStore: ScreenplayLocalDraftRecoveryStore
     private let overflowRecoveryStore: ScreenplayRecoveryOverflowStore
@@ -2388,9 +2390,16 @@ final class ScreenplayStudioViewModel: ObservableObject {
     var debugIsDraftSaveInFlight: Bool {
         isDraftSaveInFlight
     }
+    var debugActiveDraftSaveRequestID: String? { activeDraftSaveRequest?.id }
     var debugAfterDraftSaveClaim: (() -> Void)?
+    var debugAfterConfirmedDraftSave: ((String) async -> Void)?
     var debugBeforePendingSaveAdmission: ((String) async -> Void)?
+    var debugBeforeConfirmedPassiveReconciliation: ((String) async -> Void)?
     var debugAfterDraftDerivedRefresh: (() async -> Void)?
+
+    func debugDispatchPassiveSave() async {
+        await saveCurrentDraft(source: "studio_autosave")
+    }
     #endif
 
     func selectProject(_ projectID: String) async {
@@ -7552,6 +7561,28 @@ final class ScreenplayStudioViewModel: ObservableObject {
         await dispatchDraftSaveRequest(request)
     }
 
+    private func confirmationForCapturedPassivePredecessor(
+        _ request: DraftSaveRequest,
+        predecessor: DraftSaveRequest?
+    ) -> (request: DraftSaveRequest, versionID: String)? {
+        guard request.outboxEntry.isPassiveAutosave, !request.hasExplicitBaseSelection,
+              request.conflictTicket == nil, let predecessor,
+              let confirmed = lastConfirmedDraftSave,
+              confirmed.request.id == predecessor.id,
+              ScreenplayStudioAuthContextPolicy.matches(
+                expected: confirmed.request.authContext,
+                current: request.authContext
+              ), confirmed.evidence.requestID == confirmed.request.id,
+              confirmed.evidence.projectID == confirmed.request.projectId,
+              confirmed.evidence.versionID == confirmed.versionID,
+              confirmed.evidence.draft.utf8.elementsEqual(confirmed.request.draft.utf8),
+              request.outboxEntry.isSatisfiedByAcknowledgement(
+                of: confirmed.request.outboxEntry,
+                versionID: confirmed.versionID
+              ) else { return nil }
+        return (confirmed.request, confirmed.versionID)
+    }
+
     private func dispatchDraftSaveRequest(_ request: DraftSaveRequest) async {
         draftSaveFlightGeneration &+= 1
         if request.outboxEntry.isPassiveAutosave, authContextIsCurrent(request.authContext),
@@ -7601,6 +7632,35 @@ final class ScreenplayStudioViewModel: ObservableObject {
             #if DEBUG
             await debugBeforePendingSaveAdmission?(request.id)
             #endif
+            // The active write can finish while pending admission is
+            // suspended. Its exact confirmed receipt still owns these words;
+            // a passive projection must not manufacture another version.
+            if let confirmation = confirmationForCapturedPassivePredecessor(
+                request,
+                predecessor: previousTail
+            ) {
+                // Do not expose the volatile follower across the actor hop.
+                // A later save captured after confirmation already uses the
+                // confirmed base and can be admitted independently.
+                if activeDraftSaveRequest?.id == request.id {
+                    activeDraftSaveRequest = nil
+                }
+                #if DEBUG
+                await debugBeforeConfirmedPassiveReconciliation?(request.id)
+                #endif
+                do {
+                    try await draftSaveOutbox.absorbConfirmedVolatilePassiveFollower(
+                        request.outboxEntry,
+                        confirmedBy: confirmation.request.outboxEntry,
+                        versionID: confirmation.versionID
+                    )
+                    return
+                } catch {
+                    // Fail closed. If atomic reconciliation cannot prove and
+                    // repair the chain, admit this exact request normally so
+                    // no writer bytes or later dependency are discarded.
+                }
+            }
             do {
                 let admitted = try await draftSaveOutbox.admitPendingSave(
                     request.outboxEntry, following: predecessor)
@@ -7693,6 +7753,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
             activeDraftSaveRequest = activeRequest
             pendingDraftSaveRequest = nil
             let completion = await performDraftSave(activeRequest)
+            #if DEBUG
+            if case .some(.saved(_, _, .some(let confirmed))) = completion {
+                await debugAfterConfirmedDraftSave?(confirmed.requestID)
+            }
+            #endif
             guard let completion else {
                 let queuedRequest = pendingDraftSaveRequest
                 pendingDraftSaveRequest = nil
@@ -7822,7 +7887,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 && (request.deliveryOrigin?.permitsBackend(BackendAuthClient.resolvedBackendBaseURL()) ?? true)
         }
         func completion(_ versionID: String, confirmed: ScreenplayConfirmedDraftSave? = nil) -> DraftSaveCompletion {
-            .saved(versionID: versionID, mayContinueEditing: ownsCompletion(), confirmed: confirmed)
+            if let confirmed {
+                lastConfirmedDraftSave = (request, versionID, confirmed)
+            }
+            return .saved(versionID: versionID, mayContinueEditing: ownsCompletion(), confirmed: confirmed)
         }
         func mayContinueAdmittedSave() async -> Bool {
             // A previously admitted ordinary save owns its captured scope, not
