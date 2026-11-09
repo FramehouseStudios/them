@@ -515,6 +515,65 @@ actor ScreenplayDraftSaveOutbox {
         return try enqueueForDelivery(entry)
     }
 
+    /// An exact passive follower can be satisfied by its predecessor before
+    /// its own suspended admission returns. Rebase any later rows that named
+    /// that volatile follower so they never retain a nonexistent dependency.
+    func absorbConfirmedVolatilePassiveFollower(
+        _ absorbed: ScreenplayDraftSaveOutboxEntry,
+        confirmedBy completed: ScreenplayDraftSaveOutboxEntry,
+        versionID: String
+    ) throws {
+        try loadIfNeeded()
+        guard entries.allSatisfy({ $0.id != absorbed.id }),
+              absorbed.isSatisfiedByAcknowledgement(of: completed, versionID: versionID) else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        let absorbedReference = try makeConflictReference(absorbed)
+        let previous = entries
+        do {
+            var rewritten: [(before: ScreenplayDraftSaveOutboxEntry,
+                             after: ScreenplayDraftSaveOutboxEntry)] = []
+            for index in entries.indices where
+                entries[index].savePredecessor == absorbedReference {
+                let before = entries[index]
+                entries[index].baseVersionId = versionID
+                entries[index].savePredecessor = nil
+                if entries[index].status == .parked,
+                   entries[index].lastError == Self.unprovenPredecessorReason {
+                    entries[index].status = .pending
+                    entries[index].nextAttemptAt = 0
+                    entries[index].lastError = ""
+                }
+                entries[index].updatedAt = Date().timeIntervalSince1970
+                rewritten.append((before, entries[index]))
+            }
+            var propagatedRequestIDs = Set(rewritten.map { $0.after.id })
+            var cursor = 0
+            while cursor < rewritten.count {
+                let pair = rewritten[cursor]
+                cursor += 1
+                let replacement = try makeConflictReference(pair.after)
+                for index in entries.indices where
+                    entries[index].savePredecessor.map({
+                        conflictReference($0, matches: pair.before)
+                    }) == true {
+                    let before = entries[index]
+                    guard propagatedRequestIDs.insert(before.id).inserted else {
+                        throw BackendMemoryAPIError.invalidResponse
+                    }
+                    entries[index].savePredecessor = replacement
+                    entries[index].updatedAt = Date().timeIntervalSince1970
+                    rewritten.append((before, entries[index]))
+                }
+            }
+            try persist()
+            publishSnapshot()
+        } catch {
+            entries = previous
+            throw error
+        }
+    }
+
     /// Delivery must use the ID and base actually retained on disk, including
     /// when a second caller coalesces with an already queued identical save.
     func enqueueForDelivery(_ entry: ScreenplayDraftSaveOutboxEntry) throws -> ScreenplayDraftSaveOutboxEntry {
