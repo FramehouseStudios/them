@@ -9002,10 +9002,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
         let ownerID = currentStudioAuthContext().userID
         // An unknown startup base cannot supersede a known-base writer copy.
-        if dirty, baseVersionId.isEmpty,
+        if baseVersionId.isEmpty,
            let existing = localDraftRecoveryStore.dirtyOrdinarySnapshot(ownerUserId: ownerID, projectId: normalizedProjectId),
            !existing.baseVersionId.isEmpty {
-            if !existing.draft.utf8.elementsEqual(draft.utf8) {
+            if dirty && !existing.draft.utf8.elementsEqual(draft.utf8) {
                 switch secureRecoveryCopy(ownerUserId: ownerID, projectId: normalizedProjectId,
                                           draft: draft, baseVersionId: baseVersionId, savedAt: savedAt) {
                 case .secured: break
