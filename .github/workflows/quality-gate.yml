@@ -87,6 +87,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  god-file-gate:
+    name: God-file gate (D009)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Check god-file growth vs base
+        run: node scripts/check_god_files.mjs
+
   backend-tests:
     name: Backend tests
     runs-on: ubuntu-latest
@@ -113,11 +131,12 @@ jobs:
   quality-gate:
     name: Quality Gate
     runs-on: macos-latest
-    # Measured 2026-09-02/03: repo gate ~10 s, required writer loop 490–590 s,
-    # soft UI smoke 750–1000 s, voice smokes 170–260 s, plus setup — about
-    # 35 min end to end. Without this cap a wedged simulator holds the
-    # required check for the 6-hour default.
-    timeout-minutes: 75
+    # The earlier 75-minute cap assumed ~35 min end to end. Exact hosted run
+    # 37438457583 (2026-10-06) took 21m20s for themTests, 13m29s for the
+    # integrated writer loop, and 37m08s for V1; the cap cancelled the final
+    # voice/macOS gate at 75m. Keep a bounded margin without inheriting GitHub's
+    # 6-hour default, while XCTest's per-test timeouts catch a wedged simulator.
+    timeout-minutes: 105
     env:
       RUN_SERVER: 1
       RUN_EVAL: ${{ github.event_name == 'pull_request' && '0' || (inputs.run_eval && '1' || '0') }}
@@ -195,16 +214,20 @@ jobs:
       - name: Run repo quality gate
         run: bash ./scripts/quality_gate.sh
 
+      # The unit bundle runs before the writer loop so a red unit test fails the
+      # gate in ~10 min instead of after the 8-10 min UI story, and its build
+      # warms the derived data the writer loop then reuses.
+      - name: Run iOS unit bundle themTests (required)
+        run: scripts/run_ios_unit_tests.sh
+
       - name: Run integrated iPhone writer loop (required)
         working-directory: backend
         run: npm run eval:studio-ios-writer-loop-contract
 
-      - name: Run iOS V1 UI smoke tests (soft gate)
-        continue-on-error: true
+      - name: Run iOS V1 UI smoke tests (required)
         run: scripts/run_v1_ui_smoke.sh
 
-      - name: Run iPhone and macOS voice network-fault smokes (soft gate)
-        continue-on-error: true
+      - name: Run iPhone voice-fault smoke and macOS scaffold build (required)
         run: scripts/run_voice_network_fault_smokes.sh
 
       - name: Workflow inputs summary
@@ -228,9 +251,10 @@ jobs:
             echo "- Talk recovery gate: $(gate_status "${RUN_TALK_RECOVERY_GATE}")"
             echo "- Ops alerts: $(gate_status "${RUN_ALERT}")"
             echo "- Load profile: $(gate_status "${RUN_LOAD}")"
+            echo "- iOS unit bundle: required (themTests)"
             echo "- Integrated iPhone writer loop: required"
-            echo "- iOS V1 UI smoke: soft gate (themUITests)"
-            echo "- Voice network faults: soft gate (iPhone + macOS themUITests)"
+            echo "- iOS V1 UI smoke: required (themUITests)"
+            echo "- Voice network-fault smoke: required (iPhone); macOS scaffold build: required"
             echo "- Default secrets for this workflow shape: \`OPENAI_API_KEY\`, \`APP_TOKEN\`"
           } | tee -a "${GITHUB_STEP_SUMMARY}"
 
@@ -243,3 +267,5 @@ jobs:
           path: |
             /tmp/them-quality-gate-backend.log
             /tmp/them-smoke/them-home.png
+            ${{ runner.temp }}/them-v1-ui-smoke/*.xcresult
+            ${{ runner.temp }}/them-voice-network-fault-smokes/*.xcresult

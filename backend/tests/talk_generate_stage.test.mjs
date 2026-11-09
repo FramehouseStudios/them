@@ -141,3 +141,60 @@ test("[D009-B3] runTalkGenerate maps page abort to cancelled error", async () =>
     (err) => isPageCancelledError(err) && Number(err.status) === 409
   );
 });
+
+test("[PR3] runTalkGenerate short-film beta commits wallet with usage.outputTokens", async () => {
+  const commits = [];
+  const req = {
+    clementine: {
+      lane: "Page",
+      commitWallet: (n) => commits.push(n),
+    },
+  };
+  const prev = process.env.CLEMENTINE_SHORT_FILM_BETA;
+  process.env.CLEMENTINE_SHORT_FILM_BETA = "1";
+  // Fake supplier that returns a short-film draft that passes the studio quality gate
+  // Use a longer, valid Fountain draft (like the offline draft) so enforceStudioScreenplayQuality doesn't hard-fail
+  const { generateOfflineShortFilmDraft } = await import("../lib/clementine/short_film_prompt.js");
+  const validDraft = generateOfflineShortFilmDraft({ totalPages: 15, requestedPages: 5, genre: "horror", setting: "bedroom", characters: ["John","Sally","Sam"] });
+  const chatSupplier = makeChatSupplier({
+    chatImpl: async () => ({
+      text: validDraft,
+      usage: { outputTokens: 123 },
+      model: "test-model",
+      apiMode: "chat_completions",
+      reasoningEffort: "low",
+      fallbackUsed: false,
+      response: { ok: true, status: 200 },
+      rawText: JSON.stringify({ choices: [{ message: { content: validDraft } }] }),
+    }),
+  });
+
+  try {
+    const result = await runTalkGenerate({
+      req,
+      rid: "r-beta",
+      logger: { log() {}, warn() {} },
+      chatSupplier,
+      useChatStreaming: false,
+      system: "You are Clementine. Persona + contract.",
+      shortTermContextMessages: [],
+      talkGenerationTranscript: "Hey Clementine, I want to write a short film today 15 pages, genre will be horror film, one location, in a bedroom, three characters, one John, one Sally, one Sam. Write the first five pages and we'll go from there.",
+      chatMessages: [{ role: "user", content: "Hey Clementine, I want to write a short film today 15 pages, genre will be horror film, one location, in a bedroom, three characters, one John, one Sally, one Sam. Write the first five pages and we'll go from there." }],
+      chatModelPlan: { model: "test-model", apiMode: "chat_completions", reasoningEffort: "low", fallbackModel: null },
+      chatTemperature: 0.7,
+      chatMaxTokens: 4000,
+      chatStart: Date.now(),
+    });
+
+    // For page-write, rawReply is the draft but may be filtered by quality gate; main assertion is wallet commit
+    assert.deepEqual(commits, [123], "commitWallet should be called once with usage.outputTokens");
+    assert.equal(result.streamFirstSentence, "", "page-write should not use early TTS");
+    // If draft is available, it should be non-empty; if quality gate filtered, skip
+    if (result.rawReply) {
+      assert.ok(result.rawReply.length > 0);
+    }
+  } finally {
+    if (prev === undefined) delete process.env.CLEMENTINE_SHORT_FILM_BETA;
+    else process.env.CLEMENTINE_SHORT_FILM_BETA = prev;
+  }
+});

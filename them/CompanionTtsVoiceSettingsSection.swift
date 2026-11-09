@@ -1,4 +1,5 @@
 import SwiftUI
+import ScreenplayStudio
 
 /// D010 — Voice settings hooks for ElevenLabs BYOK (Keychain key + voice picker).
 /// Kept out of RootExperienceView / god-file networking (D009).
@@ -26,7 +27,7 @@ struct CompanionTtsVoiceSettingsSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Companion voice provider")
-                .font(.system(size: 13, weight: .semibold))
+                .font(IOThemTypography.UI.calloutStrong)
                 .foregroundStyle(.white.opacity(0.86))
 
             Picker("Provider", selection: $providerRaw) {
@@ -42,7 +43,7 @@ struct CompanionTtsVoiceSettingsSection: View {
                     ? "Audio is synthesized with your ElevenLabs account (BYOK). io.them does not store your key on the server."
                     : "Uses the built-in companion voice path. Platform TTS may use OpenAI or platform ElevenLabs on the server."
             )
-            .font(.system(size: 11, weight: .regular))
+            .font(IOThemTypography.UI.labelRegular)
             .foregroundStyle(.white.opacity(0.46))
 
             if provider == .elevenlabs {
@@ -61,7 +62,7 @@ struct CompanionTtsVoiceSettingsSection: View {
                 Image(systemName: isKeySaved ? "checkmark.seal.fill" : "key.fill")
                     .foregroundStyle(isKeySaved ? Color.green.opacity(0.85) : .white.opacity(0.45))
                 Text(isKeySaved ? "API key saved in Keychain" : "Connect your ElevenLabs API key")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(IOThemTypography.UI.captionMedium)
                     .foregroundStyle(.white.opacity(0.78))
                 Spacer()
                 Button(isKeySaved ? "Replace" : "Connect") {
@@ -140,7 +141,7 @@ struct CompanionTtsVoiceSettingsSection: View {
                                 ? "Selected: \(selectedVoiceId)"
                                 : "Selected: \(selectedVoiceName)"
                         )
-                        .font(.system(size: 11))
+                        .font(IOThemTypography.UI.labelRegular)
                         .foregroundStyle(.white.opacity(0.55))
                         .lineLimit(1)
                     }
@@ -159,10 +160,10 @@ struct CompanionTtsVoiceSettingsSection: View {
                                 HStack {
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(voice.name.isEmpty ? voice.voiceId : voice.name)
-                                            .font(.system(size: 12, weight: .medium))
+                                            .font(IOThemTypography.UI.captionMedium)
                                             .foregroundStyle(.white.opacity(0.88))
                                         Text(voice.category.isEmpty ? voice.voiceId : "\(voice.category) · \(voice.voiceId)")
-                                            .font(.system(size: 10))
+                                            .font(IOThemTypography.UI.microRegular)
                                             .foregroundStyle(.white.opacity(0.42))
                                     }
                                     Spacer()
@@ -182,7 +183,7 @@ struct CompanionTtsVoiceSettingsSection: View {
 
             if !statusMessage.isEmpty {
                 Text(statusMessage)
-                    .font(.system(size: 11))
+                    .font(IOThemTypography.UI.labelRegular)
                     .foregroundStyle(.white.opacity(0.5))
                     .accessibilityIdentifier("voice.tts.elevenlabs.status")
             }

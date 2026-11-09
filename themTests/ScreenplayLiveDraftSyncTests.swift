@@ -194,6 +194,7 @@ private final class FakeLiveDraftEditor: LiveDraftEditorBinding {
     var latestVersionID = "v1"
     var appliedRemoteTexts: [String] = []
     var appliedSourceDevices: [String] = []
+    var preservedLocalDrafts: [(draft: String, projectID: String)] = []
     var adoptedVersions: [(versionID: String, checksum: String)] = []
     var revealedLines: [Int] = []
 
@@ -218,6 +219,10 @@ private final class FakeLiveDraftEditor: LiveDraftEditorBinding {
 
     func revealRemoteEditLine(_ line: Int) {
         revealedLines.append(line)
+    }
+
+    func preserveLocalDraftForLiveSyncRecovery(_ text: String, projectID: String) {
+        preservedLocalDrafts.append((text, projectID))
     }
 
     func adoptRemoteLiveVersion(_ versionID: String, projectID: String, draftChecksum: String) {
@@ -467,6 +472,50 @@ final class ScreenplayLiveDraftSyncServiceTests: XCTestCase {
         XCTAssertEqual(transport.postedSnapshots, ["local unsaved work"])
         XCTAssertEqual(editor.text, "local unsaved work", "a seeded channel never clobbers local edits")
         XCTAssertTrue(editor.appliedRemoteTexts.isEmpty)
+        service.detach()
+    }
+
+    func testHelloWithNoAgreedBaseAdoptsTheChannelInsteadOfConcatenating() async {
+        // Seen live 2026-09-28: on launch the editor held the cached draft and
+        // the channel held nearly the same text. With no agreed base (fresh
+        // mirror) the "rebase" treated both as inserts at 0 and appended one
+        // to the other, and the doubled page was published and autosaved.
+        let channel = "INT. DINER - NIGHT\n\nShe waits."
+        let cached = "INT. DINER - NIGHT\n\nShe waits.\n"
+        let transport = FakeLiveDraftTransport()
+        let editor = FakeLiveDraftEditor(projectID: "proj-1", text: cached)
+        let service = makeService(transport: transport)
+        service.attach(to: editor)
+        await waitUntil { !transport.openedStreams.isEmpty }
+        transport.emit("hello", #"{"seq":5,"checksum":"\#(LiveDraftText.checksum(channel))","seeded":false,"text":"INT. DINER - NIGHT\n\nShe waits."}"#)
+        await waitUntil { !editor.appliedRemoteTexts.isEmpty }
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(editor.text, channel)
+        XCTAssertTrue(transport.postedOps.allSatisfy { !$0.op.insert.contains("INT. DINER") }, "no doubled page is published")
+        XCTAssertEqual(editor.preservedLocalDrafts.count, 1)
+        XCTAssertEqual(editor.preservedLocalDrafts.first?.draft, cached)
+        XCTAssertEqual(editor.preservedLocalDrafts.first?.projectID, "proj-1")
+        service.detach()
+    }
+
+    func testHelloWithoutTextAgreesOnTheTextWhoseChecksumWasSent() async {
+        // Seen live 2026-09-28: the first op after every launch got a 409
+        // checksum_mismatch. The stream opened with the checksum of the
+        // editor text at that moment; the project finished loading before
+        // hello arrived, and the mirror took the newer editor text as agreed.
+        let transport = FakeLiveDraftTransport()
+        let editor = FakeLiveDraftEditor(projectID: "proj-1", text: "EXT. PIER - DAWN")
+        let service = makeService(transport: transport)
+        service.attach(to: editor)
+        await waitUntil { !transport.openedStreams.isEmpty }
+        XCTAssertEqual(transport.openedStreams.first?.checksum, LiveDraftText.checksum("EXT. PIER - DAWN"))
+
+        editor.text = "EXT. PIER - DAWN\n\nGulls."
+        transport.emit("hello", #"{"seq":2,"checksum":"\#(LiveDraftText.checksum("EXT. PIER - DAWN"))","seeded":false}"#)
+        await waitUntil { !transport.postedOps.isEmpty }
+        XCTAssertEqual(transport.postedOps.first?.baseChecksum, LiveDraftText.checksum("EXT. PIER - DAWN"), "the base is the text the server confirmed")
+        XCTAssertEqual(transport.postedOps.first?.baseSeq, 2)
+        XCTAssertEqual(transport.postedOps.first?.op, LiveDraftOp(start: 16, deleteCount: 0, insert: "\n\nGulls."))
         service.detach()
     }
 

@@ -2,6 +2,7 @@ import Combine
 import Foundation
 import StoreKit
 import SwiftUI
+import ScreenplayStudio
 import os
 
 /// A signed StoreKit transaction the app still owes the backend a credit for.
@@ -302,11 +303,11 @@ struct ClementinePackStoreSettingsSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Clementine turn packs")
-                .font(.system(size: 13, weight: .semibold))
+                .font(IOThemTypography.UI.calloutStrong)
                 .foregroundStyle(.white.opacity(0.86))
 
             Text("Buy Companion + Page turns in-app (StoreKit). Credits apply only after the live API verifies the App Store transaction — never TPM.")
-                .font(.system(size: 11, weight: .regular))
+                .font(IOThemTypography.UI.labelRegular)
                 .foregroundStyle(.white.opacity(0.46))
 
             if store.products.isEmpty {
@@ -331,7 +332,7 @@ struct ClementinePackStoreSettingsSection: View {
                                 Text(product.displayName)
                                     .foregroundStyle(.white.opacity(0.9))
                                 Text(product.description)
-                                    .font(.system(size: 11))
+                                    .font(IOThemTypography.UI.labelRegular)
                                     .foregroundStyle(.white.opacity(0.45))
                             }
                             Spacer()
@@ -346,7 +347,7 @@ struct ClementinePackStoreSettingsSection: View {
 
             if !store.statusMessage.isEmpty {
                 Text(store.statusMessage)
-                    .font(.system(size: 11, weight: .regular))
+                    .font(IOThemTypography.UI.labelRegular)
                     .foregroundStyle(.white.opacity(0.55))
                     .accessibilityIdentifier("wallet.packs.status")
             }

@@ -1723,55 +1723,6 @@ struct ScreenplayCharacterVoiceMemoryCacheSnapshot: Codable, Equatable {
     }
 }
 
-struct ScreenplayCharacterVoiceMemoryPersistencePolicy {
-    static let restoredMaxAge: TimeInterval = 30 * 24 * 60 * 60
-
-    static func payloadForStorage(
-        userID: String,
-        memories: [BackendScreenplayCharacterVoiceMemory],
-        updatedAt: Date = Date()
-    ) -> String? {
-        let cleanUserID = userID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanMemories = Array(memories.filter(\.isMeaningful).prefix(24))
-        guard !cleanUserID.isEmpty, !cleanMemories.isEmpty else { return nil }
-        let snapshot = ScreenplayCharacterVoiceMemoryCacheSnapshot(
-            userID: cleanUserID,
-            memories: cleanMemories,
-            updatedAt: updatedAt
-        )
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        guard let data = try? encoder.encode(snapshot) else { return nil }
-        return String(data: data, encoding: .utf8)
-    }
-
-    static func restoredSnapshot(
-        from stored: String?,
-        currentUserID: String,
-        now: Date = Date()
-    ) -> ScreenplayCharacterVoiceMemoryCacheSnapshot? {
-        let cleanCurrentUserID = currentUserID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanCurrentUserID.isEmpty,
-              let stored,
-              let data = stored.data(using: .utf8) else { return nil }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        guard let snapshot = try? decoder.decode(ScreenplayCharacterVoiceMemoryCacheSnapshot.self, from: data),
-              snapshot.isMeaningful,
-              snapshot.userID == cleanCurrentUserID,
-              isFreshForRestore(snapshot, now: now) else { return nil }
-        return snapshot
-    }
-
-    static func isFreshForRestore(
-        _ snapshot: ScreenplayCharacterVoiceMemoryCacheSnapshot,
-        now: Date = Date()
-    ) -> Bool {
-        let age = now.timeIntervalSince(snapshot.updatedAt)
-        return age >= 0 && age < restoredMaxAge
-    }
-}
-
 struct ScreenplayStudioUserPrompt: Identifiable, Equatable {
     enum Source: String, Codable, Equatable {
         case typed
@@ -2761,6 +2712,38 @@ nonisolated struct ScreenplayLiveDraftFileStore {
         try? fileManager.removeItem(at: draftURL(ownerUserID: ownerUserID, fileManager: fileManager))
     }
 
+    #if DEBUG
+    /// Deletes every live draft journal, including the owner-scoped files that
+    /// `remove()` cannot name without knowing each owner. The UI-test reset
+    /// must use this: a signed-out run writes the anonymous-owner journal, and
+    /// leaving it behind seeds the next launch's "empty" Studio with the
+    /// previous test's page.
+    nonisolated static func removeAllForUITesting(fileManager: FileManager = .default) {
+        removeAllForUITesting(
+            in: storageDirectory(fileManager: fileManager),
+            fileManager: fileManager
+        )
+    }
+
+    nonisolated static func removeAllForUITesting(in directory: URL, fileManager: FileManager = .default) {
+        guard let entries = try? fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else { return }
+        for entry in entries where isLiveDraftJournal(entry) {
+            try? fileManager.removeItem(at: entry)
+        }
+    }
+
+    nonisolated static func isLiveDraftJournal(_ url: URL) -> Bool {
+        let name = url.lastPathComponent
+        let baseName = fileName.replacingOccurrences(of: ".fountain", with: "")
+        return name.hasSuffix(".fountain")
+            && (name == fileName || name.hasPrefix(baseName + "."))
+    }
+    #endif
+
     static func migrateDraftIfNeeded(
         from sourceOwnerUserID: String?,
         to destinationOwnerUserID: String,
@@ -2776,11 +2759,15 @@ nonisolated struct ScreenplayLiveDraftFileStore {
         }
     }
 
-    private static func draftURL(ownerUserID: String?, fileManager: FileManager) -> URL {
+    private static func storageDirectory(fileManager: FileManager) -> URL {
         let applicationSupport = fileManager.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
         ).first ?? fileManager.temporaryDirectory
+        return applicationSupport.appendingPathComponent(directoryName, isDirectory: true)
+    }
+
+    private static func draftURL(ownerUserID: String?, fileManager: FileManager) -> URL {
         let resolvedFileName: String
         if let ownerUserID {
             resolvedFileName = ScreenplayOwnerScopedStoragePolicy.storageKey(
@@ -2790,8 +2777,7 @@ nonisolated struct ScreenplayLiveDraftFileStore {
         } else {
             resolvedFileName = fileName
         }
-        return applicationSupport
-            .appendingPathComponent(directoryName, isDirectory: true)
+        return storageDirectory(fileManager: fileManager)
             .appendingPathComponent(resolvedFileName, isDirectory: false)
     }
 }
@@ -8690,70 +8676,6 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     }
 }
 
-struct CursorInsertTextEditor: View {
-    @Binding var text: String
-    @Binding var activeScreenplayElement: ScreenplayEditorElement
-    @Binding var insertionRequest: ScreenplayInsertionRequest?
-    @Binding var lineJumpRequest: ScreenplayLineJumpRequest?
-    @Binding var lineHighlightRequest: ScreenplayLineHighlightRequest?
-    @Binding var anchoredTextRectRequest: ScreenplayAnchoredTextRectRequest?
-    @Binding var anchoredTextRectSnapshot: ScreenplayAnchoredTextRectSnapshot?
-    @Binding var editorFocusRequest: ScreenplayEditorFocusRequest?
-    @Binding var editorActionRequest: ScreenplayEditorActionRequest?
-    @Binding var editorSelection: ScreenplayEditorSelectionSnapshot?
-    @Binding var currentCursorLine: Int
-    @Binding var lastCommittedWrite: ScreenplayCommittedWrite?
-    @Binding var pendingReplacementTarget: ScreenplayPendingReplacementTarget?
-    @Binding var submittedReplacementTarget: ScreenplayPendingReplacementTarget?
-    var onUserEdit: (() -> Void)? = nil
-
-    private var screenplayFont: Font {
-        .custom("Courier", size: 12)
-    }
-
-    var body: some View {
-        #if os(macOS)
-        MacCursorInsertTextEditor(
-            text: $text,
-            activeScreenplayElement: $activeScreenplayElement,
-            insertionRequest: $insertionRequest,
-            lineJumpRequest: $lineJumpRequest,
-            lineHighlightRequest: $lineHighlightRequest,
-            anchoredTextRectRequest: $anchoredTextRectRequest,
-            anchoredTextRectSnapshot: $anchoredTextRectSnapshot,
-            editorFocusRequest: $editorFocusRequest,
-            editorActionRequest: $editorActionRequest,
-            editorSelection: $editorSelection,
-            currentCursorLine: $currentCursorLine,
-            lastCommittedWrite: $lastCommittedWrite,
-            pendingReplacementTarget: $pendingReplacementTarget,
-            submittedReplacementTarget: $submittedReplacementTarget,
-            onUserEdit: onUserEdit
-        )
-        #elseif os(iOS)
-        IOSCursorInsertTextEditor(
-            text: $text,
-            activeScreenplayElement: $activeScreenplayElement,
-            insertionRequest: $insertionRequest,
-            lineJumpRequest: $lineJumpRequest,
-            lineHighlightRequest: $lineHighlightRequest,
-            anchoredTextRectRequest: $anchoredTextRectRequest,
-            anchoredTextRectSnapshot: $anchoredTextRectSnapshot,
-            editorFocusRequest: $editorFocusRequest,
-            editorActionRequest: $editorActionRequest,
-            editorSelection: $editorSelection,
-            currentCursorLine: $currentCursorLine,
-            lastCommittedWrite: $lastCommittedWrite,
-            pendingReplacementTarget: $pendingReplacementTarget,
-            submittedReplacementTarget: $submittedReplacementTarget,
-            onUserEdit: onUserEdit
-        )
-        #else
-        EmptyView()
-        #endif
-    }
-}
-
 #if os(macOS)
 private final class HollywoodScreenplayTextView: NSTextView {
     var draftProvider: () -> String = { "" }
@@ -8812,7 +8734,7 @@ private func hollywoodScreenplayEditorFont() -> NSFont {
     NSFont(name: "Courier", size: 12) ?? NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
 }
 
-private struct MacCursorInsertTextEditor: NSViewRepresentable {
+struct MacCursorInsertTextEditor: NSViewRepresentable {
     @Binding var text: String
     @Binding var activeScreenplayElement: ScreenplayEditorElement
     @Binding var insertionRequest: ScreenplayInsertionRequest?
@@ -10673,7 +10595,7 @@ private struct MacCursorInsertTextEditor: NSViewRepresentable {
 #endif
 
 #if os(iOS)
-private final class HollywoodScreenplayUITextView: UITextView {
+final class HollywoodScreenplayUITextView: UITextView {
     var draftProvider: () -> String = { "" }
     var onElementShortcut: ((ScreenplayEditorElement) -> Void)?
     var onCycleElement: ((Bool) -> Void)?
@@ -10827,7 +10749,7 @@ enum ScreenplayDeferredPublicationGate {
     }
 }
 
-private struct IOSCursorInsertTextEditor: UIViewRepresentable {
+struct IOSCursorInsertTextEditor: UIViewRepresentable {
     @Binding var text: String
     @Binding var activeScreenplayElement: ScreenplayEditorElement
     @Binding var insertionRequest: ScreenplayInsertionRequest?
@@ -10843,6 +10765,8 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
     @Binding var pendingReplacementTarget: ScreenplayPendingReplacementTarget?
     @Binding var submittedReplacementTarget: ScreenplayPendingReplacementTarget?
     var onUserEdit: (() -> Void)? = nil
+    var canSaveDraft = false
+    var onSaveDraft: (() -> Void)? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -10881,6 +10805,22 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
         textView.onLayoutWidthChange = { [weak coordinator = context.coordinator] width in
             coordinator?.updateEditorLayout(width: width)
         }
+        let keyboardToolbar = UIToolbar()
+        keyboardToolbar.sizeToFit()
+        let saveDraftItem = UIBarButtonItem(
+            title: "Save draft",
+            style: .prominent,
+            target: context.coordinator,
+            action: #selector(Coordinator.saveDraftFromKeyboard)
+        )
+        saveDraftItem.accessibilityIdentifier = "studio.draft.keyboard-save"
+        saveDraftItem.isEnabled = canSaveDraft
+        keyboardToolbar.items = [
+            UIBarButtonItem(systemItem: .flexibleSpace),
+            saveDraftItem,
+        ]
+        textView.inputAccessoryView = keyboardToolbar
+        context.coordinator.saveDraftItem = saveDraftItem
         context.coordinator.beginRepresentableUpdate()
         defer { context.coordinator.endRepresentableUpdate() }
         context.coordinator.textView = textView
@@ -10912,6 +10852,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             )
         }
         context.coordinator.textView = uiView
+        context.coordinator.saveDraftItem?.isEnabled = canSaveDraft
         uiView.draftProvider = { uiView.text ?? "" }
         uiView.onElementShortcut = { element in
             context.coordinator.applyShortcutElement(element)
@@ -11000,6 +10941,7 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
 
         var parent: IOSCursorInsertTextEditor
         weak var textView: UITextView?
+        weak var saveDraftItem: UIBarButtonItem?
         var lastKnownActiveElement: ScreenplayEditorElement
         var isApplyingProgrammaticChange = false
         var lastAppliedInsertionID: UUID?
@@ -11054,6 +10996,11 @@ private struct IOSCursorInsertTextEditor: UIViewRepresentable {
             self.parent = parent
             self.lastKnownActiveElement = parent.activeScreenplayElement
             self.lastKnownTextSnapshot = parent.text
+        }
+
+        @objc func saveDraftFromKeyboard() {
+            guard parent.canSaveDraft else { return }
+            parent.onSaveDraft?()
         }
 
         func beginRepresentableUpdate() {

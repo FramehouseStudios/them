@@ -19,7 +19,10 @@ nonisolated enum UITestLaunchConfiguration {
                     assertionFailure("UI-test credential reset could not clear Keychain state")
                 }
             }
-            ScreenplayLiveDraftFileStore.remove()
+            // Owner-scoped journals (including the anonymous owner used while
+            // signed out) would otherwise carry the previous test's page into
+            // this launch's supposedly empty Studio.
+            ScreenplayLiveDraftFileStore.removeAllForUITesting()
             ScreenplayDraftSaveOutbox.resetStoredQueueForUITesting()
             ScreenplayOutlineMutationOutbox.resetStoredQueueForUITesting()
         }

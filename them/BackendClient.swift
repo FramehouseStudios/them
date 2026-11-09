@@ -1466,6 +1466,23 @@ struct BackendTalkResponseMetadata {
     let creativeMemoryTrace: BackendTalkCreativeMemoryTrace
     let screenplayTrace: BackendTalkScreenplayTrace
     let reply: String?
+    // Clementine headers (D009) — consumed from x-suggestion/x-uncertainty/x-collab-cursor/x-samantha-presence/x-presence-history/x-voice-learn/x-vuln-ask
+    let suggestion: String?
+    let uncertainty: Double?
+    let collabCursor: BackendCollabCursor?
+    let samanthaPresence: String?
+    let presenceHistory: [String]
+    let presenceBargeAt: Int?
+    let presenceBargeReason: String?
+    let voiceLearn: String?
+    let vulnAsk: String?
+    let vulnOptions: [String]
+}
+
+struct BackendCollabCursor: Codable, Equatable {
+    let page: Int
+    let line: Int
+    let character: String?
 }
 
 
@@ -2176,11 +2193,25 @@ nonisolated enum BackendErrorMessageSanitizer {
 // codes fall back to a safe generic. The raw stage:error pair is never shown.
 // Copy is placeholder and needs human review before App Store copy polish.
 nonisolated enum BackendUserFacingErrorMapper {
-    static func message(forStage stage: String?, error: String?) -> String {
+    /// Sentence for a raw server message of the form "stage: code" or "code",
+    /// or nil when the code is not one we have copy for. Callers that must keep
+    /// diagnostic text for unknown codes use this instead of `message`.
+    static func knownMessage(forServerMessage raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              trimmed.range(of: #"^[a-z0-9_]+(: [a-z0-9_]+)?$"#, options: .regularExpression) != nil else {
+            return nil
+        }
+        let parts = trimmed.components(separatedBy: ": ")
+        let stage = parts.count == 2 ? parts[0] : nil
+        let code = parts.count == 2 ? parts[1] : parts[0]
+        return knownMessage(forStage: stage, error: code)
+    }
+
+    /// Sentence for a known {stage, error} pair, or nil when unmapped.
+    static func knownMessage(forStage stage: String?, error: String?) -> String? {
         let s = (stage ?? "").lowercased()
         let e = (error ?? "").lowercased()
-        // Purchase codes: POST /billing/iap/credit sends {ok, error, message}
-        // with no stage, and the client wraps its own failures as iap_credit.
         switch e {
         case "iap_verify_not_configured", "iap_verify_not_wired":
             return "Purchases are temporarily unavailable. Your purchase is saved and will be applied automatically."
@@ -2191,8 +2222,7 @@ nonisolated enum BackendUserFacingErrorMapper {
         default:
             break
         }
-        let key = "\(s):\(e)"
-        switch key {
+        switch "\(s):\(e)" {
         case "auth:user_auth_required", "auth_user:user_auth_required":
             return "Please sign in to continue."
         case "auth:user_auth_not_configured":
@@ -2214,11 +2244,20 @@ nonisolated enum BackendUserFacingErrorMapper {
         case "auth:auth_rate_limited":
             return "Too many sign-in attempts. Please wait and try again."
         default:
-            if e.contains("not_found") { return "We couldn't find that item." }
-            if e.contains("invalid") { return "Something in that request needs fixing." }
-            if s == "auth" || s == "auth_user" { return "Please sign in again." }
-            return "Something went wrong. Please try again."
+            return nil
         }
+    }
+
+    static func message(forStage stage: String?, error: String?) -> String {
+        if let known = knownMessage(forStage: stage, error: error) {
+            return known
+        }
+        let s = (stage ?? "").lowercased()
+        let e = (error ?? "").lowercased()
+        if e.contains("not_found") { return "We couldn't find that item." }
+        if e.contains("invalid") { return "Something in that request needs fixing." }
+        if s == "auth" || s == "auth_user" { return "Please sign in again." }
+        return "Something went wrong. Please try again."
     }
 
     /// Decodes a structured `{stage, error}` body when present; otherwise
@@ -4688,6 +4727,7 @@ final class BackendClient {
                 )
                 let screenplayTrace = self.parseScreenplayTrace(from: http)
                 let creativeMemoryTrace = self.parseCreativeMemoryTrace(from: http)
+                let clem = self.parseClementineHeaders(from: http)
                 if let pageReservationHeader = self.parseOptionalHeaderString(
                     http,
                     field: "x-clementine-page-reservation"
@@ -4714,7 +4754,17 @@ final class BackendClient {
                     dialogueTimeline: self.parseDialogueTimeline(from: http),
                     creativeMemoryTrace: creativeMemoryTrace,
                     screenplayTrace: screenplayTrace,
-                    reply: self.parseOptionalHeaderString(http, field: "x-reply")
+                    reply: self.parseOptionalHeaderString(http, field: "x-reply"),
+                    suggestion: clem.suggestion,
+                    uncertainty: clem.uncertainty,
+                    collabCursor: clem.collabCursor,
+                    samanthaPresence: clem.samanthaPresence,
+                    presenceHistory: clem.presenceHistory,
+                    presenceBargeAt: clem.presenceBargeAt,
+                    presenceBargeReason: clem.presenceBargeReason,
+                    voiceLearn: clem.voiceLearn,
+                    vulnAsk: clem.vulnAsk,
+                    vulnOptions: clem.vulnOptions
                 )
                 if let onResponseMetadataReady, http.statusCode == 200 {
                     DispatchQueue.main.async {
@@ -6749,6 +6799,31 @@ final class BackendClient {
             return nil
         }
         return try? JSONDecoder().decode(BackendTalkDialogueTimelineRevision.self, from: data)
+    }
+
+    // Clementine D009 headers (no god-file growth: helpers only)
+    private func parseClementineHeaders(from response: HTTPURLResponse?) -> (suggestion: String?, uncertainty: Double?, collabCursor: BackendCollabCursor?, samanthaPresence: String?, presenceHistory: [String], presenceBargeAt: Int?, presenceBargeReason: String?, voiceLearn: String?, vulnAsk: String?, vulnOptions: [String]) {
+        let suggestion = parseOptionalHeaderString(response, field: "x-suggestion")
+        let uncertaintyRaw = parseOptionalHeaderString(response, field: "x-uncertainty")
+        let uncertainty = uncertaintyRaw.flatMap { Double($0) }
+        let collabCursor: BackendCollabCursor? = {
+            guard let raw = parseOptionalHeaderString(response, field: "x-collab-cursor"), let data = raw.data(using: .utf8) else { return nil }
+            return try? JSONDecoder().decode(BackendCollabCursor.self, from: data)
+        }()
+        let samanthaPresence = parseOptionalHeaderString(response, field: "x-samantha-presence")
+        let presenceHistory: [String] = {
+            guard let raw = parseOptionalHeaderString(response, field: "x-presence-history"), let data = raw.data(using: .utf8) else { return [] }
+            return (try? JSONDecoder().decode([String].self, from: data)) ?? []
+        }()
+        let presenceBargeAt = parseHeaderInt(response, field: "x-presence-barge-at", default: 0, min: 0, max: 9_000_000_000_000) > 0 ? parseHeaderInt(response, field: "x-presence-barge-at", default: 0, min: 0, max: 9_000_000_000_000) : nil
+        let presenceBargeReason = parseOptionalHeaderString(response, field: "x-presence-barge-reason")
+        let voiceLearn = parseOptionalHeaderString(response, field: "x-voice-learn")
+        let vulnAsk = parseOptionalHeaderString(response, field: "x-vuln-ask")
+        let vulnOptions: [String] = {
+            guard let raw = parseOptionalHeaderString(response, field: "x-vuln-options"), let data = raw.data(using: .utf8) else { return [] }
+            return (try? JSONDecoder().decode([String].self, from: data)) ?? []
+        }()
+        return (suggestion, uncertainty, collabCursor, samanthaPresence, presenceHistory, presenceBargeAt, presenceBargeReason, voiceLearn, vulnAsk, vulnOptions)
     }
 
     private func parseDelimitedHeader(

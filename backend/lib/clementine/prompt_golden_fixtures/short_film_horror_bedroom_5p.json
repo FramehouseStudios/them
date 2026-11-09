@@ -1,0 +1,14 @@
+{
+  "parsed": {
+    "totalPages": 15,
+    "requestedPages": 5,
+    "genre": "horror",
+    "setting": "bedroom",
+    "characters": ["John", "Sally", "Sam"]
+  },
+  "expect": {
+    "systemContains": ["INT. BEDROOM", "John", "Sally", "Sam", "5 pages", "horror", "15-page outline"],
+    "userContains": ["5 pages", "bedroom", "John"],
+    "offlineDraftPages": 5
+  }
+}
