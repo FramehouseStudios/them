@@ -3866,13 +3866,13 @@ Detail:
 
     private func sendCreativePartnerVoicePinToPage(exchangeID: UUID) {
         guard let exchange = studioAskNoteHistory.first(where: { $0.id == exchangeID }),
-              exchange.target == .voicePin else { return }
-        openStudioCommandBar(
-            prefill: exchange.prompt,
-            routingMode: .page,
-            intent: .rewrite,
-            focusComposer: false
-        )
+              exchange.target == .voicePin else {
+            vm.errorText = "This Voice Pin is no longer available. Choose another note and try again."
+            return
+        }
+        openStudioCommandBar(prefill: exchange.prompt, routingMode: .page,
+                             intent: .rewrite, focusComposer: false)
+        vm.infoText = "Prepared this Voice Pin ask for the page. Review it before sending."
     }
 
     private var directionOneRightPanelTabs: some View {

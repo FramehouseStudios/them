@@ -2327,6 +2327,11 @@ final class V1SmokeUITests: XCTestCase {
 #else
         toPage.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
 #endif
+        XCTAssertTrue(
+            staticText(containing: "Prepared this Voice Pin ask for the page", in: app)
+                .waitForExistence(timeout: 5),
+            "Prepare for Page did not acknowledge the selected Voice Pin."
+        )
 
         for _ in 0..<20 where !promptField.isHittable {
             drawer.swipeDown()
