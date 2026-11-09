@@ -468,8 +468,6 @@ struct ScreenplayStudioScreen: View {
             "parked_draft_save_count": vm.parkedDraftSaveCount,
             "manual_save_trigger_count": uiTestManualSaveTriggerCount,
             "debug_automation_session": IOThemRuntime.isStudioAutomationSession,
-            "debug_auth_session_authenticated": BackendAuthClient.currentAuthSessionState().isAuthenticated,
-            "debug_auth_header_present": BackendAuthClient.authorizationHeaderValue() != nil,
             "debug_project_client_owner": liveDraftBridge.usesDebugClientTokenOwner(
                 forProjectID: vm.selectedProjectID
             ),

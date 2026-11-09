@@ -393,6 +393,37 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         try await assertRejectedAStaysScoped(.offline, expectedStatus: .pending)
     }
 
+    func testUnknownBaseEditKeepsOlderAndNewerWordsSeparate() throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base", dirty: true)
+        fixture.store.save(ownerUserId: fixture.owner, projectId: "a", draft: fixture.a,
+                           baseVersionId: "a-base", dirty: true)
+        let newer = fixture.a + "\nNewer unknown-base words."
+        fixture.model.latestVersionID = ""
+        fixture.model.fountainDraft = newer
+        fixture.model.noteManualDraftEdit()
+        let recovery = fixture.store.payloads(ownerUserId: fixture.owner)["a"]
+        XCTAssertEqual(recovery?["draft"] as? String, fixture.a)
+        XCTAssertEqual(recovery?["baseVersionId"] as? String, "a-base")
+        let preserved = recovery?["preservedConflict"] as? [String: Any]
+        XCTAssertEqual(preserved?["draft"] as? String, newer)
+        XCTAssertEqual(preserved?["baseVersionId"] as? String, "")
+    }
+
+    func testStartupEditDoesNotEraseKnownRecoveryBase() throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base", dirty: true)
+        fixture.store.save(ownerUserId: fixture.owner, projectId: "a", draft: fixture.a,
+                           baseVersionId: "a-base", dirty: true)
+        fixture.model.latestVersionID = ""
+        fixture.model.noteManualDraftEdit()
+        let recovery = fixture.store.payloads(ownerUserId: fixture.owner)["a"]
+        XCTAssertEqual(recovery?["draft"] as? String, fixture.a)
+        XCTAssertEqual(recovery?["baseVersionId"] as? String, "a-base")
+    }
+
     func testSameDocumentNewerAEditsStayDirtyOnTheAcknowledgedBase() async throws {
         let fixture = try SaveCompletionFixture()
         defer { fixture.close() }
