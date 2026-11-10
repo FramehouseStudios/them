@@ -3931,6 +3931,7 @@ struct RootExperienceView: View {
     }
 
     private var currentSessionIsAuthenticated: Bool {
+        if IOThemRuntime.bypassesAuthenticationForUITests { return true }
         let session = BackendAuthClient.currentAuthSessionState()
         return session.isAuthenticated && !session.accessExpired
     }

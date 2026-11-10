@@ -256,6 +256,7 @@ struct MagicMomentOnboardingFlow: View {
     }
 
     private var requiresSignIn: Bool {
+        if IOThemRuntime.bypassesAuthenticationForUITests { return false }
         let session = BackendAuthClient.currentAuthSessionState()
         return !session.isAuthenticated || session.accessExpired
     }
@@ -384,7 +385,8 @@ struct MagicMomentOnboardingFlow: View {
 
     private func resumePendingIntentIfAuthenticated() {
         let session = BackendAuthClient.currentAuthSessionState()
-        guard session.isAuthenticated, !session.accessExpired else {
+        guard IOThemRuntime.bypassesAuthenticationForUITests
+                || (session.isAuthenticated && !session.accessExpired) else {
             presentAccount()
             return
         }
