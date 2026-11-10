@@ -100,6 +100,7 @@ struct ScreenplayHeldDraftRecoveryOverlay: View {
     private var bannerTitle: String {
         if viewModel.heldDraftRecoveryIsLoadServerCopy { return "Newer unsent words are held" }
         if viewModel.heldDraftRecoveryIsCurrentContextCopy { return "A local conflict is held" }
+        if viewModel.heldDraftRecovery?.deliveryOrigin == nil { return "An unassigned local copy is held" }
         return "A copy from another document is held"
     }
 
