@@ -59,6 +59,7 @@ test('authenticated raw version bytes survive response, GET, restart and exact r
     const replay = await apiRequest(server, `/screenplay/projects/${id}/version`, { method: 'POST', headers, json: request });
     assert.equal(replay.status, 200);
     assert.equal(replay.json.status, 'replayed');
+    assert.equal(replay.json.replay_proof, 'full_request_hash_v1');
     assert.equal(replay.json.version_id, versionID);
     assert.deepEqual(bytes(replay.json.version.draft), bytes(draft));
     assert.equal((await read()).json.project.versions.length, 1);
