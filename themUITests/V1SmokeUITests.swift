@@ -1233,15 +1233,10 @@ final class V1SmokeUITests: XCTestCase {
                 revealFullyInStudioDrawer(mode, drawer: drawer, maxSwipes: 20),
                 "Companion mode was not fully reachable: \(rawMode), frame=\(mode.frame), drawer=\(drawer.frame)"
             )
-#if os(macOS)
-            mode.click()
-#else
-            mode.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-#endif
             XCTAssertTrue(
-                waitForAccessibilityValue(of: mode, equalTo: "Selected", timeout: 8),
+                selectStudioMode(mode, drawer: drawer),
                 "Selecting \(rawMode) did not expose its selected state to accessibility "
-                    + "within 8 seconds. Current value: \(String(describing: mode.value))."
+                    + "after one bounded retry. Current value: \(String(describing: mode.value))."
             )
             XCTAssertTrue(
                 waitForAccessibilityText(
@@ -3619,6 +3614,33 @@ final class V1SmokeUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
         return hasExpectedValue()
+    }
+
+    private func selectStudioMode(
+        _ mode: XCUIElement,
+        drawer: XCUIElement
+    ) -> Bool {
+        func select() {
+#if os(macOS)
+            mode.click()
+#else
+            mode.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+#endif
+        }
+
+        select()
+        if waitForAccessibilityValue(of: mode, equalTo: "Selected", timeout: 2) {
+            return true
+        }
+
+        XCTContext.runActivity(
+            named: "Studio mode tap did not update selection; revealing and tapping once more"
+        ) { _ in }
+        guard revealFullyInStudioDrawer(mode, drawer: drawer, maxSwipes: 4) else {
+            return false
+        }
+        select()
+        return waitForAccessibilityValue(of: mode, equalTo: "Selected", timeout: 6)
     }
 
     private func dismissKeyboardIfPresent(in app: XCUIApplication) -> Bool {
