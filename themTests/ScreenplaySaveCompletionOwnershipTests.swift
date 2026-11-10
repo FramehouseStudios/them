@@ -401,6 +401,33 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         XCTAssertEqual(recovery.map { Data($0.draft.utf8) }, Data(fixture.a.utf8))
     }
 
+    func testUnscopedPassiveObservationWithDifferentBaseIsRetainedWithoutDelivery() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base", dirty: true)
+        fixture.model.autosaveEnabled = true
+        let save = fixture.startSave()
+        try await fixture.waitForFirstSave()
+        fixture.peer.releaseFirst(.offline)
+        try await fixture.waitForSave(save)
+        let pending = try await fixture.reloadQueueEntries()
+        let original = try XCTUnwrap(pending.first)
+        try await fixture.queue.markParked(id: original.id, error: "Conflict requires review")
+        ScreenplayLiveDraftSyncService.shared.detach()
+        defer { ScreenplayLiveDraftSyncService.shared.attach(to: fixture.model) }
+        fixture.model.latestVersionID = "other-base"
+        fixture.model.hasUnsavedDraftChanges = true
+        await fixture.model.debugDispatchPassiveSave()
+        let rows = try await fixture.reloadQueueEntries()
+        XCTAssertEqual(rows.count, 2)
+        let held = try XCTUnwrap(rows.first { $0.id != original.id })
+        XCTAssertNil(held.deliveryOrigin)
+        XCTAssertEqual(held.baseVersionId, "other-base")
+        XCTAssertEqual(Data(held.draft.utf8), Data(fixture.a.utf8))
+        XCTAssertEqual(fixture.peer.writes.count, 1, "An unscoped request must not be delivered.")
+        XCTAssertTrue(rows.contains { $0.id == original.id && $0.status == .parked })
+    }
+
     func testUnscopedPassiveFollowerWithNewWordsRemainsDurable() async throws {
         let fixture = try SaveCompletionFixture()
         defer { fixture.close() }
