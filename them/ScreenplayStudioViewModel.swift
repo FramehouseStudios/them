@@ -1872,6 +1872,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private var bridgePreferredVersionCancellable: AnyCancellable?
     private var bridgeInitialProjectCancellable: AnyCancellable?
     private var isHydratingDraft = false
+    private var isRestoringQueuedDraft = false
     /// True while the editor mirrors another device's live typing. Autosave
     /// waits for that device's version announcement instead of racing it.
     private(set) var isFollowingRemoteLiveDraft = false
@@ -1967,13 +1968,16 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 self?.invalidateHeldDraftRecoveryPresentationForIdentityChange()
             }
         draftDebounceCancellable = $fountainDraft
-            .map(ScreenplayDraftTextObservation.init)
+            // @Published emits synchronously in willSet. Capture the origin now,
+            // before the debounce outlives the restoration flag.
+            .map { [weak self] draft -> ScreenplayDraftTextObservation in
+                ScreenplayDraftTextObservation(text: draft, restoringQueue: self?.isRestoringQueuedDraft ?? false)
+            }
             .removeDuplicates()
-            .map(\.text)
             .debounce(for: .milliseconds(900), scheduler: RunLoop.main)
-            .sink { [weak self] draft in
+            .sink { [weak self] observation in
                 guard let self else { return }
-                Task { await self.handleDraftDebouncedChange(draft) }
+                Task { await self.handleDraftDebouncedChange(observation.text, restoringQueue: observation.restoringQueue) }
             }
         bridgePreferredVersionCancellable = ScreenplayLiveDraftBridge.shared.$preferredVersionID
             .removeDuplicates()
@@ -2290,7 +2294,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
         isHydratingDraft = true
         studioWriteAnchors = entry.studioWriteAnchors
         screenplayBindings = entry.screenplayBindings
+        isRestoringQueuedDraft = true
         fountainDraft = entry.draft
+        isRestoringQueuedDraft = false
         isHydratingDraft = false
         loadedDraftProjectID = projectID
         if !entry.baseVersionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { latestVersionID = entry.baseVersionId }
@@ -2402,6 +2408,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
     func debugDispatchPassiveSave() async {
         await saveCurrentDraft(source: "studio_autosave")
+    }
+
+    func debugPublishQueuedDraftRestoration(_ draft: String) {
+        isRestoringQueuedDraft = true
+        fountainDraft = draft
+        isRestoringQueuedDraft = false
     }
     #endif
 
@@ -7136,7 +7148,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         Task { await saveCurrentDraft(source: source) }
     }
 
-    func handleDraftDebouncedChange(_ draft: String) async {
+    func handleDraftDebouncedChange(_ draft: String, restoringQueue: Bool = false) async {
         let projectID = selectedProjectID
         let authContext = currentStudioAuthContext()
         func isCurrentDraft() -> Bool {
@@ -7162,6 +7174,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
                frameworkId: selectedCraftFrameworkID
            ) != true {
             clearCoverageSimulation()
+        }
+        if restoringQueue {
+            await recomputePagination(for: draft, source: "Draft")
+            guard isCurrentDraft() else { return }
+            await recomputeRevision(for: draft, source: "Draft")
+            guard isCurrentDraft() else { return }
+            Task { await self.refreshFormatLint(source: "Draft") }
+            Task { await self.refreshCoverageIfNeeded() }
+            return
         }
         hasUnsavedDraftChanges = draftHasUnsavedExactChanges(draft)
         if hasUnsavedDraftChanges && isManualDraftEditing {
@@ -7496,7 +7517,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
             currentDraftFingerprint: fingerprint(for: fountainDraft), lastSavedDraftFingerprint: lastSavedDraftFingerprint
         ), !fountainDraft.utf8.elementsEqual(entry.draft.utf8) else { return }
         isHydratingDraft = true
+        isRestoringQueuedDraft = true
         fountainDraft = entry.draft
+        isRestoringQueuedDraft = false
         isHydratingDraft = false
         isManualDraftEditing = true
         lastManualDraftEditAt = Date()
@@ -8206,17 +8229,35 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 let serverIsVisible = result.payload.serverVersion?.draft.map {
                     fountainDraft.utf8.elementsEqual($0.utf8) && bridge.draftText.utf8.elementsEqual($0.utf8)
                 } ?? false
+                // A dirty page can equal the server in text while still carrying
+                // unsaved intent. Keep it visible and secure its original base.
+                var dirtyPagePreservationFailed = false
+                let hasDirtyServerPage = serverIsVisible && !isManualDraftEditing && hasUnsavedDraftChanges
+                let queuedOriginIsCurrent = retained.deliveryOrigin.map {
+                    $0.documentID == bridge.draftOrigin.documentID &&
+                    $0.permitsBackend(BackendAuthClient.resolvedBackendBaseURL())
+                } ?? false
+                if hasDirtyServerPage {
+                    if queuedOriginIsCurrent {
+                        let result = secureRecoveryCopy(ownerUserId: request.ownerUserId, projectId: request.projectId,
+                            draft: fountainDraft, baseVersionId: latestVersionID, origin: retained.deliveryOrigin)
+                        dirtyPagePreservationFailed = result != .secured
+                    } else {
+                        dirtyPagePreservationFailed = true
+                    }
+                }
                 // Only replace an untouched server page when the durable local
                 // copy proves this exact queued draft and its document origin.
-                if serverIsVisible, !isManualDraftEditing,
+                if serverIsVisible, !isManualDraftEditing, !hasUnsavedDraftChanges,
                    let localRecovery, localRecovery.draft.utf8.elementsEqual(retained.draft.utf8),
                    localRecovery.baseVersionId.utf8.elementsEqual(retained.baseVersionId.utf8),
-                   let origin = retained.deliveryOrigin, origin.documentID == bridge.draftOrigin.documentID,
-                   origin.permitsBackend(BackendAuthClient.resolvedBackendBaseURL()),
+                   queuedOriginIsCurrent,
                    bridge.adoptLoadedProjectDraft(retained.draft, projectID: retained.projectId,
                        versionID: retained.baseVersionId, owner: request.authContext, queuedEntry: retained) {
                     isHydratingDraft = true
+                    isRestoringQueuedDraft = true
                     fountainDraft = retained.draft
+                    isRestoringQueuedDraft = false
                     isHydratingDraft = false
                     loadedDraftProjectID = retained.projectId
                     latestVersionID = retained.baseVersionId
@@ -8235,6 +8276,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 hasUnsavedDraftChanges = true
                 autosaveStatusText = "Conflict detected"
                 infoText = "Another collaborator updated this draft. Choose keep mine or load server."
+                if dirtyPagePreservationFailed {
+                    errorText = "The current page could not be secured locally. Keep it open and export it before closing."
+                } else if hasDirtyServerPage {
+                    errorText = "Your page text is held locally, but its context may not be. Keep the page open and export it before closing."
+                }
                 // Never replace a different dirty recovery copy with a server
                 // page merely because the queued conflict arrived late.
                 if !serverIsVisible || isManualDraftEditing || localRecovery == nil ||
@@ -8454,7 +8500,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
                   conflictState == conflict else { return }
             if let retained, !hasUnsavedDraftChanges, !isManualDraftEditing {
                 isHydratingDraft = true
+                isRestoringQueuedDraft = true
                 fountainDraft = retained.draft
+                isRestoringQueuedDraft = false
                 isHydratingDraft = false
                 loadedDraftProjectID = conflict.projectId
                 isManualDraftEditing = true

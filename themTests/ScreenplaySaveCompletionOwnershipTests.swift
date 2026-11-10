@@ -73,6 +73,49 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         XCTAssertTrue(remainingRows.isEmpty)
     }
 
+    func testQueuedRestoreDoesNotReplaceManualEditBeforeDebounce() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base")
+        let earlier = fixture.a + "\nEarlier queued version."
+        var queued = ScreenplayDraftSaveOutboxEntry(id: UUID().uuidString, projectId: "a", ownerUserId: fixture.owner,
+            draft: earlier, title: "A", phase: "draft", notes: "", source: "studio_manual",
+            studioWriteAnchors: [], screenplayBindings: [], baseVersionId: "a-base", createdAt: 1, updatedAt: 1,
+            status: .pending, retries: 0, nextAttemptAt: 0, lastError: "")
+        queued.deliveryOrigin = try fixture.currentOrigin()
+        try await fixture.queue.enqueue(queued)
+        let newer = fixture.a + "\nWriter's new exact words.  \t"
+        fixture.model.fountainDraft = newer
+        fixture.model.noteManualDraftEdit()
+        let restored = await fixture.model.restorePendingDraftSaveBeforeProjectHydration()
+        XCTAssertTrue(restored)
+        XCTAssertEqual(Data(fixture.model.fountainDraft.utf8), Data(newer.utf8))
+        let recovery = fixture.store.dirtyOrdinarySnapshot(ownerUserId: fixture.owner, projectId: "a")
+        XCTAssertEqual(recovery.map { Data($0.draft.utf8) }, Data(newer.utf8))
+        try await Task.sleep(nanoseconds: 1_400_000_000)
+        XCTAssertEqual(Data(fixture.model.fountainDraft.utf8), Data(newer.utf8))
+        let rows = try await fixture.reloadQueueEntries()
+        XCTAssertTrue(rows.contains { $0.id == queued.id && $0.draft.utf8.elementsEqual(earlier.utf8) })
+    }
+
+    func testQueuedHydrationObservationDoesNotSaveButSubsequentEditDoes() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.peer.releaseFirst(.offline); fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base")
+        fixture.model.autosaveEnabled = true
+        let restored = fixture.a + "\nRestored queued words."
+        fixture.model.debugPublishQueuedDraftRestoration(restored)
+        fixture.model.hasUnsavedDraftChanges = true
+        try await Task.sleep(nanoseconds: 1_400_000_000)
+        XCTAssertTrue(fixture.peer.writes.isEmpty, "Restoring a queued row must not create a new save.")
+        let newer = restored + "\nWriter adds exact words."
+        fixture.model.fountainDraft = newer
+        fixture.model.noteManualDraftEdit()
+        try await fixture.waitForFirstSave()
+        XCTAssertEqual(fixture.peer.writes.first?.draft, newer)
+        XCTAssertEqual(fixture.peer.writes.first?.source, "studio_autosave")
+    }
+
     func testConfirmedMatchingAutosaveReadbackDoesNotMarkExactPageDirtyAgain() async throws {
         let fixture = try SaveCompletionFixture()
         defer { fixture.close() }
@@ -965,6 +1008,85 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         XCTAssertEqual(rows.first.map { Data($0.draft.utf8) }, Data(writerDraft.utf8))
         let recovery = fixture.store.dirtyOrdinarySnapshot(ownerUserId: fixture.owner, projectId: "a")
         XCTAssertEqual(recovery.map { Data($0.draft.utf8) }, Data(writerDraft.utf8))
+    }
+
+    func testQueuedConflictPreservesNonmanualDirtyPageEvenWhenItMatchesServer() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        let queuedDraft = fixture.a + "\nOlder queued page."
+        let writerPage = "Other A words"
+        fixture.select("a", draft: writerPage, base: "a-remote")
+        XCTAssertTrue(fixture.store.save(ownerUserId: fixture.owner, projectId: "a", draft: queuedDraft,
+            baseVersionId: "a-base", dirty: true))
+        var queued = ScreenplayDraftSaveOutboxEntry(id: UUID().uuidString, projectId: "a", ownerUserId: fixture.owner,
+            draft: queuedDraft, title: "A", phase: "draft", notes: "", source: "studio_manual",
+            studioWriteAnchors: [], screenplayBindings: [], baseVersionId: "a-base", createdAt: 1, updatedAt: 1,
+            status: .pending, retries: 0, nextAttemptAt: 0, lastError: "")
+        queued.deliveryOrigin = try fixture.currentOrigin()
+        try await fixture.queue.enqueue(queued)
+        fixture.model.hasUnsavedDraftChanges = true
+        let drain = Task { await fixture.model.resumeQueuedDraftSavesIfNeeded(force: true) }
+        defer { fixture.peer.releaseFirst(.offline); drain.cancel() }
+        try await fixture.waitForFirstSave()
+        fixture.peer.releaseFirst(.conflict)
+        await drain.value
+        XCTAssertEqual(Data(fixture.model.fountainDraft.utf8), Data(writerPage.utf8),
+            "A dirty nonmanual page must not be replaced solely because its bytes match the server.")
+        let rows = try await fixture.reloadQueueEntries()
+        XCTAssertTrue(rows.contains { $0.id == queued.id && $0.draft.utf8.elementsEqual(queuedDraft.utf8) && $0.status == .parked })
+        let recovery = fixture.store.dirtyOrdinarySnapshot(ownerUserId: fixture.owner, projectId: "a")
+        XCTAssertEqual(recovery.map { Data($0.draft.utf8) }, Data(queuedDraft.utf8))
+        let payload = fixture.store.payloads(ownerUserId: fixture.owner)["a"]
+        let preserved = payload?["preservedConflict"] as? [String: Any]
+        let overflow: String?
+        let origin = try fixture.currentOrigin()
+        if case let .present(copy) = fixture.overflow.load(ownerUserID: fixture.owner, projectID: "a",
+            backendURL: origin.backendURL, documentID: origin.documentID) {
+            overflow = copy.draft
+        } else { overflow = nil }
+        XCTAssertTrue([recovery?.draft, preserved?["draft"] as? String, overflow].contains { $0?.utf8.elementsEqual(writerPage.utf8) == true },
+            "The visible words must also have an independently durable recovery copy.")
+        XCTAssertEqual(preserved?["baseVersionId"] as? String, "a-remote")
+        XCTAssertEqual(fixture.model.latestVersionID, "a-remote")
+        XCTAssertTrue(fixture.model.errorText.localizedCaseInsensitiveContains("export"))
+    }
+
+    func testQueuedConflictKeepsDirtyPageVisibleWhenRecoverySlotsAreFull() async throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        let queuedDraft = fixture.a + "\nOlder queued page."
+        let writerPage = "Other A words"
+        fixture.select("a", draft: writerPage, base: "a-remote")
+        XCTAssertTrue(fixture.store.save(ownerUserId: fixture.owner, projectId: "a", draft: queuedDraft,
+            baseVersionId: "a-base", dirty: true))
+        _ = fixture.store.saveInVacantRecoverySlot(ownerUserId: fixture.owner, projectId: "a",
+            draft: "Second recovery copy", baseVersionId: "second-base")
+        let origin = try fixture.currentOrigin()
+        _ = fixture.overflow.saveIfVacant(ownerUserID: fixture.owner, projectID: "a", backendURL: origin.backendURL,
+            documentID: origin.documentID, draft: "Third recovery copy", baseVersionID: "third-base")
+        var queued = ScreenplayDraftSaveOutboxEntry(id: UUID().uuidString, projectId: "a", ownerUserId: fixture.owner,
+            draft: queuedDraft, title: "A", phase: "draft", notes: "", source: "studio_manual",
+            studioWriteAnchors: [], screenplayBindings: [], baseVersionId: "a-base", createdAt: 1, updatedAt: 1,
+            status: .pending, retries: 0, nextAttemptAt: 0, lastError: "")
+        queued.deliveryOrigin = origin
+        try await fixture.queue.enqueue(queued)
+        fixture.model.hasUnsavedDraftChanges = true
+        let drain = Task { await fixture.model.resumeQueuedDraftSavesIfNeeded(force: true) }
+        defer { fixture.peer.releaseFirst(.offline); drain.cancel() }
+        try await fixture.waitForFirstSave()
+        fixture.peer.releaseFirst(.conflict)
+        await drain.value
+        XCTAssertEqual(Data(fixture.model.fountainDraft.utf8), Data(writerPage.utf8))
+        XCTAssertEqual(fixture.model.latestVersionID, "a-remote")
+        XCTAssertTrue(fixture.model.errorText.localizedCaseInsensitiveContains("export"))
+        let rows = try await fixture.reloadQueueEntries()
+        XCTAssertTrue(rows.contains { $0.id == queued.id && $0.status == .parked && $0.draft == queuedDraft })
+        let payload = fixture.store.payloads(ownerUserId: fixture.owner)["a"]
+        XCTAssertEqual(payload?["draft"] as? String, queuedDraft)
+        XCTAssertEqual((payload?["preservedConflict"] as? [String: Any])?["draft"] as? String, "Second recovery copy")
+        guard case let .present(overflow) = fixture.overflow.load(ownerUserID: fixture.owner, projectID: "a",
+            backendURL: origin.backendURL, documentID: origin.documentID) else { return XCTFail("Overflow copy missing") }
+        XCTAssertEqual(overflow.draft, "Third recovery copy")
     }
 
     func testQueuedConflictNeverOverwritesDifferentDirtyRecoveryCopy() async throws {
