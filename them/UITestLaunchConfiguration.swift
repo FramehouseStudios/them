@@ -24,7 +24,7 @@ nonisolated enum UITestLaunchConfiguration {
             // this launch's supposedly empty Studio.
             ScreenplayLiveDraftFileStore.removeAllForUITesting()
             ScreenplayRecoveryOverflowStore.removeAllForUITesting()
-            ScreenplayDraftSaveOutbox.resetStoredQueueForUITesting()
+            precondition(ScreenplayDraftSaveOutbox.resetStoredQueueForUITesting(), "UI-test draft queue is owned by another session")
             OfflineTalkOutbox.resetStoredQueueForUITesting()
             ScreenplayOutlineMutationOutbox.resetStoredQueueForUITesting()
         }

@@ -82,7 +82,7 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
             XCTAssertEqual(model.heldDraftRecovery?.draft, submitted)
             XCTAssertEqual(recovery.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: "project-1")?.draft, raw)
             await model.resumeQueuedDraftSavesIfNeeded(force: true)
-            let retained = try await ScreenplayDraftSaveOutbox(storageDirectory: directory).entriesForTesting()
+            let retained = try await queue.persistedEntriesForTesting()
             XCTAssertEqual(retained.count, 1)
             XCTAssertEqual(retained.first?.draft, submitted)
             XCTAssertEqual(retained.first?.baseVersionId, "server-v1")
@@ -142,35 +142,49 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
                                                                              versionID: "local-base", owner: owner))
         let documentID = try XCTUnwrap(ScreenplayLiveDraftBridge.shared.draftOrigin.documentID)
         let origin = ScreenplayDraftSaveOrigin(documentID: documentID, backendURL: BackendAuthClient.resolvedBackendBaseURL())
-        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let legacy = replacingOwner(of: makeEntry(id: "legacy-pending", draft: "Exact unscoped writer words\r\n"), with: owner.userID)
         var later = replacingOwner(of: makeDeliverableEntry(id: "later", draft: "Later scoped words", createdAt: 200), with: owner.userID)
         later.deliveryOrigin = origin
-        try await queue.enqueue(legacy)
-        try await queue.enqueue(later)
         let suite = "them.unscoped-pending-visible.\(UUID())"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: .init(defaults: defaults, key: "recovery"), draftSaveOutbox: queue)
-        model.autosaveEnabled = false
-        model.selectedProjectID = legacy.projectId
-        model.applyStructuralUITestDraft("Visible words", versionID: "local-base")
-        ScreenplayLiveDraftSyncService.shared.attach(to: model)
-        let project = try JSONDecoder().decode(BackendScreenplayProjectSummary.self,
-            from: JSONSerialization.data(withJSONObject: ["id": legacy.projectId, "title": "Test",
-                "activeVersionId": "remote", "versions": [["id": "remote", "draft": "Server words"]]]))
-        let applied = await model.hydrateDraftRestoringQueuedSaves(from: project)
-        XCTAssertFalse(applied)
-        XCTAssertEqual(model.fountainDraft, "Visible words")
-        XCTAssertEqual(model.heldDraftRecovery?.id, legacy.id)
-        XCTAssertEqual(Data(try XCTUnwrap(model.heldDraftRecovery?.draft).utf8), Data(legacy.draft.utf8))
-        XCTAssertTrue(model.errorText.contains("no recorded document or backend"))
-        let reviewResult = await model.confirmedHeldDraftRecoveryForReview()
-        let review = try XCTUnwrap(reviewResult)
-        XCTAssertEqual(model.heldDraftRecoveryForReview(review)?.draft, legacy.draft)
-        let next = try await queue.beginNext(projectId: legacy.projectId, ownerUserId: owner.userID,
-                                             deliveryOrigin: origin, force: true)
-        XCTAssertEqual(next?.id, later.id)
+        weak var oldModel: ScreenplayStudioViewModel?
+        weak var oldQueue: ScreenplayDraftSaveOutbox?
+        func exerciseOldSession() async throws {
+            let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+            oldQueue = queue
+            try await queue.enqueue(legacy)
+            try await queue.enqueue(later)
+            let model = ScreenplayStudioViewModel(localDraftRecoveryStore: .init(defaults: defaults, key: "recovery"), draftSaveOutbox: queue)
+            oldModel = model
+            let startupComplete = expectation(description: "model startup task completes")
+            let startupObserver = NotificationCenter.default.addObserver(forName: Notification.Name("T1360.model-startup-complete"), object: model, queue: nil) { _ in startupComplete.fulfill() }
+            defer { NotificationCenter.default.removeObserver(startupObserver) }
+            model.autosaveEnabled = false
+            model.selectedProjectID = legacy.projectId
+            model.applyStructuralUITestDraft("Visible words", versionID: "local-base")
+            ScreenplayLiveDraftSyncService.shared.attach(to: model)
+            let project = try JSONDecoder().decode(BackendScreenplayProjectSummary.self,
+                from: JSONSerialization.data(withJSONObject: ["id": legacy.projectId, "title": "Test",
+                    "activeVersionId": "remote", "versions": [["id": "remote", "draft": "Server words"]]]))
+            let applied = await model.hydrateDraftRestoringQueuedSaves(from: project)
+            XCTAssertFalse(applied)
+            XCTAssertEqual(model.fountainDraft, "Visible words")
+            XCTAssertEqual(model.heldDraftRecovery?.id, legacy.id)
+            XCTAssertEqual(Data(try XCTUnwrap(model.heldDraftRecovery?.draft).utf8), Data(legacy.draft.utf8))
+            XCTAssertTrue(model.errorText.contains("no recorded document or backend"))
+            let reviewResult = await model.confirmedHeldDraftRecoveryForReview()
+            let review = try XCTUnwrap(reviewResult)
+            XCTAssertEqual(model.heldDraftRecoveryForReview(review)?.draft, legacy.draft)
+            let next = try await queue.beginNext(projectId: legacy.projectId, ownerUserId: owner.userID,
+                                                 deliveryOrigin: origin, force: true)
+            XCTAssertEqual(next?.id, later.id)
+            ScreenplayLiveDraftSyncService.shared.detach()
+            await fulfillment(of: [startupComplete], timeout: 3)
+        }
+        try await exerciseOldSession()
+        XCTAssertNil(oldModel, "The old model must exit before a relaunch is simulated.")
+        XCTAssertNil(oldQueue, "The old queue owner must exit before a relaunch is simulated.")
         let reopened = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let rows = try await reopened.entriesForTesting()
         XCTAssertEqual(rows.first(where: { $0.id == legacy.id })?.draft, legacy.draft)
@@ -806,14 +820,13 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         let preserved = reopenedRecovery.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: "project-1")
         XCTAssertTrue(preserved?.draft.utf8.elementsEqual("Original project words\n".utf8) == true)
         XCTAssertEqual(model.fountainDraft, "Different project words")
-        let reopened = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
-        let retained = try await reopened.entriesForTesting()
+        let retained = try await queue.persistedEntriesForTesting()
         XCTAssertEqual(retained.first?.projectId, "project-1")
         XCTAssertTrue(retained.first?.draft.utf8.elementsEqual("Original project words\n".utf8) == true)
         XCTAssertEqual(retained.first?.status, .pending)
         XCTAssertEqual(retained.first?.ownerUserId, owner)
         XCTAssertEqual(retained.first?.deliveryOrigin, origin)
-        let wrongProject = try await reopened.beginNext(projectId: "project-2", ownerUserId: owner,
+        let wrongProject = try await queue.beginNext(projectId: "project-2", ownerUserId: owner,
                                                         deliveryOrigin: origin, force: true)
         XCTAssertNil(wrongProject)
         try? await Task.sleep(nanoseconds: 1_100_000_000)
@@ -866,8 +879,7 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         let reopenedRecovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
         let preserved = reopenedRecovery.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: "project-1")
         XCTAssertEqual(preserved?.draft, "Original words")
-        let reopened = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
-        let retained = try await reopened.entriesForTesting()
+        let retained = try await queue.persistedEntriesForTesting()
         XCTAssertEqual(retained.first?.projectId, "project-1")
         XCTAssertEqual(retained.first?.ownerUserId, owner)
         XCTAssertEqual(retained.first?.deliveryOrigin, origin)
@@ -888,39 +900,42 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
             else { BackendAuthClient.clearSharedUserID() }
         }
         let owner = context.userID
-        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        var queue: ScreenplayDraftSaveOutbox? = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         var first = replacingOwner(of: makeEntry(id: "first", draft: "Original draft"), with: owner)
         first.baseVersionId = ""
         first.deliveryOrigin = .init(documentID: "drain-conflict-document", backendURL: BackendAuthClient.resolvedBackendBaseURL())
         XCTAssertTrue(ScreenplayLiveDraftBridge.shared.adoptLoadedProjectDraft(first.draft, projectID: first.projectId,
             versionID: "", owner: context, queuedEntry: first))
-        try await queue.enqueue(first)
+        try await XCTUnwrap(queue).enqueue(first)
         let suite = "them.drain-conflict-pending.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
         let deferred = DeferredFailingSavePreflight()
         let origin = try XCTUnwrap(first.deliveryOrigin)
-        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery,
-            recoveryOriginProvider: { $0 == first.projectId ? origin : nil }, draftSaveOutbox: queue,
+        var model: ScreenplayStudioViewModel? = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery,
+            recoveryOriginProvider: { $0 == first.projectId ? origin : nil }, draftSaveOutbox: try XCTUnwrap(queue),
             savePreflightProjectLoader: { _ in try await deferred.load() })
-        model.autosaveEnabled = false
+        try XCTUnwrap(model).autosaveEnabled = false
         let data = try JSONSerialization.data(withJSONObject: ["id": "project-1", "title": "Script",
             "activeVersionId": "remote", "versions": [["id": "remote", "draft": "Server draft"]]])
         let project = try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: data)
-        model.selectedProjectID = project.id
-        model.selectedProject = project
-        model.applyStructuralUITestDraft("Original draft", versionID: "")
-        ScreenplayLiveDraftSyncService.shared.attach(to: model)
-        let drain = Task { await model.resumeQueuedDraftSavesIfNeeded(force: true) }
+        try XCTUnwrap(model).selectedProjectID = project.id
+        try XCTUnwrap(model).selectedProject = project
+        try XCTUnwrap(model).applyStructuralUITestDraft("Original draft", versionID: "")
+        ScreenplayLiveDraftSyncService.shared.attach(to: try XCTUnwrap(model))
+        let drain = Task { [weak model] in await model?.resumeQueuedDraftSavesIfNeeded(force: true) }
         await fulfillment(of: [deferred.started], timeout: 2)
         let newest = "Newer writer words\n"
-        model.fountainDraft = newest
-        model.noteManualDraftEdit()
-        await model.manualSaveDraft()
+        try XCTUnwrap(model).fountainDraft = newest
+        try XCTUnwrap(model).noteManualDraftEdit()
+        try await XCTUnwrap(model).manualSaveDraft()
         deferred.continuation?.resume(returning: project)
         await drain.value
-        XCTAssertNotNil(model.conflictState)
+        XCTAssertNotNil(try XCTUnwrap(model).conflictState)
+        ScreenplayLiveDraftSyncService.shared.detach()
+        model = nil
+        queue = nil // Simulate the old owner exiting before relaunch.
         let reopened = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let rows = try await reopened.entriesForTesting()
         let restored = rows.first { $0.draft.utf8.elementsEqual(newest.utf8) }
@@ -1056,7 +1071,7 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         await model.manualSaveDraft()
         XCTAssertEqual(model.conflictState?.serverVersionId, "server-v2")
         XCTAssertTrue(model.hasUnsavedDraftChanges)
-        let saved = try await ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory).entriesForTesting()
+        let saved = try await queue.persistedEntriesForTesting()
         XCTAssertEqual(saved.count, 1)
         XCTAssertTrue(saved.first?.draft.utf8.elementsEqual(writerDraft.utf8) == true)
         XCTAssertEqual(saved.first?.status, .parked)
@@ -1099,7 +1114,7 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertEqual(model.conflictState?.serverVersionId, "server-v1")
         XCTAssertTrue(model.fountainDraft.utf8.elementsEqual(draft.utf8))
         XCTAssertTrue(model.hasUnsavedDraftChanges)
-        let saved = try await ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory).entriesForTesting()
+        let saved = try await queue.persistedEntriesForTesting()
         XCTAssertEqual(saved.first?.status, .parked)
         XCTAssertTrue(saved.first?.draft.utf8.elementsEqual(draft.utf8) == true)
         try? await Task.sleep(nanoseconds: 1_100_000_000)
@@ -1143,7 +1158,7 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         let reopened = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
         XCTAssertEqual(reopened.dirtyOrdinarySnapshot(ownerUserId: owner.userID, projectId: held.projectId)?.draft, newer)
         XCTAssertEqual(reopened.currentPreservedConflict(ownerUserId: owner.userID, projectId: held.projectId)?.draft, held.draft)
-        let retained = try await ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory).entriesForTesting()
+        let retained = try await queue.persistedEntriesForTesting()
         XCTAssertEqual(retained.first?.draft, held.draft)
         XCTAssertEqual(retained.first?.status, .parked)
     }
@@ -1245,7 +1260,7 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         let reopened = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
         XCTAssertEqual(reopened.dirtyOrdinarySnapshot(ownerUserId: owner.userID, projectId: held.projectId)?.draft, newer)
         XCTAssertEqual(reopened.currentPreservedConflict(ownerUserId: owner.userID, projectId: held.projectId)?.draft, "Another preserved draft")
-        let retained = try await ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory).entriesForTesting()
+        let retained = try await queue.persistedEntriesForTesting()
         XCTAssertEqual(retained.first?.draft, held.draft)
         XCTAssertEqual(retained.first?.status, .parked)
     }
@@ -1316,7 +1331,7 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         let reviewResult = await model.confirmedHeldDraftRecoveryForReview()
         let review = try XCTUnwrap(reviewResult)
         XCTAssertEqual(model.heldDraftRecoveryForReview(review)?.draft, raw)
-        let copies = try await ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory).entriesForTesting()
+        let copies = try await queue.persistedEntriesForTesting()
         XCTAssertEqual(copies.first?.draft, raw)
         XCTAssertEqual(copies.first?.status, .parked)
     }
@@ -1431,8 +1446,7 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertTrue(model.hasUnsavedDraftChanges)
         XCTAssertEqual(model.parkedDraftSaveCount, 1)
         XCTAssertEqual(recovery.payloads(ownerUserId: owner)["project-1"]?["draft"] as? String, local)
-        let relaunched = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
-        let copies = try await relaunched.entriesForTesting()
+        let copies = try await queue.persistedEntriesForTesting()
         XCTAssertEqual(copies.map(\.draft), [local])
         try? await Task.sleep(nanoseconds: 1_100_000_000)
     }
@@ -1474,13 +1488,14 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     }
 
     func testConflictRetainsEveryDraftAcrossRelaunchWithoutAutomaticReplay() async throws {
-        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        var store: ScreenplayDraftSaveOutbox? = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let first = makeEntry(id: "first", draft: "  First draft\r\n", createdAt: 100)
         let newest = makeEntry(id: "newest", draft: "Newest draft\n", createdAt: 101)
-        try await store.enqueue(first)
-        try await store.enqueue(newest)
-        let retained = try await store.retainConflict(projectId: "project-1", ownerUserId: "user-1", deliveryOrigin: nil)
+        try await XCTUnwrap(store).enqueue(first)
+        try await XCTUnwrap(store).enqueue(newest)
+        let retained = try await XCTUnwrap(store).retainConflict(projectId: "project-1", ownerUserId: "user-1", deliveryOrigin: nil)
         XCTAssertEqual(retained?.draft, newest.draft)
+        store = nil // The old owner has exited before the simulated relaunch.
         let relaunched = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let entries = try await relaunched.entriesForTesting()
         XCTAssertEqual(entries.map(\.draft), [first.draft, newest.draft])
@@ -1513,17 +1528,18 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     }
 
     func testStaleAcknowledgementCannotRetireNewlyParkedConflict() async throws {
-        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        var store: ScreenplayDraftSaveOutbox? = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let older = makeEntry(id: "older", draft: "Original writer words", createdAt: 100)
         let choice = makeEntry(id: "choice", draft: "Chosen writer words", createdAt: 101,
                                source: "studio_conflict_resolve")
-        try await store.enqueue(older)
-        try await store.enqueue(choice)
-        try await store.markInflight(id: choice.id)
-        _ = try await store.retainConflict(projectId: choice.projectId, ownerUserId: choice.ownerUserId, deliveryOrigin: nil)
-        let retired = try await store.markSucceeded(id: choice.id, serverVersionId: "server-v2",
+        try await XCTUnwrap(store).enqueue(older)
+        try await XCTUnwrap(store).enqueue(choice)
+        try await XCTUnwrap(store).markInflight(id: choice.id)
+        _ = try await XCTUnwrap(store).retainConflict(projectId: choice.projectId, ownerUserId: choice.ownerUserId, deliveryOrigin: nil)
+        let retired = try await XCTUnwrap(store).markSucceeded(id: choice.id, serverVersionId: "server-v2",
                                                      supersedesEarlierSaves: true, requireInflight: true)
         XCTAssertFalse(retired)
+        store = nil // The old owner has exited before the simulated relaunch.
         let reopened = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let entries = try await reopened.entriesForTesting()
         XCTAssertEqual(entries.map(\.draft), [older.draft, choice.draft])
@@ -1546,16 +1562,17 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     }
 
     func testHeldSaveIsPersistedSeparatelyFromAnIdenticalRunnableSave() async throws {
-        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        var queue: ScreenplayDraftSaveOutbox? = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let active = makeDeliverableEntry(id: "active", draft: "Exact writer words", createdAt: 100)
         var held = makeEntry(id: "held", draft: active.draft, createdAt: 101)
         held.deliveryOrigin = active.deliveryOrigin
         held.status = .parked
         held.nextAttemptAt = 0
         held.lastError = "Writer choice required"
-        try await queue.enqueue(active)
-        try await queue.enqueue(held)
+        try await XCTUnwrap(queue).enqueue(active)
+        try await XCTUnwrap(queue).enqueue(held)
 
+        queue = nil // The old owner has exited before the simulated relaunch.
         let reopened = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let stored = try await reopened.entriesForTesting()
         XCTAssertEqual(stored, [active, held], "Same text is not permission to drop a separate held intent.")
@@ -1567,13 +1584,14 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     }
 
     func testExistingIdentifierCanBeHeldInOneDurableWrite() async throws {
-        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        var queue: ScreenplayDraftSaveOutbox? = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         var held = makeEntry(id: "existing")
-        try await queue.enqueue(held)
+        try await XCTUnwrap(queue).enqueue(held)
         held.status = .parked
         held.nextAttemptAt = 0
         held.lastError = "Writer choice required"
-        try await queue.enqueue(held)
+        try await XCTUnwrap(queue).enqueue(held)
+        queue = nil // The old owner has exited before the simulated relaunch.
         let reopened = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let stored = try await reopened.entriesForTesting()
         XCTAssertEqual(stored, [held])
@@ -1626,11 +1644,12 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     }
 
     func testQueuedConflictChoiceIsParkedInsteadOfReplayed() async throws {
-        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        var queue: ScreenplayDraftSaveOutbox? = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let entry = makeEntry(id: "choice", draft: "Exact local words", source: "studio_conflict_resolve")
-        try await queue.enqueue(entry)
-        let next = try await queue.beginNext(projectId: entry.projectId, ownerUserId: entry.ownerUserId, force: true)
+        try await XCTUnwrap(queue).enqueue(entry)
+        let next = try await XCTUnwrap(queue).beginNext(projectId: entry.projectId, ownerUserId: entry.ownerUserId, force: true)
         XCTAssertNil(next)
+        queue = nil // The old owner has exited before the simulated relaunch.
         let reopened = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let saved = try await reopened.entriesForTesting()
         XCTAssertEqual(saved.first?.status, .parked)
@@ -1643,15 +1662,16 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     }
 
     func testNewerUnscopedConflictFencesEarlierScopedSaveBeforeRelaunch() async throws {
-        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        var queue: ScreenplayDraftSaveOutbox? = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let earlier = makeDeliverableEntry(id: "earlier", draft: "Earlier writer words", createdAt: 100)
         let legacy = makeEntry(id: "legacy-choice", draft: "Newer conflict words\n", createdAt: 200,
                                source: "studio_conflict_resolve")
-        try await queue.enqueue(earlier)
-        try await queue.enqueue(legacy)
-        let next = try await queue.beginNext(projectId: earlier.projectId, ownerUserId: earlier.ownerUserId,
+        try await XCTUnwrap(queue).enqueue(earlier)
+        try await XCTUnwrap(queue).enqueue(legacy)
+        let next = try await XCTUnwrap(queue).beginNext(projectId: earlier.projectId, ownerUserId: earlier.ownerUserId,
                                              deliveryOrigin: earlier.deliveryOrigin, force: true)
         XCTAssertNil(next)
+        queue = nil // The old owner has exited before the simulated relaunch.
         let reopened = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let rows = try await reopened.entriesForTesting()
         XCTAssertEqual(rows.first(where: { $0.id == earlier.id })?.status, .pending)
@@ -1681,11 +1701,12 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     }
 
     func testUnscopedPendingConflictChoiceFencesLaterScopedSaveAfterRelaunch() async throws {
-        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        var queue: ScreenplayDraftSaveOutbox? = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let legacy = makeEntry(id: "legacy-choice", draft: "Original conflict words\n", source: "studio_conflict_resolve")
         let later = makeDeliverableEntry(id: "later", draft: "Later writer words", createdAt: 200)
-        try await queue.enqueue(legacy)
-        try await queue.enqueue(later)
+        try await XCTUnwrap(queue).enqueue(legacy)
+        try await XCTUnwrap(queue).enqueue(later)
+        queue = nil // The old owner has exited before the simulated relaunch.
         let reopened = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let next = try await reopened.beginNext(projectId: later.projectId, ownerUserId: later.ownerUserId,
                                                 deliveryOrigin: later.deliveryOrigin, force: true)
@@ -1698,10 +1719,11 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     }
 
     func testInterruptedConflictChoiceIsParkedOnRelaunch() async throws {
-        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        var queue: ScreenplayDraftSaveOutbox? = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let entry = makeEntry(id: "choice", source: "studio_conflict_resolve")
-        try await queue.enqueue(entry)
-        try await queue.markInflight(id: entry.id)
+        try await XCTUnwrap(queue).enqueue(entry)
+        try await XCTUnwrap(queue).markInflight(id: entry.id)
+        queue = nil // The old owner has exited before the simulated relaunch.
         let reopened = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let saved = try await reopened.entriesForTesting()
         XCTAssertEqual(saved.first?.status, .parked)
@@ -1714,18 +1736,19 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     }
 
     func testFailedConflictChoiceRequiresRenewedConfirmation() async throws {
-        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        var queue: ScreenplayDraftSaveOutbox? = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let entry = makeEntry(id: "choice", source: "studio_conflict_resolve")
-        try await queue.enqueue(entry)
-        try await queue.markRetryable(id: entry.id, error: "offline")
-        let saved = try await queue.entriesForTesting()
+        try await XCTUnwrap(queue).enqueue(entry)
+        try await XCTUnwrap(queue).markRetryable(id: entry.id, error: "offline")
+        let saved = try await XCTUnwrap(queue).entriesForTesting()
         XCTAssertEqual(saved.first?.status, .parked)
+        queue = nil // The prior owner exits before the interrupted choice is reopened.
         let reopened = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let recoverable = try await reopened.pendingEntry(projectId: entry.projectId, ownerUserId: entry.ownerUserId)
         XCTAssertNil(recoverable, "A held decision cannot be automatically replayed")
         let held = try await reopened.parkedConflictEntries(projectId: entry.projectId, ownerUserId: entry.ownerUserId)
         XCTAssertEqual(held.map { Data($0.draft.utf8) }, [Data(entry.draft.utf8)])
-        let next = try await queue.beginNext(projectId: entry.projectId, ownerUserId: entry.ownerUserId, force: true)
+        let next = try await reopened.beginNext(projectId: entry.projectId, ownerUserId: entry.ownerUserId, force: true)
         XCTAssertNil(next)
     }
 
@@ -2818,11 +2841,12 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     }
 
     func testQueuePersistsAndRecoversInterruptedInflightSave() async throws {
-        let firstStore = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        var firstStore: ScreenplayDraftSaveOutbox? = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let entry = makeEntry(id: "save-1")
 
-        try await firstStore.enqueue(entry)
-        try await firstStore.markInflight(id: entry.id, now: Date(timeIntervalSince1970: 101))
+        try await XCTUnwrap(firstStore).enqueue(entry)
+        try await XCTUnwrap(firstStore).markInflight(id: entry.id, now: Date(timeIntervalSince1970: 101))
+        firstStore = nil // The interrupted owner must exit before a relaunch can recover its claim.
 
         let restoredStore = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let restored = try await restoredStore.entriesForTesting()
@@ -2833,20 +2857,21 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     }
 
     func testUnadmittedOrParkedSaveCannotBecomeInflight() async throws {
-        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        var queue: ScreenplayDraftSaveOutbox? = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let original = makeEntry(id: "original", draft: "Exact writer text")
         let duplicate = makeEntry(id: "duplicate", draft: original.draft)
-        try await queue.enqueue(original)
-        try await queue.enqueue(duplicate)
+        try await XCTUnwrap(queue).enqueue(original)
+        try await XCTUnwrap(queue).enqueue(duplicate)
         do {
-            try await queue.markInflight(id: duplicate.id)
+            try await XCTUnwrap(queue).markInflight(id: duplicate.id)
             XCTFail("A coalesced identifier has no durable entry and must not become inflight")
         } catch {}
-        try await queue.markParked(id: original.id, error: "Writer choice required")
+        try await XCTUnwrap(queue).markParked(id: original.id, error: "Writer choice required")
         do {
-            try await queue.markInflight(id: original.id)
+            try await XCTUnwrap(queue).markInflight(id: original.id)
             XCTFail("A parked writer choice must not become inflight")
         } catch {}
+        queue = nil // The old owner has exited before the simulated relaunch.
         let reopened = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let entries = try await reopened.entriesForTesting()
         XCTAssertEqual(entries.count, 1)
@@ -2861,8 +2886,7 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         let second = makeEntry(id: "second", draft: "Writer words\n", createdAt: 101)
         try await queue.enqueue(first)
         try await queue.enqueue(second)
-        let reopened = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
-        let retained = try await reopened.entriesForTesting()
+        let retained = try await queue.persistedEntriesForTesting()
         XCTAssertEqual(retained.count, 2)
         XCTAssertTrue(retained[0].draft.utf8.elementsEqual(first.draft.utf8))
         XCTAssertTrue(retained[1].draft.utf8.elementsEqual(second.draft.utf8))
@@ -2887,13 +2911,14 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         try FileManager.default.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
         try legacyData.write(to: storageDirectory.appendingPathComponent("queue.json"), options: .atomic)
 
-        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
-        let restoredLegacy = try await store.entriesForTesting()
+        var store: ScreenplayDraftSaveOutbox? = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let restoredLegacy = try await XCTUnwrap(store).entriesForTesting()
         XCTAssertEqual(restoredLegacy.map(\.id), [legacyEntry.id])
         XCTAssertEqual(restoredLegacy.first?.supersededConflictRequests, [])
 
         let newEntry = makeEntry(id: "post-lineage", draft: "Later draft", createdAt: 101)
-        try await store.enqueue(newEntry)
+        try await XCTUnwrap(store).enqueue(newEntry)
+        store = nil // The old owner has exited before the simulated relaunch.
         let relaunched = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let saved = try await relaunched.entriesForTesting()
         XCTAssertEqual(saved.map(\.id), [legacyEntry.id, newEntry.id])
@@ -2924,15 +2949,15 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
             documentID: "document-a",
             backendURL: URL(string: "https://save.test")!
         )
-        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        var store: ScreenplayDraftSaveOutbox? = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let conflict = makeEntry(id: "parked-conflict", draft: "Exact local words", createdAt: 100,
             origin: origin, authority: .init(id: UUID(), generation: 1))
-        try await store.enqueue(conflict)
-        _ = try await store.retainConflict(conflict)
+        try await XCTUnwrap(store).enqueue(conflict)
+        _ = try await XCTUnwrap(store).retainConflict(conflict)
         var resolution = makeEntry(id: "keep-mine", draft: conflict.draft, createdAt: 101,
             origin: origin, authority: .init(id: UUID(), generation: 2))
-        resolution.supersededConflictRequests = try await store.conflictResolutionReferences(for: conflict)
-        try await store.enqueue(resolution)
+        resolution.supersededConflictRequests = try await XCTUnwrap(store).conflictResolutionReferences(for: conflict)
+        try await XCTUnwrap(store).enqueue(resolution)
         let manifestURL = storageDirectory.appendingPathComponent("queue.json")
         let protectedBytes = try Data(contentsOf: manifestURL)
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: protectedBytes) as? [String: Any])
@@ -2942,9 +2967,10 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertThrowsError(try JSONDecoder().decode([PriorDraftSaveOutboxEntry].self,
             from: protectedBytes), "An array-only build must fail before it can drop lineage")
         XCTAssertEqual(try Data(contentsOf: manifestURL), protectedBytes)
-        let isDurable = try await store.hasDurableTarget(id: resolution.id, matching: resolution)
+        let isDurable = try await XCTUnwrap(store).hasDurableTarget(id: resolution.id, matching: resolution)
         XCTAssertTrue(isDurable, "Durable readback must understand the protected envelope")
 
+        store = nil // The old owner has exited before the simulated relaunch.
         let relaunched = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let next = try await relaunched.beginNext(projectId: conflict.projectId,
             ownerUserId: conflict.ownerUserId, force: true)
@@ -3087,23 +3113,30 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     }
 
     func testFailedQueueClaimKeepsTheSavePendingInMemoryAndOnDisk() async throws {
-        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        var store: ScreenplayDraftSaveOutbox? = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let entry = makeDeliverableEntry(id: "claim-persist-failure")
-        try await store.enqueue(entry)
+        try await XCTUnwrap(store).enqueue(entry)
         let backup = storageDirectory.appendingPathExtension("saved")
         defer { try? FileManager.default.removeItem(at: backup) }
         try FileManager.default.moveItem(at: storageDirectory, to: backup)
         XCTAssertTrue(FileManager.default.createFile(atPath: storageDirectory.path, contents: Data()))
         do {
-            _ = try await store.beginNext(projectId: entry.projectId, ownerUserId: entry.ownerUserId, force: true)
+            _ = try await XCTUnwrap(store).beginNext(projectId: entry.projectId, ownerUserId: entry.ownerUserId, force: true)
             XCTFail("Claim should fail when the queue directory cannot be written")
         } catch { }
-        let inMemory = try await store.entriesForTesting()
-        XCTAssertEqual(inMemory.first?.status, .pending)
+        let unavailable = try await XCTUnwrap(store).snapshot()
+        XCTAssertFalse(unavailable.isStorageReadable, "A displaced owner must not claim stale storage authority.")
         let restarted = ScreenplayDraftSaveOutbox(storageDirectory: backup)
+        do {
+            _ = try await restarted.entriesForTesting()
+            XCTFail("The moved lock must remain owned until the original actor exits.")
+        } catch { }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: backup.appendingPathComponent("queue.json").path))
+        store = nil
         let onDisk = try await restarted.entriesForTesting()
         XCTAssertEqual(onDisk.first?.status, .pending)
         XCTAssertEqual(onDisk.first?.id, entry.id)
+        XCTAssertEqual(Data(onDisk.first?.draft.utf8 ?? "".utf8), Data(entry.draft.utf8))
     }
 
     func testQueueDeduplicatesSameSaveIdentifier() async throws {
@@ -3121,19 +3154,20 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         let raw = "\r\nINT. CAFE - NIGHT\r\n\r\nA cafe\u{0301} waits.\r\n \t "
         let drafts = [raw, raw + " ", raw.replacingOccurrences(of: "\r\n", with: "\n"),
                       raw.precomposedStringWithCanonicalMapping]
-        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        var store: ScreenplayDraftSaveOutbox? = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         var first = makeDeliverableEntry(id: "raw-0", draft: raw)
         first.saveOrderingVersion = 1
-        var predecessor = try await store.admitPendingSave(first, following: nil)
-        guard case .deliver = try await store.beginDelivery(predecessor) else {
+        var predecessor = try await XCTUnwrap(store).admitPendingSave(first, following: nil)
+        guard case .deliver = try await XCTUnwrap(store).beginDelivery(predecessor) else {
             return XCTFail("The first exact draft did not begin delivery")
         }
         for index in 1..<drafts.count {
             var follower = makeDeliverableEntry(id: "raw-\(index)", draft: drafts[index],
                 createdAt: TimeInterval(100 + index))
             follower.saveOrderingVersion = 1
-            predecessor = try await store.admitPendingSave(follower, following: predecessor)
+            predecessor = try await XCTUnwrap(store).admitPendingSave(follower, following: predecessor)
         }
+        store = nil // The old owner has exited before the simulated relaunch.
         let relaunched = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let restored = try await relaunched.entriesForTesting()
         XCTAssertEqual(restored.count, drafts.count, "Normalized equality must not discard later writer bytes.")
@@ -3216,8 +3250,9 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
 
     func testCoalescedDeliveryUsesTheDurableRequestIdentifierAcrossRestart() async throws {
         let original = makeEntry(id: "durable-request")
-        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
-        try await store.enqueue(original)
+        var store: ScreenplayDraftSaveOutbox? = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        try await XCTUnwrap(store).enqueue(original)
+        store = nil // The old owner has exited before the simulated relaunch.
         let restarted = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let duplicate = makeEntry(id: "fresh-caller-request")
         let delivery = try await restarted.enqueueForDelivery(duplicate)
@@ -3254,16 +3289,17 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     }
 
     func testDistinctManualCheckpointsWithIdenticalBytesSurviveRelaunch() async throws {
-        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        var store: ScreenplayDraftSaveOutbox? = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let sample = makeEntry(id: "manual-first", draft: "Same exact words")
         var payload = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(sample)) as? [String: Any])
         payload["source"] = "studio_manual"
         let first = try JSONDecoder().decode(ScreenplayDraftSaveOutboxEntry.self, from: JSONSerialization.data(withJSONObject: payload))
         payload["id"] = "manual-second"
         let second = try JSONDecoder().decode(ScreenplayDraftSaveOutboxEntry.self, from: JSONSerialization.data(withJSONObject: payload))
-        _ = try await store.enqueueForDelivery(first)
-        let retained = try await store.enqueueForDelivery(second)
+        _ = try await XCTUnwrap(store).enqueueForDelivery(first)
+        let retained = try await XCTUnwrap(store).enqueueForDelivery(second)
         XCTAssertEqual(retained.id, second.id)
+        store = nil // The old owner has exited before the simulated relaunch.
         let restarted = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let rows = try await restarted.entriesForTesting()
         XCTAssertEqual(Set(rows.map(\.id)), Set([first.id, second.id]))
@@ -3409,19 +3445,20 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
             documentID: "document-a",
             backendURL: URL(string: "https://save.test")!
         )
-        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        var store: ScreenplayDraftSaveOutbox? = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let page = "Same exact writer page\r\n"
         let original = makeEntry(id: "original-conflict", draft: page, createdAt: 100,
             origin: origin, authority: .init(id: UUID(), generation: 1))
-        try await store.enqueue(original)
-        _ = try await store.retainConflict(original)
+        try await XCTUnwrap(store).enqueue(original)
+        _ = try await XCTUnwrap(store).retainConflict(original)
         var secondConflict = makeEntry(id: "keep-mine-conflicted", draft: page, createdAt: 101,
             origin: origin, authority: .init(id: UUID(), generation: 2))
-        secondConflict.supersededConflictRequests = try await store.conflictResolutionReferences(
+        secondConflict.supersededConflictRequests = try await XCTUnwrap(store).conflictResolutionReferences(
             for: original)
-        try await store.enqueue(secondConflict)
-        _ = try await store.retainConflict(secondConflict)
+        try await XCTUnwrap(store).enqueue(secondConflict)
+        _ = try await XCTUnwrap(store).retainConflict(secondConflict)
 
+        store = nil // The old owner has exited before the simulated relaunch.
         let relaunched = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let tip = try await relaunched.parkedConflictLineageTip(projectId: original.projectId,
             ownerUserId: original.ownerUserId, deliveryOrigin: origin, draft: page)
@@ -3723,15 +3760,16 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         let authority = ScreenplayDraftSaveRequestAuthority(id: UUID(), generation: 7)
         let original = makeEntry(id: "late-request", draft: "Exact late words", createdAt: 100,
             origin: origin, authority: authority)
-        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
-        let selection = try await store.captureLoadServerSelection(
+        var store: ScreenplayDraftSaveOutbox? = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let selection = try await XCTUnwrap(store).captureLoadServerSelection(
             projectId: original.projectId,
             ownerUserId: original.ownerUserId,
             deliveryOrigin: origin,
             explicitRequests: [original]
         )
-        _ = try await store.resolveLoadServerSelection(selection)
+        _ = try await XCTUnwrap(store).resolveLoadServerSelection(selection)
 
+        store = nil // The old owner has exited before the simulated relaunch.
         let relaunched = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let rematerialized = makeEntry(id: original.id, draft: original.draft, createdAt: 999,
             origin: origin, authority: authority)
@@ -3818,10 +3856,10 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         )
         let request = makeEntry(id: "retired-id", draft: "Retired words", origin: origin,
             authority: .init(id: UUID(), generation: 12))
-        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
-        let selection = try await store.captureLoadServerSelection(projectId: request.projectId,
+        var store: ScreenplayDraftSaveOutbox? = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let selection = try await XCTUnwrap(store).captureLoadServerSelection(projectId: request.projectId,
             ownerUserId: request.ownerUserId, deliveryOrigin: origin, explicitRequests: [request])
-        _ = try await store.resolveLoadServerSelection(selection)
+        _ = try await XCTUnwrap(store).resolveLoadServerSelection(selection)
         let data = try Data(contentsOf: storageDirectory.appendingPathComponent("queue.json"))
         var priorRows = try JSONDecoder().decode([PriorDraftSaveOutboxEntry].self, from: data)
         let marker = try XCTUnwrap(priorRows.first(where: { $0.id == request.id }))
@@ -3873,6 +3911,7 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         priorRetriedMarker.lastError = "Interrupted while saving."
         try JSONEncoder().encode([priorRetriedMarker]).write(
             to: storageDirectory.appendingPathComponent("queue.json"), options: .atomic)
+        store = nil // The old owner has exited before the simulated relaunch.
         let upgradedAgain = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let stillRejected = try await upgradedAgain.beginDeliveryUnlessRetiredByLoadServer(request)
         let normalizedMarkers = try await upgradedAgain.retirementMarkersForTesting()
@@ -4016,13 +4055,14 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     }
 
     func testExactConflictRetentionPreservesDistinctLegacyNilOriginDrafts() async throws {
-        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        var store: ScreenplayDraftSaveOutbox? = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let selected = makeEntry(id: "legacy-selected", draft: "First writer's words")
         let other = makeEntry(id: "legacy-other", draft: "Different writer's words")
-        try await store.enqueue(selected)
-        try await store.enqueue(other)
-        let retained = try await store.retainConflict(selected)
+        try await XCTUnwrap(store).enqueue(selected)
+        try await XCTUnwrap(store).enqueue(other)
+        let retained = try await XCTUnwrap(store).retainConflict(selected)
         XCTAssertEqual(retained?.id, selected.id)
+        store = nil // The old owner has exited before the simulated relaunch.
         let relaunched = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let rows = try await relaunched.entriesForTesting()
         XCTAssertEqual(rows.first(where: { $0.id == selected.id })?.status, .parked)
@@ -4040,17 +4080,18 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     }
 
     func testAcknowledgedSaveDoesNotDeleteOrRebaseDistinctParkedDrafts() async throws {
-        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        var store: ScreenplayDraftSaveOutbox? = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let origin = ScreenplayDraftSaveOrigin(documentID: "same-document", backendURL: URL(string: "https://save.test")!)
         let older = makeEntry(id: "parked-older", draft: "Older distinct draft", createdAt: 100, origin: origin)
         let completed = makeEntry(id: "acknowledged", draft: "Saved draft", createdAt: 101, origin: origin)
         let newer = makeEntry(id: "parked-newer", draft: "Newer distinct draft", createdAt: 102, origin: origin)
-        try await store.enqueue(older)
-        try await store.enqueue(completed)
-        try await store.enqueue(newer)
-        _ = try await store.retainConflict(older)
-        _ = try await store.retainConflict(newer)
-        try await store.markSucceeded(id: completed.id, serverVersionId: "new-server-head")
+        try await XCTUnwrap(store).enqueue(older)
+        try await XCTUnwrap(store).enqueue(completed)
+        try await XCTUnwrap(store).enqueue(newer)
+        _ = try await XCTUnwrap(store).retainConflict(older)
+        _ = try await XCTUnwrap(store).retainConflict(newer)
+        try await XCTUnwrap(store).markSucceeded(id: completed.id, serverVersionId: "new-server-head")
+        store = nil // The old owner has exited before the simulated relaunch.
         let relaunched = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let remaining = try await relaunched.parkedConflictEntries(projectId: older.projectId, ownerUserId: older.ownerUserId)
         XCTAssertEqual(Set(remaining.map(\.id)), Set([older.id, newer.id]))
@@ -4300,36 +4341,37 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
             documentID: "document-a",
             backendURL: URL(string: "https://save.test")!
         )
-        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        var store: ScreenplayDraftSaveOutbox? = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let retired = makeEntry(id: "retired-load-server", draft: "Retired words", createdAt: 90,
             origin: origin, authority: .init(id: UUID(), generation: 1))
-        let selection = try await store.captureLoadServerSelection(projectId: retired.projectId,
+        let selection = try await XCTUnwrap(store).captureLoadServerSelection(projectId: retired.projectId,
             ownerUserId: retired.ownerUserId, deliveryOrigin: origin, explicitRequests: [retired])
-        _ = try await store.resolveLoadServerSelection(selection)
+        _ = try await XCTUnwrap(store).resolveLoadServerSelection(selection)
 
         let conflict = makeEntry(id: "original-conflict", draft: "Original words", createdAt: 100,
             origin: origin, authority: .init(id: UUID(), generation: 2))
-        try await store.enqueue(conflict)
-        _ = try await store.retainConflict(conflict)
+        try await XCTUnwrap(store).enqueue(conflict)
+        _ = try await XCTUnwrap(store).retainConflict(conflict)
         var resolution = makeEntry(id: "confirmed-keep-mine", draft: "Kept words", createdAt: 101,
             origin: origin, authority: .init(id: UUID(), generation: 3))
-        resolution.supersededConflictRequests = try await store.conflictResolutionReferences(for: conflict)
+        resolution.supersededConflictRequests = try await XCTUnwrap(store).conflictResolutionReferences(for: conflict)
         let unrelated = makeEntry(id: "unrelated-pending", draft: "Later words", createdAt: 102,
             origin: origin, authority: .init(id: UUID(), generation: 4))
-        try await store.enqueue(resolution)
-        try await store.enqueue(unrelated)
-        try await store.markInflight(id: resolution.id)
+        try await XCTUnwrap(store).enqueue(resolution)
+        try await XCTUnwrap(store).enqueue(unrelated)
+        try await XCTUnwrap(store).markInflight(id: resolution.id)
         let manifestURL = storageDirectory.appendingPathComponent("queue.json")
         XCTAssertNotNil(try JSONSerialization.jsonObject(
             with: Data(contentsOf: manifestURL)) as? [String: Any])
 
-        try await store.completeConfirmedConflictResolution(resolution,
+        try await XCTUnwrap(store).completeConfirmedConflictResolution(resolution,
             evidence: try makeOrdinaryEvidence(for: resolution, versionID: "server-v2"),
             echoedRequestID: resolution.id)
 
         let legacyBytes = try Data(contentsOf: manifestURL)
         let priorRows = try JSONDecoder().decode([PriorDraftSaveOutboxEntry].self, from: legacyBytes)
         XCTAssertEqual(Set(priorRows.map(\.id)), Set([retired.id, unrelated.id]))
+        store = nil // The old owner has exited before the simulated relaunch.
         let relaunched = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let restoredEntries = try await relaunched.entriesForTesting()
         let restoredMarkers = try await relaunched.retirementMarkersForTesting()
@@ -4338,16 +4380,17 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     }
 
     func testParkedConflictCopiesRemainSeparateAndOwnerScopedAfterRelaunch() async throws {
-        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        var store: ScreenplayDraftSaveOutbox? = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let first = makeEntry(id: "copy-one", draft: "First writer's words")
         let second = makeEntry(id: "copy-two", draft: "Different writer's words")
         let otherOwner = replacingOwner(of: makeEntry(id: "other-owner", draft: "Private other owner"), with: "user-2")
-        try await store.enqueue(first)
-        try await store.enqueue(second)
-        try await store.enqueue(otherOwner)
-        _ = try await store.retainConflict(first)
-        _ = try await store.retainConflict(second)
-        _ = try await store.retainConflict(otherOwner)
+        try await XCTUnwrap(store).enqueue(first)
+        try await XCTUnwrap(store).enqueue(second)
+        try await XCTUnwrap(store).enqueue(otherOwner)
+        _ = try await XCTUnwrap(store).retainConflict(first)
+        _ = try await XCTUnwrap(store).retainConflict(second)
+        _ = try await XCTUnwrap(store).retainConflict(otherOwner)
+        store = nil // The old owner has exited before the simulated relaunch.
         let relaunched = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let copies = try await relaunched.parkedConflictEntries(projectId: first.projectId, ownerUserId: first.ownerUserId)
         XCTAssertEqual(Set(copies.map(\.id)), Set([first.id, second.id]))
@@ -4778,24 +4821,25 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     }
 
     func testMissingOrUnprovenPredecessorParksExactFollower() async throws {
-        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        var store: ScreenplayDraftSaveOutbox? = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         var first = makeDeliverableEntry(id: "proof-first", draft: "First exact", createdAt: 100)
         first.saveOrderingVersion = 1
         var missingFollower = makeDeliverableEntry(id: "missing-follower", draft: "Keep missing exact", createdAt: 101)
         missingFollower.saveOrderingVersion = 1
-        let missing = try await store.admitPendingSave(missingFollower, following: first)
+        let missing = try await XCTUnwrap(store).admitPendingSave(missingFollower, following: first)
         XCTAssertEqual(missing.status, .parked)
         XCTAssertEqual(missing.draft, missingFollower.draft)
 
-        _ = try await store.admitPendingSave(first, following: nil)
-        guard case .deliver(let active) = try await store.beginDelivery(first) else {
+        _ = try await XCTUnwrap(store).admitPendingSave(first, following: nil)
+        guard case .deliver(let active) = try await XCTUnwrap(store).beginDelivery(first) else {
             return XCTFail("Expected the predecessor to begin delivery")
         }
         var unprovenFollower = makeDeliverableEntry(id: "unproven-follower", draft: "Keep unproven exact", createdAt: 102)
         unprovenFollower.saveOrderingVersion = 1
-        _ = try await store.admitPendingSave(unprovenFollower, following: active)
-        try await store.markSucceeded(id: active.id, serverVersionId: "unproven-v2")
+        _ = try await XCTUnwrap(store).admitPendingSave(unprovenFollower, following: active)
+        try await XCTUnwrap(store).markSucceeded(id: active.id, serverVersionId: "unproven-v2")
 
+        store = nil // The old owner has exited before the simulated relaunch.
         let relaunched = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let rows = try await relaunched.entriesForTesting()
         let unproven = try XCTUnwrap(rows.first { $0.id == unprovenFollower.id })
@@ -4953,13 +4997,18 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     }
 
     func testUITestResetRemovesPersistedDraftSaveQueue() async throws {
-        let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
-        try await store.enqueue(makeEntry(id: "stale-ui-save"))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: storageDirectory.path))
-
-        ScreenplayDraftSaveOutbox.resetStoredQueueForUITesting(at: storageDirectory)
-
-        XCTAssertFalse(FileManager.default.fileExists(atPath: storageDirectory.path))
+        var store: ScreenplayDraftSaveOutbox? = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        try await XCTUnwrap(store).enqueue(makeEntry(id: "stale-ui-save"))
+        let manifest = storageDirectory.appendingPathComponent("queue.json")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: manifest.path))
+        XCTAssertFalse(ScreenplayDraftSaveOutbox.resetStoredQueueForUITesting(at: storageDirectory),
+            "A live owner must not have its journal removed.")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: manifest.path))
+        store = nil
+        XCTAssertTrue(ScreenplayDraftSaveOutbox.resetStoredQueueForUITesting(at: storageDirectory))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: manifest.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: storageDirectory.appendingPathComponent("queue.owner.lock").path),
+            "Reset must retain the lock inode so a second process cannot bypass a live lock.")
     }
 
     @MainActor

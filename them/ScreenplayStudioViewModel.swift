@@ -2006,6 +2006,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
             }
         Task { [weak self] in
             guard let self else { return }
+            #if DEBUG
+            defer { NotificationCenter.default.post(name: Notification.Name("T1360.model-startup-complete"), object: self) }
+            #endif
             await self.draftSaveOutbox.startNetworkMonitoring()
             await self.outlineMutationOutbox.startNetworkMonitoring()
             await self.refreshDraftSaveOutboxStatus()

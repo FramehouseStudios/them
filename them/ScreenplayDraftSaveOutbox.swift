@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import Darwin
 import Network
 
 nonisolated extension Notification.Name {
@@ -379,6 +380,61 @@ nonisolated struct ScreenplayDraftConflictResolutionPlan: Equatable {
     let deferredConflictRequests: [ScreenplayDraftConflictRequestReference]
 }
 
+// Swift imports `flock` as the POSIX struct. Resolve the public libc function
+// with an explicit C calling convention; absence fails closed.
+private nonisolated enum ScreenplayQueueFlock {
+    typealias Function = @convention(c) (Int32, Int32) -> Int32
+    static let call: Function? = {
+        guard let handle = Darwin.dlopen(nil, RTLD_NOW), let symbol = Darwin.dlsym(handle, "flock") else { return nil }
+        return unsafeBitCast(symbol, to: Function.self)
+    }()
+}
+
+private nonisolated func screenplayQueueFlock(_ descriptor: Int32, _ operation: Int32) -> Int32 {
+    guard let call = ScreenplayQueueFlock.call else { return -1 }
+    return call(descriptor, operation)
+}
+
+/// A nonblocking process-lifetime lease. `flock` is tied to each open file
+/// description, so another actor in this process is excluded as well.
+private final class ScreenplayDraftSaveQueueLease: @unchecked Sendable {
+    private var descriptor: Int32 = -1
+    let url: URL
+
+    init(directory: URL, fileManager: FileManager) throws {
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        url = directory.appendingPathComponent("queue.owner.lock")
+        let opened = url.path.withCString { Darwin.open($0, O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, S_IRUSR | S_IWUSR) }
+        guard opened >= 0 else { throw Self.unavailable() }
+        guard screenplayQueueFlock(opened, LOCK_EX | LOCK_NB) == 0 else {
+            Darwin.close(opened)
+            throw Self.unavailable()
+        }
+        descriptor = opened
+        // If validation fails, deinit owns the one and only close.
+        guard isCurrent else { throw Self.unavailable() }
+    }
+
+    var isCurrent: Bool {
+        var held = stat(), path = stat()
+        return Darwin.fstat(descriptor, &held) == 0 &&
+            url.path.withCString { Darwin.lstat($0, &path) } == 0 &&
+            held.st_dev == path.st_dev && held.st_ino == path.st_ino && held.st_nlink == 1 &&
+            (held.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG)
+    }
+
+    deinit {
+        guard descriptor >= 0 else { return }
+        _ = screenplayQueueFlock(descriptor, LOCK_UN)
+        Darwin.close(descriptor)
+    }
+
+    static func unavailable() -> Error {
+        NSError(domain: "io.them.screenplay-outbox", code: 1, userInfo: [NSLocalizedDescriptionKey:
+            "Draft storage is in use or unavailable. Keep the current page open and try again."])
+    }
+}
+
 actor ScreenplayDraftSaveOutbox {
     static let shared = ScreenplayDraftSaveOutbox(storageDirectory: defaultStorageDirectory())
 
@@ -411,6 +467,7 @@ actor ScreenplayDraftSaveOutbox {
     private let fileManager: FileManager
     private let manifestWriter: @Sendable (Data, URL) throws -> Void
     private let supersededReceiptReader: @Sendable (URL) throws -> Data
+    private var queueLease: ScreenplayDraftSaveQueueLease?
     private var didLoad = false
     private var entries: [ScreenplayDraftSaveOutboxEntry] = []
     private var retirementMarkers: [ScreenplayDraftSaveOutboxEntry] = []
@@ -858,6 +915,7 @@ actor ScreenplayDraftSaveOutbox {
     /// cannot authorize a future action merely because its text still matches.
     func custodyChoice(projectID: String, ownerUserID: String,
                        deliveryOrigin: ScreenplayDraftSaveOrigin) throws -> ScreenplayDraftCustodyChoice? {
+        try loadIfNeeded()
         try validateScope(projectId: projectID, ownerUserId: ownerUserID, deliveryOrigin: deliveryOrigin)
         guard fileManager.fileExists(atPath: manifestURL.path) else { return nil }
         let durable = try Self.decodeStoredEntries(Data(contentsOf: manifestURL))
@@ -2087,6 +2145,15 @@ actor ScreenplayDraftSaveOutbox {
         } catch { return .unconfirmed }
     }
 
+    #if DEBUG
+    /// Inspect the persisted bytes through the owner without claiming a second actor.
+    func persistedEntriesForTesting() throws -> [ScreenplayDraftSaveOutboxEntry] {
+        try loadIfNeeded()
+        guard fileManager.fileExists(atPath: manifestURL.path) else { return [] }
+        return try Self.decodeStoredEntries(Data(contentsOf: manifestURL))
+    }
+    #endif
+
     func entriesForTesting() throws -> [ScreenplayDraftSaveOutboxEntry] {
         try loadIfNeeded()
         return entries
@@ -2292,21 +2359,25 @@ actor ScreenplayDraftSaveOutbox {
     }
 
     #if DEBUG
+    @discardableResult
     nonisolated static func resetStoredQueueForUITesting(
         fileManager: FileManager = .default
-    ) {
-        resetStoredQueueForUITesting(
-            at: defaultStorageDirectory(),
-            fileManager: fileManager
-        )
+    ) -> Bool {
+        resetStoredQueueForUITesting(at: defaultStorageDirectory(), fileManager: fileManager)
     }
 
+    @discardableResult
     nonisolated static func resetStoredQueueForUITesting(
         at storageDirectory: URL,
         fileManager: FileManager = .default
-    ) {
-        guard fileManager.fileExists(atPath: storageDirectory.path) else { return }
-        try? fileManager.removeItem(at: storageDirectory)
+    ) -> Bool {
+        guard fileManager.fileExists(atPath: storageDirectory.path) else { return true }
+        guard let lease = try? ScreenplayDraftSaveQueueLease(directory: storageDirectory, fileManager: fileManager) else { return false }
+        let manifest = storageDirectory.appendingPathComponent("queue.json")
+        return withExtendedLifetime(lease) {
+            guard fileManager.fileExists(atPath: manifest.path) else { return true }
+            do { try fileManager.removeItem(at: manifest); return true } catch { return false }
+        }
     }
     #endif
 
@@ -2323,6 +2394,10 @@ actor ScreenplayDraftSaveOutbox {
     }
 
     private func loadIfNeeded() throws {
+        if queueLease == nil {
+            queueLease = try ScreenplayDraftSaveQueueLease(directory: storageDirectory, fileManager: fileManager)
+        }
+        guard queueLease?.isCurrent == true else { throw ScreenplayDraftSaveQueueLease.unavailable() }
         guard !didLoad else { return }
         guard fileManager.fileExists(atPath: manifestURL.path) else {
             entries = []
@@ -2417,6 +2492,7 @@ actor ScreenplayDraftSaveOutbox {
     }
 
     private func persist() throws {
+        guard queueLease?.isCurrent == true else { throw ScreenplayDraftSaveQueueLease.unavailable() }
         try fileManager.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
