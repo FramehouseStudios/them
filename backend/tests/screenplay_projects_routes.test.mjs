@@ -1797,17 +1797,84 @@ test("[screenplay-projects-routes] POST /version saves a draft and returns 201",
   });
 });
 
+test("[screenplay-projects-routes] CAS retry rechecks the concurrent version head", async () => {
+  const deps = defaultDeps();
+  const project = deps._owner.projects.find((item) => item.id === "p1");
+  project.versions = [{ id: "base", draft: "Initial", phase: "draft", source: "studio_manual" }];
+  project.activeVersionId = "base";
+  deps.commitScreenplayOwnerMutation = async ({ mutate, retryAmbiguousCommit }) => {
+    assert.equal(retryAmbiguousCommit, true);
+    const losing = structuredClone(deps._owner);
+    assert.equal((await mutate(losing, { attempt: 1 })).kind, "saved");
+    const current = deps._owner.projects.find((item) => item.id === "p1");
+    current.versions.unshift({ id: "concurrent", draft: "Other writer", phase: "draft", source: "studio_manual" });
+    current.activeVersionId = "concurrent";
+    const retry = structuredClone(deps._owner);
+    const result = await mutate(retry, { attempt: 2 });
+    assert.equal(result.kind, "conflict");
+    return { ok: true, committed: false, owner: deps._owner, result };
+  };
+  await withTestServer(deps, async (baseURL) => {
+    const response = await postJson(baseURL, "/screenplay/projects/p1/version", {
+      draft: "Writer's unsaved words", base_version_id: "base", client_request_id: "cas-stale" });
+    assert.equal(response.status, 409);
+    assert.equal(response.body.status, "conflict");
+    assert.equal(response.body.server_version_id, "concurrent");
+    assert.equal(project.versions.some((v) => v.draft === "Writer's unsaved words"), false);
+    assert.equal(project.versions[0].draft, "Other writer");
+  });
+});
+
+test("[screenplay-projects-routes] ambiguous CAS write recovers by exact request replay", async () => {
+  const deps = defaultDeps();
+  deps.commitScreenplayOwnerMutation = async ({ mutate, retryAmbiguousCommit }) => {
+    assert.equal(retryAmbiguousCommit, true);
+    const first = structuredClone(deps._owner);
+    const written = await mutate(first, { attempt: 1 });
+    assert.equal(written.kind, "saved");
+    Object.assign(deps._owner, first); // The adapter committed before its response was lost.
+    const retry = structuredClone(deps._owner);
+    const result = await mutate(retry, { attempt: 2 });
+    assert.equal(result.kind, "replayed");
+    return { ok: true, committed: false, owner: deps._owner, result };
+  };
+  await withTestServer(deps, async (baseURL) => {
+    const response = await postJson(baseURL, "/screenplay/projects/p1/version", {
+      draft: "Exact saved words", client_request_id: "cas-ambiguous" });
+    assert.equal(response.status, 200);
+    assert.equal(response.body.status, "replayed");
+    assert.equal(response.body.replay_proof, "full_request_hash_v1");
+    assert.equal(deps._owner.projects[0].versions.length, 1);
+    assert.equal(deps._owner.projects[0].versions[0].draft, "Exact saved words");
+  });
+});
+
+test("[screenplay-projects-routes] CAS retry retains captured default phase", async () => {
+  const deps = defaultDeps();
+  deps._owner.projects[0].lastPhase = "original_phase";
+  deps.commitScreenplayOwnerMutation = async ({ mutate, retryAmbiguousCommit }) => {
+    assert.equal(retryAmbiguousCommit, false);
+    const first = structuredClone(deps._owner);
+    assert.equal((await mutate(first, { attempt: 1 })).kind, "saved");
+    deps._owner.projects[0].lastPhase = "concurrent_phase";
+    const retry = structuredClone(deps._owner);
+    const result = await mutate(retry, { attempt: 2 });
+    Object.assign(deps._owner, retry);
+    return { ok: true, committed: true, owner: retry, result };
+  };
+  await withTestServer(deps, async (baseURL) => {
+    const response = await postJson(baseURL, "/screenplay/projects/p1/version", { draft: "Phase test" });
+    assert.equal(response.status, 201);
+    assert.equal(deps._owner.projects[0].versions[0].phase, "original_phase");
+  });
+});
+
 test("[screenplay-projects-routes] POST /version surfaces adapter persistence failure", async () => {
   const deps = defaultDeps({
-    markScreenplayOwnerDirty: () => ({
-      ok: true,
-      fileOk: true,
+    commitScreenplayOwnerMutation: async () => ({
+      ok: false,
       persistenceKind: "postgres",
-      persistencePromise: Promise.resolve({
-        ok: false,
-        persistenceKind: "postgres",
-        persistenceFailureCount: 1,
-      }),
+      persistenceFailureCount: 1,
     }),
   });
   const project = deps._owner.projects.find((item) => item.id === "p1");
@@ -1996,9 +2063,17 @@ test("[screenplay-projects-routes] POST /version does not replay before durable 
   const persistencePromise = new Promise((resolve) => {
     releasePersistence = () => resolve({ ok: true });
   });
-  const deps = defaultDeps({
-    markScreenplayOwnerDirty: () => ({ ok: true, persistencePromise }),
-  });
+  let signalStarted;
+  const started = new Promise((resolve) => { signalStarted = resolve; });
+  const deps = defaultDeps();
+  deps.commitScreenplayOwnerMutation = async ({ mutate }) => {
+    const next = structuredClone(deps._owner);
+    const outcome = await mutate(next, { attempt: 1, currentOwner: structuredClone(deps._owner) });
+    signalStarted();
+    await persistencePromise;
+    Object.assign(deps._owner, next);
+    return { ok: true, committed: true, owner: next, result: outcome };
+  };
   const project = deps._owner.projects.find((p) => p.id === "p1");
   const body = {
     draft: "FADE IN:\n\nINT. KITCHEN - NIGHT\n\nLucy waits.",
@@ -2007,9 +2082,8 @@ test("[screenplay-projects-routes] POST /version does not replay before durable 
 
   await withTestServer(deps, async (baseURL) => {
     const firstRequest = postJson(baseURL, "/screenplay/projects/p1/version", body);
-    while (!project.versions?.some((version) => version.clientRequestId === "device-save-pending")) {
-      await new Promise((resolve) => setImmediate(resolve));
-    }
+    await assertRequestReachedPersistenceGate(started, firstRequest, "version pending request");
+    assert.equal((project.versions || []).some((version) => version.clientRequestId === "device-save-pending"), false);
 
     const earlyReplay = await postJson(baseURL, "/screenplay/projects/p1/version", body);
     assert.equal(earlyReplay.status, 425);
@@ -2019,7 +2093,7 @@ test("[screenplay-projects-routes] POST /version does not replay before durable 
     releasePersistence();
     const first = await firstRequest;
     assert.equal(first.status, 201);
-    assert.equal(project.versions[0].persistencePending, false);
+    assert.equal(deps._owner.projects.find((p) => p.id === "p1").versions[0].persistencePending, false);
   });
 });
 
@@ -2029,17 +2103,14 @@ test("[screenplay-projects-routes] POST /version responds with its committed sna
   const persistenceGate = new Promise((resolve) => { releasePersistence = resolve; });
   const persistenceStarted = new Promise((resolve) => { signalPersistenceStarted = resolve; });
   let committedOwner = null;
-  const deps = defaultDeps({
-    markScreenplayOwnerDirty: (owner) => {
-      committedOwner = structuredClone(owner);
-      signalPersistenceStarted();
-      return {
-        ok: true,
-        persistenceKind: "postgres",
-        persistencePromise: persistenceGate,
-      };
-    },
-  });
+  const deps = defaultDeps();
+  deps.commitScreenplayOwnerMutation = async ({ mutate }) => {
+    committedOwner = structuredClone(deps._owner);
+    const result = await mutate(committedOwner, { attempt: 1, currentOwner: structuredClone(deps._owner) });
+    signalPersistenceStarted();
+    await persistenceGate;
+    return { ok: true, committed: true, owner: committedOwner, result };
+  };
   const project = deps._owner.projects.find((item) => item.id === "p1");
 
   await withTestServer(deps, async (baseURL) => {
@@ -2052,7 +2123,7 @@ test("[screenplay-projects-routes] POST /version responds with its committed sna
         responsePromise,
         "version snapshot request"
       );
-      project.versions[0].draft = "Concurrent uncommitted draft.";
+      project.versions = [{ id: "concurrent-uncommitted", draft: "Concurrent uncommitted draft." }];
     } finally {
       releasePersistence({ ok: true, owner: committedOwner });
     }

@@ -1515,7 +1515,20 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     }));
   });
 
+  const activeVersionRequests = new Map();
   app.post("/screenplay/projects/:projectId/version", express.json({ limit: "2mb" }), async (req, res) => {
+    const caller = getAuthorizedScreenplayOwner(req, res, "screenplay_version");
+    if (!caller) return;
+    const pendingKey = `${caller.ownerKey}\u0000${normalizeSnippet(req.params?.projectId, 64)}\u0000${normalizeSnippet(req.body?.client_request_id, 96)}`;
+    const requestHasID = Boolean(normalizeSnippet(req.body?.client_request_id, 96));
+    const sendPending = () => {
+      applyReadStateHeaders(res, buildScreenplayReadMeta(req, caller));
+      return res.status(425).json(buildScreenplayEnvelope(req, caller, {
+        stage: "screenplay_version", status: "persistence_pending", project_id: normalizeSnippet(req.params?.projectId, 64),
+        version_id: activeVersionRequests.get(pendingKey) || "", conflict: false, replayed: false,
+      }));
+    };
+    if (requestHasID && activeVersionRequests.has(pendingKey)) return sendPending();
     const owner = await getFreshAuthorizedScreenplayOwner(req, res, "screenplay_version");
     if (!owner) return;
     const projectId = normalizeSnippet(req.params?.projectId, 64);
@@ -1551,182 +1564,110 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
       baseVersionId,
       title,
     });
-    const latestVersion = getLatestScreenplayVersion(project);
-    const currentVersionId = project.activeVersionId || latestVersion?.id || "";
-    const replayedVersion = clientRequestId
-      ? (project.versions || []).find((item) => item.clientRequestId === clientRequestId)
-      : null;
-    if (replayedVersion) {
-      if (replayedVersion.persistencePending === true) {
-        applyReadStateHeaders(res, buildScreenplayReadMeta(req, owner));
-        return res.status(425).json(buildScreenplayEnvelope(req, owner, {
-          stage: "screenplay_version",
-          status: "persistence_pending",
-          project_id: project.id,
-          version_id: replayedVersion.id,
-          conflict: false,
-          replayed: false,
-        }));
-      }
-      const requestMatches = replayedVersion.saveRequestHash
-        ? replayedVersion.saveRequestHash === saveRequestHash && String(replayedVersion.draft || "") === draft
-        : legacyScreenplayVersionMatchesReplay(replayedVersion, {
-            draft,
-            phase,
-            source,
-            notes,
-            studioWriteAnchors,
-            screenplayBindings,
+    // Every version decision must be evaluated against the same durable owner
+    // snapshot whose CAS commits the write. A failed CAS re-enters this callback.
+    if (requestHasID && activeVersionRequests.has(pendingKey)) return sendPending();
+    if (requestHasID) activeVersionRequests.set(pendingKey, "");
+    let commit;
+    try {
+      commit = await commitScreenplayOwnerMutation({
+        ownerKey: owner.ownerKey,
+        now,
+        retryAmbiguousCommit: Boolean(clientRequestId),
+        mutate(nextOwner) {
+          const currentProject = getScreenplayProjectRecord(nextOwner, projectId);
+          if (!currentProject) return { commit: false, kind: "not_found" };
+          const latestVersion = getLatestScreenplayVersion(currentProject);
+          const currentVersionId = currentProject.activeVersionId || latestVersion?.id || "";
+          const replayedVersion = clientRequestId
+            ? (currentProject.versions || []).find((item) => item.clientRequestId === clientRequestId)
+            : null;
+          if (replayedVersion) {
+            if (replayedVersion.persistencePending === true) {
+              return { commit: false, kind: "persistence_pending", versionId: replayedVersion.id };
+            }
+            const requestMatches = replayedVersion.saveRequestHash
+              ? replayedVersion.saveRequestHash === saveRequestHash && String(replayedVersion.draft || "") === draft
+              : legacyScreenplayVersionMatchesReplay(replayedVersion, {
+                  draft, phase, source, notes, studioWriteAnchors, screenplayBindings,
+                });
+            const superseded = Boolean(currentVersionId && currentVersionId !== replayedVersion.id);
+            return { commit: false, kind: requestMatches ? (superseded ? "replayed_superseded" : "replayed") : "client_request_id_reused",
+              versionId: replayedVersion.id, currentVersionId, requestMatches,
+              replayProof: !requestMatches ? "none" : replayedVersion.saveRequestHash
+                ? `full_request_hash_v${SCREENPLAY_VERSION_REPLAY_HASH_VERSION}` : "legacy_partial" };
+          }
+          if (draft.length === 0 && (!currentVersionId || !(currentProject.versions || []).some(
+            (version) => version.id === currentVersionId && version.persistencePending !== true
+          ))) return { commit: false, kind: "empty_draft_head_unconfirmed" };
+          const missingBase = conflictStrategy === "reject_if_stale" && currentVersionId && !baseVersionId;
+          const staleBase = conflictStrategy === "reject_if_stale" && baseVersionId && currentVersionId && baseVersionId !== currentVersionId;
+          if (missingBase || staleBase) return { commit: false, kind: "conflict", currentVersionId };
+          const version = createScreenplayVersionRecord({
+            id: createScreenplayId("version"), projectId: currentProject.id, phase, source, clientRequestId,
+            now, notes, score: scoreScreenplayDraft(draft), draft, draftExcerpt: buildDraftExcerpt(draft, 220),
+            studioWriteAnchors, screenplayBindings, persistencePending: false,
+            saveRequestHash: clientRequestId ? saveRequestHash : "",
           });
-      const replayWasSuperseded = Boolean(currentVersionId && currentVersionId !== replayedVersion.id);
-      applyReadStateHeaders(res, buildScreenplayReadMeta(req, owner));
-      return res.status(requestMatches && !replayWasSuperseded ? 200 : 409).json(buildScreenplayEnvelope(req, owner, {
-        stage: "screenplay_version",
-        status: requestMatches
-          ? (replayWasSuperseded ? "replayed_superseded" : "replayed")
-          : "client_request_id_reused",
-        created_project: false,
-        project_id: project.id,
-        version_id: replayedVersion.id,
-        version: toScreenplayVersionPayload(replayedVersion, { includeDraft: true }),
-        project: toScreenplayProjectPayload(project, { includeVersions: true, includeDrafts: true, versionLimit: 24 }),
-        format_score: Number(replayedVersion.formatScore || 0),
-        story_score: Number(replayedVersion.storyScore || 0),
-        confidence_class: replayedVersion.confidenceClass || "medium",
-        warnings: replayedVersion.warnings || [],
-        base_version_id: baseVersionId,
-        server_version_id: currentVersionId,
-        server_version: latestVersion ? toScreenplayVersionPayload(latestVersion, { includeDraft: true }) : null,
-        conflict: !requestMatches || replayWasSuperseded,
-        replayed: requestMatches,
-        replay_proof: !requestMatches ? "none" : replayedVersion.saveRequestHash
-          ? `full_request_hash_v${SCREENPLAY_VERSION_REPLAY_HASH_VERSION}` : "legacy_partial",
-      }));
+          if (requestHasID) activeVersionRequests.set(pendingKey, version.id);
+          currentProject.versions = Array.isArray(currentProject.versions) ? currentProject.versions : [];
+          currentProject.versions.unshift(version);
+          currentProject.activeVersionId = version.id;
+          currentProject.lastVersionId = version.id;
+          currentProject.lastVersionAt = now;
+          currentProject.lastPhase = phase;
+          if (title) currentProject.title = title;
+          currentProject.updatedAt = now;
+          nextOwner.activeProjectId = currentProject.id;
+          return { kind: "saved", versionId: version.id };
+        },
+      });
+    } catch (error) {
+      return sendScreenplayCommitFailure(res, "screenplay_version", { ok: false, error });
+    } finally {
+      if (requestHasID) activeVersionRequests.delete(pendingKey);
     }
-    // An explicit clear must not turn an unknown or missing server head into
-    // authority to create a destructive version.
-    if (draft.length === 0 && (!currentVersionId || !(project.versions || []).some(
-      (version) => version.id === currentVersionId && version.persistencePending !== true
-    ))) {
+    if (!commit?.ok) return sendScreenplayCommitFailure(res, "screenplay_version", commit);
+    const committedOwner = commit.owner || owner;
+    const committedProject = getScreenplayProjectRecord(committedOwner, projectId);
+    const outcome = commit.result || {};
+    if (!committedProject || outcome.kind === "not_found") {
+      return res.status(404).json({ stage: "screenplay_version", error: "project_not_found" });
+    }
+    if (outcome.kind === "empty_draft_head_unconfirmed") {
       return res.status(409).json({ stage: "screenplay_version", error: "empty_draft_head_unconfirmed" });
     }
-    const missingRequiredBase = conflictStrategy === "reject_if_stale" && currentVersionId && !baseVersionId;
-    const staleBase = conflictStrategy === "reject_if_stale" &&
-      baseVersionId &&
-      currentVersionId &&
-      baseVersionId !== currentVersionId;
-    if (missingRequiredBase || staleBase) {
-      applyReadStateHeaders(res, buildScreenplayReadMeta(req, owner));
-      return res.status(409).json(buildScreenplayEnvelope(req, owner, {
-        stage: "screenplay_version",
-        status: "conflict",
-        created_project: false,
-        project_id: project.id,
-        version_id: currentVersionId,
-        version: latestVersion ? toScreenplayVersionPayload(latestVersion, { includeDraft: true }) : null,
-        project: toScreenplayProjectPayload(project, { includeVersions: true, includeDrafts: true, versionLimit: 24 }),
-        format_score: Number(latestVersion?.formatScore || 0),
-        story_score: Number(latestVersion?.storyScore || 0),
-        confidence_class: latestVersion?.confidenceClass || "medium",
-        warnings: latestVersion?.warnings || [],
-        base_version_id: baseVersionId,
-        server_version_id: currentVersionId,
-        server_version: latestVersion ? toScreenplayVersionPayload(latestVersion, { includeDraft: true }) : null,
-        conflict: true,
-        replayed: false,
+    if (outcome.kind === "persistence_pending") {
+      applyReadStateHeaders(res, buildScreenplayReadMeta(req, committedOwner));
+      return res.status(425).json(buildScreenplayEnvelope(req, committedOwner, {
+        stage: "screenplay_version", status: "persistence_pending", project_id: projectId,
+        version_id: outcome.versionId, conflict: false, replayed: false,
       }));
     }
-
-    const score = scoreScreenplayDraft(draft);
-    const priorProjectState = {
-      versions: [...(project.versions || [])],
-      activeVersionId: project.activeVersionId,
-      lastVersionId: project.lastVersionId,
-      lastVersionAt: project.lastVersionAt,
-      lastPhase: project.lastPhase,
-      title: project.title,
-      updatedAt: project.updatedAt,
-      ownerActiveProjectId: owner.activeProjectId,
-      ownerUpdatedAt: owner.updatedAt,
-    };
-    const version = createScreenplayVersionRecord({
-      id: createScreenplayId("version"),
-      projectId: project.id,
-      phase,
-      source,
-      clientRequestId,
-      now,
-      notes,
-      score,
-      draft,
-      draftExcerpt: buildDraftExcerpt(draft, 220),
-      studioWriteAnchors,
-      screenplayBindings,
-      persistencePending: Boolean(clientRequestId),
-      saveRequestHash: clientRequestId ? saveRequestHash : "",
-    });
-    project.versions = Array.isArray(project.versions) ? project.versions : [];
-    project.versions.unshift(version);
-    project.activeVersionId = version.id;
-    project.lastVersionId = version.id;
-    project.lastVersionAt = now;
-    project.lastPhase = phase;
-    if (title) {
-      project.title = title;
-    }
-    project.updatedAt = now;
-    owner.activeProjectId = project.id;
-    const committedOwner = await persistScreenplayOwnerOrFail(
-      res,
-      owner,
-      now,
-      "screenplay_version"
-    );
-    if (!committedOwner) {
-      project.versions = priorProjectState.versions;
-      project.activeVersionId = priorProjectState.activeVersionId;
-      project.lastVersionId = priorProjectState.lastVersionId;
-      project.lastVersionAt = priorProjectState.lastVersionAt;
-      project.lastPhase = priorProjectState.lastPhase;
-      project.title = priorProjectState.title;
-      project.updatedAt = priorProjectState.updatedAt;
-      owner.activeProjectId = priorProjectState.ownerActiveProjectId;
-      owner.updatedAt = priorProjectState.ownerUpdatedAt;
-      return;
-    }
-    version.persistencePending = false;
-    const committedProject = getScreenplayProjectRecord(committedOwner, projectId);
-    const committedVersion = (committedProject?.versions || [])
-      .find((item) => item.id === version.id) || null;
-    if (!committedProject || !committedVersion) {
+    const latestVersion = getLatestScreenplayVersion(committedProject);
+    const currentVersionId = committedProject.activeVersionId || latestVersion?.id || "";
+    const responseVersion = outcome.kind === "conflict" ? latestVersion
+      : (committedProject.versions || []).find((item) => item.id === outcome.versionId);
+    if (outcome.kind !== "conflict" && !responseVersion) {
       res.setHeader("Cache-Control", "no-store");
-      return res.status(503).json({
-        stage: "screenplay_version",
-        error: "screenplay_persistence_failed",
-      });
+      return res.status(503).json({ stage: "screenplay_version", error: "screenplay_persistence_failed" });
     }
+    const replay = ["replayed", "replayed_superseded", "client_request_id_reused"].includes(outcome.kind);
+    const isConflict = outcome.kind === "conflict" || outcome.kind === "replayed_superseded" || outcome.kind === "client_request_id_reused";
     applyReadStateHeaders(res, buildScreenplayReadMeta(req, committedOwner));
-    return res.status(201).json(buildScreenplayEnvelope(req, committedOwner, {
-      stage: "screenplay_version",
-      status: "saved",
-      created_project: false,
-      project_id: committedProject.id,
-      version_id: committedVersion.id,
-      version: toScreenplayVersionPayload(committedVersion, { includeDraft: true }),
-      project: toScreenplayProjectPayload(committedProject, {
-        includeVersions: true,
-        includeDrafts: true,
-        versionLimit: 24,
-      }),
-      format_score: committedVersion.formatScore,
-      story_score: committedVersion.storyScore,
-      confidence_class: committedVersion.confidenceClass,
-      warnings: committedVersion.warnings,
+    return res.status(outcome.kind === "saved" ? 201 : isConflict ? 409 : 200).json(buildScreenplayEnvelope(req, committedOwner, {
+      stage: "screenplay_version", status: outcome.kind, created_project: false, project_id: committedProject.id,
+      version_id: outcome.kind === "conflict" ? currentVersionId : responseVersion.id,
+      version: responseVersion ? toScreenplayVersionPayload(responseVersion, { includeDraft: true }) : null,
+      project: toScreenplayProjectPayload(committedProject, { includeVersions: true, includeDrafts: true, versionLimit: 24 }),
+      format_score: Number(responseVersion?.formatScore || 0), story_score: Number(responseVersion?.storyScore || 0),
+      confidence_class: responseVersion?.confidenceClass || "medium", warnings: responseVersion?.warnings || [],
       base_version_id: baseVersionId,
-      server_version_id: committedVersion.id,
-      server_version: toScreenplayVersionPayload(committedVersion, { includeDraft: true }),
-      conflict: false,
-      replayed: false,
+      server_version_id: outcome.kind === "saved" ? responseVersion.id : currentVersionId,
+      server_version: outcome.kind === "saved" ? toScreenplayVersionPayload(responseVersion, { includeDraft: true })
+        : latestVersion ? toScreenplayVersionPayload(latestVersion, { includeDraft: true }) : null,
+      conflict: isConflict, replayed: replay ? Boolean(outcome.requestMatches) : false,
+      ...(replay ? { replay_proof: outcome.replayProof } : {}),
     }));
   });
 }
