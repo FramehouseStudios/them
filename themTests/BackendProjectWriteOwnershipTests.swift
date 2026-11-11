@@ -3,6 +3,81 @@ import XCTest
 @testable import them
 
 final class BackendProjectWriteOwnershipTests: XCTestCase {
+    @MainActor
+    func testInitialSaveRejectsMismatchedRequestAndKeepsExactIntentAcrossRelaunch() async throws {
+        let keys = ["auth_user_payload", "auth_signed_in", "auth_session_token_deletion_pending"]
+        let original = keys.map { UserDefaults.standard.object(forKey: $0) }
+        defer {
+            for (index, key) in keys.enumerated() {
+                if let value = original[index] { UserDefaults.standard.set(value, forKey: key) }
+                else { UserDefaults.standard.removeObject(forKey: key) }
+            }
+        }
+        let user = BackendAuthUser(userId: "initial-receipt-test", email: "fixture@example.invalid",
+            authProvider: nil, emailVerified: true, emailVerifiedAt: nil, createdAt: nil, updatedAt: nil)
+        UserDefaults.standard.set(try JSONEncoder().encode(user), forKey: keys[0])
+        UserDefaults.standard.set(true, forKey: keys[1])
+        UserDefaults.standard.set(false, forKey: keys[2])
+        let previousSharedID = BackendAuthClient.sharedUserID()
+        defer {
+            if let previousSharedID { _ = BackendAuthClient.persistSharedUserID(previousSharedID) }
+            else { BackendAuthClient.clearSharedUserID() }
+        }
+        XCTAssertTrue(BackendAuthClient.persistSharedUserID(user.userId))
+        let context = ScreenplayStudioAuthContext.current()
+        XCTAssertEqual(context.userID, "initial-receipt-test")
+        let identity = BackendAuthRequestIdentity(sessionEpoch: 1, userID: context.userID,
+            clientToken: "fixture-client", accessToken: "fixture-access", sessionIntentGeneration: context.sessionIntentGeneration)
+        let backend = BackendAuthClient.resolvedBackendBaseURL()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("InitialReceipt-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: directory.appendingPathComponent("queue"))
+        let exact = "\r\nINT. LAB - NIGHT\r\nCafe\u{0301}. \t"
+        let entry = try await queue.prepareInitialProject(ownerUserID: identity.userID, backendURL: backend,
+            documentID: "receipt-document", sourceProjectID: "", draft: exact, title: "Receipt",
+            phase: "scene_draft", source: "studio_initial_seed")
+        let reply = OfflineTalkOutbox(storageDirectory: directory.appendingPathComponent("reply"),
+            requestIdentityProvider: { _ in identity }, backendURLProvider: { backend })
+        let observed = ProjectWriteOwnershipState()
+        ProjectWriteOwnershipProtocol.interceptAllRequests = true
+        defer {
+            ProjectWriteOwnershipProtocol.handler = nil
+            ProjectWriteOwnershipProtocol.interceptAllRequests = false
+        }
+        ProjectWriteOwnershipProtocol.handler = { request in
+            observed.record(request)
+            if request.url?.path == "/session" { return .json(#"{"error":"unavailable"}"#, status: 503) }
+            let body: [String: Any] = ["stage": "screenplay_project", "status": "created",
+                "project_id": entry.projectId, "version_id": "version-a",
+                "project": ["id": entry.projectId, "title": entry.title],
+                "version": ["id": "version-a", "project_id": entry.projectId,
+                    "client_request_id": "different-request", "draft": exact, "phase": entry.phase]]
+            return .init(status: 201, data: try JSONSerialization.data(withJSONObject: body))
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ProjectWriteOwnershipProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let api = BackendMemoryAPI(session: session, baseURL: backend,
+            requestIdentityProvider: { _ in identity }, projectWriteAuthRefresher: { _ in .signedOut })
+        do {
+            _ = try await ScreenplayInitialProjectCreation.save(entry, owner: identity, localDraft: exact,
+                outbox: queue, api: api, liveReplyOutbox: reply)
+            XCTFail("A response for another request must not acknowledge the first draft.")
+        } catch BackendMemoryAPIError.server(let status, let message) { XCTAssertEqual(status, 503, message) }
+        catch { XCTFail("Unexpected error: \(error)") }
+        XCTAssertEqual(observed.requests().filter { $0.url?.path == "/screenplay/projects/initialize" }.count, 1,
+            "The mismatch must be observed on the actual initializer POST.")
+        let restored = ScreenplayDraftSaveOutbox(storageDirectory: directory.appendingPathComponent("queue"))
+        let held = try await restored.pendingInitialProject(ownerUserID: identity.userID, backendURL: backend,
+            documentID: "receipt-document", sourceProjectID: "")
+        XCTAssertEqual(held?.id, entry.id)
+        XCTAssertEqual(held?.projectId, entry.projectId)
+        XCTAssertEqual(held?.status, .pending)
+        XCTAssertNil(held?.initialization?.receiptVersionID)
+        XCTAssertEqual(Data((held?.draft ?? "").utf8), Data(exact.utf8))
+    }
+
     func testInitialProjectUsesAtomicEndpointAndOriginalBytesWithoutLeakingLocalScope() async throws {
         let state = ProjectWriteOwnershipState(), entry = initialEntry()
         ProjectWriteOwnershipProtocol.handler = { request in
