@@ -230,6 +230,12 @@ private struct ScreenplayHeldDraftRecoveryReview: View {
     @State private var recoveryCopyFailureTitle: String?
     @State private var recoveryCopyFailed = false
 
+    private var recoveryCopyButton: some View {
+        Button("Save as Separate Project") { confirmRecoveryCopy = true }
+            .disabled(selecting || viewModel.heldDraftRecoveryForReview(token) == nil)
+            .accessibilityHint("Creates a separate project containing this text only; it does not remove the original copies.")
+    }
+
     var body: some View {
         NavigationStack {
             Group {
@@ -304,11 +310,11 @@ private struct ScreenplayHeldDraftRecoveryReview: View {
                     Button("Done") { dismiss() }
                 }
                 if allowsCustodySelection {
-                    ToolbarItem(placement: .bottomBar) {
-                        Button("Save as Separate Project") { confirmRecoveryCopy = true }
-                            .disabled(selecting || viewModel.heldDraftRecoveryForReview(token) == nil)
-                            .accessibilityHint("Creates a separate project containing this text only; it does not remove the original copies.")
-                    }
+                    #if os(macOS)
+                    ToolbarItem(placement: .automatic) { recoveryCopyButton }
+                    #else
+                    ToolbarItem(placement: .bottomBar) { recoveryCopyButton }
+                    #endif
                     ToolbarItem(placement: .confirmationAction) {
                         Button(selecting ? "Working…" : (selectionRecorded ? (viewModel.custodyReviewRetryRequired ? "Retry Original Save" : "Save Copy") : "Select Copy")) {
                             selecting = true
