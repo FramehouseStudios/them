@@ -67,7 +67,9 @@ enum ScreenplayInitialProjectCreation {
             try owner.requireCurrentOwner(BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: false))
             try metadata.validate(owner: owner, entry: entry, requestURL: BackendAuthClient.resolvedBackendBaseURL())
             if metadata.blankProject == true {
-                guard ScreenplayBlankProjectReceiptPolicy.accepts(result.payload, entry: entry),
+                guard let responseURL = result.responseURL,
+                      OfflineTalkRecoveryScope.sameBackend(metadata.backendURL, responseURL),
+                      ScreenplayBlankProjectReceiptPolicy.accepts(result.payload, entry: entry),
                       let project = result.payload.project else {
                     throw BackendMemoryAPIError.server(status: 409, message: "This project has changed on the server. Your local page is kept; reopen the project to review it.")
                 }
@@ -80,12 +82,13 @@ enum ScreenplayInitialProjectCreation {
                   version.draft?.utf8.elementsEqual(entry.draft.utf8) == true else {
                 throw BackendMemoryAPIError.server(status: 503, message: "The first save was not acknowledged. Your original words are kept on this device.")
             }
-            try await outbox.recordInitialProjectReceipt(id: entry.id, versionID: versionID)
-            if let evidence = ScreenplayConfirmedDraftSave.initial(entry: entry, version: version,
+            guard let evidence = ScreenplayConfirmedDraftSave.initial(entry: entry, version: version,
                 versionID: versionID, projectID: result.payload.projectId, responseURL: result.responseURL,
-                owner: owner.ownerContext, currentOwner: .current()) {
-                _ = try await liveReplyOutbox.recordConfirmedPageSave(evidence)
+                owner: owner.ownerContext, currentOwner: .current()) else {
+                throw BackendMemoryAPIError.server(status: 503, message: "The first save could not be verified. Your original words are kept on this device.")
             }
+            try await outbox.recordInitialProjectReceipt(id: entry.id, versionID: versionID)
+            _ = try await liveReplyOutbox.recordConfirmedPageSave(evidence)
             return .init(entry: entry, project: project, versionID: versionID, owner: owner, localDraft: localDraft)
         } catch {
             try? await outbox.releaseInitialProject(id: entry.id, error: error.localizedDescription)
