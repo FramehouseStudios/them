@@ -2740,7 +2740,7 @@ nonisolated struct BackendScreenplayVersionMutationResponse: Decodable {
     let serverVersionId: String?
     let serverVersion: BackendScreenplayVersion?
     let conflict: Bool?
-    let replayed: Bool?
+    let replayed: Bool?, replayProof: String?
     let sessionId: String?
     let stateVersion: String?
     let lastUpdatedAt: TimeInterval?
@@ -8094,7 +8094,7 @@ actor BackendMemoryAPI {
         baseVersionId: String = "",
         conflictStrategy: String = "reject_if_stale",
         clientRequestId: String = "",
-        expectedBackendURL: URL? = nil,
+        expectedBackendURL: URL? = nil, maySend: (@Sendable () async -> Bool)? = nil,
         includeUserIdentity: Bool = true,
         includeAuthToken: Bool = true,
         clientTokenOverride: String? = nil,
@@ -8150,7 +8150,6 @@ actor BackendMemoryAPI {
             payload["client_request_id"] = String(normalizedClientRequestId.prefix(96))
         }
         let requestBody = try JSONSerialization.data(withJSONObject: payload, options: [])
-
         var data = Data()
         var http: HTTPURLResponse?
         var didAttemptAuthRefresh = false
@@ -8171,6 +8170,7 @@ actor BackendMemoryAPI {
 #if DEBUG
             screenplaySaveAuthFault.apply(to: &request)
 #endif
+            guard await maySend?() ?? true else { throw BackendMemoryAPIError.server(status: 409, message: "The active document changed before the save was sent.") }
             let responsePair = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
             try owner.requireCurrentOwner(requestIdentityProvider(false))
             guard let response = responsePair.1 as? HTTPURLResponse else {
@@ -9439,7 +9439,7 @@ actor BackendMemoryAPI {
         )
         try owner.requireCurrentOwner(requestIdentityProvider(false))
         updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true, initiatingIdentity: owner)
-        return BackendReadResult(payload: payload, sync: syncState, notModified: false, responseURL: response.url)
+        return BackendReadResult(payload: payload, sync: syncState, notModified: false, responseURL: response.url, httpStatusCode: response.statusCode)
     }
 
     private func makeRequest(
