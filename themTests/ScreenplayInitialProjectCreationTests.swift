@@ -12,6 +12,42 @@ final class ScreenplayInitialProjectCreationTests: XCTestCase {
     }
     override func tearDownWithError() throws { try FileManager.default.removeItem(at: directory) }
 
+    func testRecoveryForkIdentityIsStableAcrossRelaunchAndDoesNotChangeHeldRows() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: directory)
+        let origin = ScreenplayDraftSaveOrigin(documentID: "document-a", backendURL: backend)
+        var selected = ScreenplayDraftSaveOutboxEntry(id: "held-request-a", projectId: "project-a", ownerUserId: "writer-a",
+            draft: exact, title: "Original", phase: "scene_draft", notes: "", source: "studio_autosave",
+            studioWriteAnchors: [], screenplayBindings: [], baseVersionId: "base-a", createdAt: 1, updatedAt: 1,
+            status: .parked, retries: 0, nextAttemptAt: 0, lastError: ScreenplayDraftSaveOutbox.conflictReason)
+        selected.deliveryOrigin = origin
+        _ = try await queue.enqueue(selected)
+        var second = ScreenplayDraftSaveOutboxEntry(id: "held-request-b", projectId: selected.projectId,
+            ownerUserId: selected.ownerUserId, draft: exact, title: selected.title, phase: selected.phase,
+            notes: selected.notes, source: selected.source, studioWriteAnchors: [], screenplayBindings: [],
+            baseVersionId: selected.baseVersionId, createdAt: 2, updatedAt: 2, status: .parked,
+            retries: 0, nextAttemptAt: 0, lastError: ScreenplayDraftSaveOutbox.conflictReason)
+        second.deliveryOrigin = origin
+        _ = try await queue.enqueue(second)
+        let first = try await queue.recoveryForkIntent(selected: selected, origin: origin)
+        let other = try await queue.recoveryForkIntent(selected: second, origin: origin)
+        XCTAssertNotEqual(first.id, other.id)
+        XCTAssertNotEqual(first.projectId, other.projectId)
+        let restored = ScreenplayDraftSaveOutbox(storageDirectory: directory)
+        let again = try await restored.recoveryForkIntent(selected: selected, origin: origin)
+        XCTAssertEqual(first.id, again.id)
+        XCTAssertEqual(first.projectId, again.projectId)
+        XCTAssertNotEqual(first.projectId, selected.projectId)
+        XCTAssertEqual(Data(first.draft.utf8), Data(exact.utf8))
+        let rows = try await restored.entriesForTesting()
+        XCTAssertEqual(rows, [selected, second])
+        var changed = selected
+        changed.baseVersionId = "another-base"
+        do {
+            _ = try await restored.recoveryForkIntent(selected: changed, origin: origin)
+            XCTFail("A changed source must not authorize a recovery fork.")
+        } catch { }
+    }
+
     func testCreationIdentityAndOriginalBytesSurviveRelaunchAndChangedLocalText() async throws {
         let queue = ScreenplayDraftSaveOutbox(storageDirectory: directory)
         let first = try await prepare(queue)

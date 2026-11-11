@@ -78,6 +78,40 @@ final class BackendProjectWriteOwnershipTests: XCTestCase {
         XCTAssertEqual(Data((held?.draft ?? "").utf8), Data(exact.utf8))
     }
 
+    func testNonActivatingInitialCopyRetriesSameRequestAfterLostResponse() async throws {
+        let state = ProjectWriteOwnershipState(), entry = initialEntry()
+        ProjectWriteOwnershipProtocol.handler = { request in
+            state.record(request)
+            if request.url?.path == "/session" { return .json(#"{"error":"unavailable"}"#, status: 503) }
+            let count = state.requests().filter { $0.url?.path == "/screenplay/projects/initialize" }.count
+            return count == 1 ? .json(#"{"error":"connection_lost"}"#, status: 503) : .json(Self.mutation, status: 200)
+        }
+        let api = makeAPI(state), owner = state.identity()
+        do {
+            _ = try await api.upsertScreenplayProject(projectId: entry.projectId, title: entry.title,
+                phase: entry.phase, initialDraft: entry, activateInitialProject: false, initiatingIdentity: owner)
+            XCTFail("The unconfirmed response must not be acknowledged.")
+        } catch BackendMemoryAPIError.server(let status, _) { XCTAssertEqual(status, 503) }
+        _ = try await api.upsertScreenplayProject(projectId: entry.projectId, title: entry.title,
+            phase: entry.phase, initialDraft: entry, activateInitialProject: false, initiatingIdentity: owner)
+        let requests = state.requests().filter { $0.url?.path == "/screenplay/projects/initialize" }
+        XCTAssertEqual(requests.count, 2)
+        for request in requests {
+            var data = request.httpBody ?? Data()
+            if data.isEmpty, let stream = request.httpBodyStream {
+                stream.open(); defer { stream.close() }
+                var buffer = [UInt8](repeating: 0, count: 1024)
+                while true { let count = stream.read(&buffer, maxLength: buffer.count); if count <= 0 { break }; data.append(contentsOf: buffer.prefix(count)) }
+            }
+            let body = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            XCTAssertEqual(body["activate"] as? Bool, false)
+            XCTAssertEqual(body["project_id"] as? String, entry.projectId)
+            let initial = try XCTUnwrap(body["initial_draft"] as? [String: Any])
+            XCTAssertEqual(initial["client_request_id"] as? String, entry.id)
+            XCTAssertEqual(Data(try XCTUnwrap(initial["draft"] as? String).utf8), Data(entry.draft.utf8))
+        }
+    }
+
     func testInitialProjectUsesAtomicEndpointAndOriginalBytesWithoutLeakingLocalScope() async throws {
         let state = ProjectWriteOwnershipState(), entry = initialEntry()
         ProjectWriteOwnershipProtocol.handler = { request in

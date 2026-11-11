@@ -5020,6 +5020,80 @@ final class V1SmokeUITests: XCTestCase {
     }
 
     @MainActor
+    func test_held_copy_creates_one_separate_nonactivating_project_across_relaunch() async throws {
+        let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_SCREENPLAY_SAVE_BACKEND_PORT"] ?? "") ?? 31337
+        let baseURL = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)"))
+        guard await backendRestoreContractIsAvailable(baseURL: baseURL) else { throw XCTSkip("Isolated recovery backend unavailable.") }
+        let fixture = try await seedBackendRestoreContractFixture(baseURL: baseURL)
+        var environment = fixture.appLaunchEnvironment
+        environment["THEM_UITEST_CUSTODY_PROJECT_ID"] = fixture.projectID
+        let headers = ["X-APP-TOKEN": environment["THEM_UITEST_APP_TOKEN"] ?? "them-dev",
+                       "X-Client-Token": environment["THEM_UITEST_CLIENT_TOKEN"] ?? "",
+                       "Authorization": "Bearer \(environment["THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN"] ?? "")"]
+        var app = launchApp(openStudio: true, custodyBackendFixture: true,
+            restoreProjectID: fixture.projectID, restoreVersionID: fixture.versionID,
+            restoreLoadToken: fixture.loadToken, launchEnvironment: environment)
+        defer { app.terminate() }
+        func createCopy() {
+            let review = app.buttons["studio.conflict.review-local-copies"]
+            XCTAssertTrue(review.waitForExistence(timeout: 45)); review.tap()
+            XCTAssertTrue(app.buttons["Preview local copy 1"].waitForExistence(timeout: 10))
+            app.buttons["Preview local copy 1"].tap()
+            let fork = app.buttons["Save as Separate Project"]
+            XCTAssertTrue(fork.waitForExistence(timeout: 10)); fork.tap()
+            let confirm = app.buttons["Save Text as Recovery Copy"]
+            XCTAssertTrue(confirm.waitForExistence(timeout: 5)); confirm.tap()
+            XCTAssertTrue(app.alerts["Recovery copy saved"].waitForExistence(timeout: 30))
+            app.alerts["Recovery copy saved"].buttons["OK"].tap()
+        }
+        createCopy()
+        var localState: [String: Any] = [:]
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 10) { snapshot in
+            localState = snapshot
+            return stringValue(snapshot["selected_project_id"]) == fixture.projectID &&
+                stringValue(snapshot["loaded_draft_project_id"]) == fixture.projectID
+        }, "Saving the copy must not switch the source editor: \(localState)")
+        let firstList = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects", method: "GET", headers: headers, body: nil)
+        try assertHTTP(firstList, context: "recovery-copy project list")
+        let firstEnvelope = firstList.payload["payload"] as? [String: Any] ?? firstList.payload
+        let firstProjects = firstEnvelope["screenplay_projects"] as? [[String: Any]] ?? []
+        let copies = firstProjects.filter { stringValue($0["title"]).hasPrefix("Recovery Copy ") }
+        XCTAssertEqual(copies.count, 1)
+        XCTAssertEqual(stringValue(firstEnvelope["screenplay_active_project_id"]), fixture.projectID)
+        let copyID = stringValue(try XCTUnwrap(copies.first)["id"])
+        let firstCopy = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects/\(copyID)",
+            method: "GET", headers: headers, body: nil,
+            queryItems: [URLQueryItem(name: "include_drafts", value: "1"), URLQueryItem(name: "version_limit", value: "24")])
+        try assertHTTP(firstCopy, context: "recovery-copy exact draft")
+        let copyEnvelope = firstCopy.payload["payload"] as? [String: Any] ?? firstCopy.payload
+        let copyProject = copyEnvelope["project"] as? [String: Any] ?? copyEnvelope
+        let versions = copyProject["versions"] as? [[String: Any]] ?? []
+        XCTAssertEqual(versions.count, 1)
+        XCTAssertEqual(stringValue(versions.first?["draft"]), "INT. FIRST TEST ROOM - DAY\n\nFIRST HELD BACKEND COPY.")
+        app.terminate()
+        app = launchApp(openStudio: true, resetState: false, launchEnvironment: environment)
+        createCopy()
+        let secondList = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects", method: "GET", headers: headers, body: nil)
+        try assertHTTP(secondList, context: "repeated recovery-copy project list")
+        let secondEnvelope = secondList.payload["payload"] as? [String: Any] ?? secondList.payload
+        let secondProjects = secondEnvelope["screenplay_projects"] as? [[String: Any]] ?? []
+        XCTAssertEqual(secondProjects.filter { stringValue($0["title"]).hasPrefix("Recovery Copy ") }.count, 1)
+        XCTAssertEqual(stringValue(secondEnvelope["screenplay_active_project_id"]), fixture.projectID)
+        let changed = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects/\(copyID)/version",
+            method: "POST", headers: headers, body: ["draft": "INT. RECOVERY - DAY\n\nLater edits.",
+                "base_version_id": stringValue(versions.first?["id"]), "client_request_id": UUID().uuidString.lowercased(),
+                "conflict_strategy": "reject_if_stale"])
+        try assertHTTP(changed, context: "advance recovery project")
+        app.buttons["Save as Separate Project"].tap()
+        XCTAssertTrue(app.buttons["Save Text as Recovery Copy"].waitForExistence(timeout: 5))
+        app.buttons["Save Text as Recovery Copy"].tap()
+        let unconfirmed = app.alerts["Recovery copy not confirmed"]
+        XCTAssertTrue(unconfirmed.waitForExistence(timeout: 30))
+        XCTAssertTrue(unconfirmed.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "look for Recovery Copy")).firstMatch.exists,
+            "A changed recovery project must give discovery guidance without claiming the retry saved.")
+    }
+
+    @MainActor
     func test_superseded_custody_save_keeps_copies_and_allows_fresh_choice() async throws {
         let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_SCREENPLAY_SAVE_BACKEND_PORT"] ?? "") ?? 31337
         let baseURL = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)"))

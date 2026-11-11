@@ -30,6 +30,8 @@ extension BackendMemoryAPI {
         studioDiffAcknowledgedEntries: [BackendScreenplayDiffAcknowledgementEntry]? = nil,
         studioAskNoteHistory: [BackendScreenplayStudioExchange]? = nil,
         initialDraft: ScreenplayDraftSaveOutboxEntry? = nil,
+        activateInitialProject: Bool = true,
+        maySend: (@Sendable () async -> Bool)? = nil,
         initiatingIdentity owner: BackendAuthRequestIdentity = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true)
     ) async throws -> BackendReadResult<BackendScreenplayProjectMutationResponse> {
         let identity = try await screenplayRequestIdentity(owner, expectedBackendURL: initialDraft?.initialization?.backendURL, originErrorMessage: "auth_request_superseded")
@@ -106,9 +108,13 @@ extension BackendMemoryAPI {
                     "initial_draft": ["draft": initialDraft.draft, "client_request_id": initialDraft.id,
                                       "source": initialDraft.source, "notes": initialDraft.notes]]
             }
+            if !activateInitialProject { payload["activate"] = false }
             request.setValue(initialDraft.id, forHTTPHeaderField: "X-Idempotency-Key")
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
+        guard await maySend?() ?? true else {
+            throw BackendMemoryAPIError.server(status: 409, message: "The held copy changed before it could be sent.")
+        }
         let (data, http) = try await screenplayHTTPResponse(for: request, owner: owner)
         if let initialDraft, let metadata = initialDraft.initialization {
             try metadata.validate(owner: identity, entry: initialDraft, requestURL: baseURL())

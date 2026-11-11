@@ -225,6 +225,10 @@ private struct ScreenplayHeldDraftRecoveryReview: View {
     @State private var selectionRecorded = false
     @State private var selectionFailed = false
     @State private var supersededNotice = false
+    @State private var confirmRecoveryCopy = false
+    @State private var recoveryCopyTitle: String?
+    @State private var recoveryCopyFailureTitle: String?
+    @State private var recoveryCopyFailed = false
 
     var body: some View {
         NavigationStack {
@@ -252,6 +256,39 @@ private struct ScreenplayHeldDraftRecoveryReview: View {
                 }
             }
             .navigationTitle("Exact Held Copy")
+            .confirmationDialog("Create a separate recovery project?", isPresented: $confirmRecoveryCopy, titleVisibility: .visible) {
+                Button("Save Text as Recovery Copy") {
+                    selecting = true
+                    Task {
+                        do { recoveryCopyTitle = try await ScreenplayHeldCopyFork.save(viewModel: viewModel, token: token) }
+                        catch {
+                            if let selected = viewModel.heldDraftRecoveryForReview(token),
+                               let origin = selected.deliveryOrigin,
+                               let intent = try? await ScreenplayDraftSaveOutbox.shared.recoveryForkIntent(selected: selected, origin: origin) {
+                                recoveryCopyFailureTitle = intent.title
+                            }
+                            recoveryCopyFailed = true
+                        }
+                        selecting = false
+                    }
+                }
+            } message: {
+                Text("Only the text is copied. Characters, project notes, and other project context are not copied. This action does not remove or replace the original copies.")
+            }
+            .alert("Recovery copy saved", isPresented: Binding(get: { recoveryCopyTitle != nil }, set: { if !$0 { recoveryCopyTitle = nil } })) {
+                Button("OK") { recoveryCopyTitle = nil }
+            } message: {
+                Text("Find \(recoveryCopyTitle ?? "Recovery Copy") in your projects. Only text was copied. This action did not remove or replace the original copies.")
+            }
+            .alert("Recovery copy not confirmed", isPresented: $recoveryCopyFailed) {
+                Button("OK") { recoveryCopyFailureTitle = nil }
+            } message: {
+                if let title = recoveryCopyFailureTitle {
+                    Text("This action did not remove or replace your original copies. If a previous attempt finished, look for \(title) in Projects. You can retry safely.")
+                } else {
+                    Text("This action did not remove or replace your original copies. Reopen its review to try again.")
+                }
+            }
             .alert("Saved, then superseded", isPresented: $supersededNotice) {
                 Button("Review Copies") { dismiss() }
             } message: {
@@ -267,6 +304,11 @@ private struct ScreenplayHeldDraftRecoveryReview: View {
                     Button("Done") { dismiss() }
                 }
                 if allowsCustodySelection {
+                    ToolbarItem(placement: .bottomBar) {
+                        Button("Save as Separate Project") { confirmRecoveryCopy = true }
+                            .disabled(selecting || viewModel.heldDraftRecoveryForReview(token) == nil)
+                            .accessibilityHint("Creates a separate project containing this text only; it does not remove the original copies.")
+                    }
                     ToolbarItem(placement: .confirmationAction) {
                         Button(selecting ? "Working…" : (selectionRecorded ? (viewModel.custodyReviewRetryRequired ? "Retry Original Save" : "Save Copy") : "Select Copy")) {
                             selecting = true
@@ -305,5 +347,60 @@ private struct ScreenplayHeldDraftRecoveryReview: View {
             }
         }
         .accessibilityIdentifier("studio.held-draft-recovery.review")
+    }
+}
+
+/// Saves one explicitly selected held copy without mutating the source journal,
+/// changing the active project, or adopting the result into the editor.
+@MainActor
+private enum ScreenplayHeldCopyFork {
+    static func save(viewModel: ScreenplayStudioViewModel,
+                     token: ScreenplayStudioViewModel.HeldDraftRecoveryReviewToken) async throws -> String {
+        guard let selected = viewModel.heldDraftRecoveryForReview(token),
+              let document = token.presentationDocumentID,
+              ScreenplayLiveDraftSyncService.shared.ownsEditor(viewModel),
+              let backend = try? ScreenplayInitialProjectMetadata.origin(token.backendURL),
+              selected.deliveryOrigin == .init(documentID: document, backendURL: backend) else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        let owner = BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: false)
+        guard ScreenplayStudioAuthContextPolicy.matches(expected: token.owner, current: owner.ownerContext) else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        let outbox = ScreenplayDraftSaveOutbox.shared
+        let origin = ScreenplayDraftSaveOrigin(documentID: document, backendURL: backend)
+        let fork = try await outbox.recoveryForkIntent(selected: selected, origin: origin)
+        let maySend: @Sendable () async -> Bool = { [weak viewModel] in
+            let stillCurrent = await MainActor.run(body: {
+                guard let viewModel, ScreenplayLiveDraftSyncService.shared.ownsEditor(viewModel) else { return false }
+                return viewModel.heldDraftRecoveryForReview(token) == selected
+            })
+            guard stillCurrent else { return false }
+            guard let check = try? await outbox.recoveryForkIntent(selected: selected, origin: origin) else { return false }
+            return check.id == fork.id && check.projectId == fork.projectId && check.draft.utf8.elementsEqual(fork.draft.utf8)
+        }
+        let result = try await BackendMemoryAPI.shared.upsertScreenplayProject(projectId: fork.projectId,
+            title: fork.title, phase: fork.phase, initialDraft: fork, activateInitialProject: false,
+            maySend: maySend, initiatingIdentity: owner)
+        guard await maySend(), viewModel.heldDraftRecoveryForReview(token) == selected,
+              ScreenplayLiveDraftSyncService.shared.ownsEditor(viewModel),
+              ScreenplayStudioAuthContextPolicy.matches(expected: token.owner, current: .current()),
+              let version = result.payload.version,
+              let project = result.payload.project, project.id == fork.projectId, project.title == fork.title,
+              project.activeVersionId == version.id,
+              version.phase == fork.phase, version.source == fork.source, version.notes == fork.notes,
+              (result.httpStatusCode == 201 && result.payload.status == "created" && result.payload.created == true) ||
+                (result.httpStatusCode == 200 && result.payload.status == "replayed" && result.payload.created == false),
+              ScreenplayConfirmedDraftSave.initial(entry: fork, version: version,
+                versionID: result.payload.versionId, projectID: result.payload.projectId, responseURL: result.responseURL,
+                owner: owner.ownerContext, currentOwner: .current()) != nil else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        // The confirmed project becomes discoverable without replacing the
+        // currently selected project or the writer's visible page.
+        if !viewModel.projects.contains(where: { $0.id == project.id }) {
+            viewModel.projects.insert(project, at: 0)
+        }
+        return fork.title
     }
 }

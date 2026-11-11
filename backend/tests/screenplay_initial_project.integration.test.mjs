@@ -101,3 +101,33 @@ test("initial project requires server-authenticated ownership and keeps same pro
     assert.deepEqual(bytes(untouched.json.project.versions[0].draft), bytes(draft));
   } finally { await server.stop(); }
 });
+
+test("a non-activating recovery copy replays once without switching the source project", { timeout: 60000 }, async () => {
+  const server = await startBackend(options);
+  try {
+    const headers = await writer(server), original = body();
+    const first = await apiRequest(server, initializePath, { method: "POST", headers, json: original });
+    assert.equal(first.status, 201);
+    const recovery = { ...body(), title: "Recovery Copy", activate: false,
+      initial_draft: { draft: "INT. ROOM - NIGHT\r\nCafe\u0301. ", client_request_id: randomUUID(),
+        source: "studio_recovery_fork", notes: "Recovery copy of held text" } };
+    const send = () => apiRequest(server, initializePath, { method: "POST", headers, json: recovery });
+    const replies = await Promise.all([send(), send()]);
+    assert.deepEqual(replies.map(r => r.status).sort(), [200, 201]);
+    assert.equal(replies[0].json.version_id, replies[1].json.version_id);
+    const list = await apiRequest(server, "/screenplay/projects", { headers });
+    assert.equal(list.json.screenplay_active_project_id, original.project_id);
+    assert.ok(list.json.screenplay_projects.some(p => p.id === recovery.project_id));
+    const changed = await apiRequest(server, `/screenplay/projects/${recovery.project_id}/version`, {
+      method: "POST", headers, json: { draft: "Changed later", base_version_id: replies[0].json.version_id,
+        client_request_id: randomUUID(), conflict_strategy: "reject_if_stale" },
+    });
+    assert.equal(changed.status, 201);
+    const retry = await send();
+    assert.equal(retry.status, 409);
+    assert.equal(retry.json.error, "screenplay_initial_request_superseded");
+    const source = await apiRequest(server, `/screenplay/projects/${original.project_id}?include_drafts=1`, { headers });
+    assert.equal(source.status, 200);
+    assert.deepEqual(bytes(source.json.project.versions[0].draft), bytes(draft));
+  } finally { await server.stop(); }
+});

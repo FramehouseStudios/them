@@ -2097,6 +2097,38 @@ actor ScreenplayDraftSaveOutbox {
         return retirementMarkers
     }
 
+    /// The source row is the durable intent. A deterministic identity makes retries
+    /// idempotent without modifying the source queue or adopting the new project.
+    func recoveryForkIntent(selected: ScreenplayDraftSaveOutboxEntry,
+                            origin: ScreenplayDraftSaveOrigin) throws -> ScreenplayDraftSaveOutboxEntry {
+        try loadIfNeeded()
+        try validateScope(projectId: selected.projectId, ownerUserId: selected.ownerUserId, deliveryOrigin: origin)
+        guard selected.deliveryOrigin == origin, selected.status == .parked,
+              isWriterDecisionParked(selected), !selected.draft.isEmpty,
+              fileManager.fileExists(atPath: manifestURL.path) else { throw BackendMemoryAPIError.invalidResponse }
+        let disk = try Self.decodeStoredEntries(Data(contentsOf: manifestURL))
+        let memory = entries + retirementMarkers
+        guard Set(disk.map(\.id)).count == disk.count, Set(memory.map(\.id)).count == memory.count,
+              try exactEncodedForCustody(disk.sorted { $0.id < $1.id }, memory.sorted { $0.id < $1.id }),
+              try verifiedSupersededRowsAreCurrent(disk),
+              disk.contains(where: { $0.id == selected.id && $0.status == .parked &&
+                  isWriterDecisionParked($0) && sameImmutableRequest($0, selected) }) else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        let digest = try conflictRequestDigest(selected)
+        let now = Date().timeIntervalSince1970
+        var fork = ScreenplayDraftSaveOutboxEntry(id: "recovery-request-" + digest,
+            projectId: "recovery-" + String(digest.prefix(48)), ownerUserId: selected.ownerUserId,
+            draft: selected.draft, title: "Recovery Copy " + String(digest.prefix(8)), phase: "scene_draft",
+            notes: "Recovery copy of held text", source: "studio_recovery_fork", studioWriteAnchors: [],
+            screenplayBindings: [], baseVersionId: "", createdAt: now, updatedAt: now,
+            status: .pending, retries: 0, nextAttemptAt: 0, lastError: "")
+        fork.initialization = .init(documentID: origin.documentID, backendURL: origin.backendURL,
+                                    sourceProjectID: selected.projectId)
+        fork.deliveryOrigin = origin
+        return fork
+    }
+
     func prepareInitialProject(ownerUserID: String, backendURL: URL, documentID: String,
                                sourceProjectID: String, draft: String, title: String, phase: String,
                                source: String, explicitTitle: Bool = false,
