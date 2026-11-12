@@ -224,6 +224,9 @@ private struct ScreenplayHeldDraftRecoveryReview: View {
     @State private var selecting = false
     @State private var selectionRecorded = false
     @State private var selectionFailed = false
+    @State private var confirmBlockRequest = false
+    @State private var requestBlocked = false
+    @State private var requestBlockFailed = false
     @State private var supersededNotice = false
     @State private var confirmRecoveryCopy = false
     @State private var recoveryCopyTitle: String?
@@ -248,6 +251,14 @@ private struct ScreenplayHeldDraftRecoveryReview: View {
                                 .font(.footnote)
                                 .padding(.horizontal)
                         }
+                        if selectionRecorded && viewModel.custodyReviewRetryRequired {
+                            Button("Block Original Request") { confirmBlockRequest = true }
+                                .buttonStyle(.bordered)
+                                .disabled(selecting)
+                                .accessibilityIdentifier("studio.custody.block-original-request")
+                                .accessibilityHint("Asks the server to prevent future delivery of the original request before you choose a new save. It does not remove your copies.")
+                                .padding(.horizontal)
+                        }
                         Text(entry.draft)
                             .font(.body.monospaced())
                             .textSelection(.enabled)
@@ -262,6 +273,34 @@ private struct ScreenplayHeldDraftRecoveryReview: View {
                 }
             }
             .navigationTitle("Exact Held Copy")
+            .confirmationDialog("Block the original save request?", isPresented: $confirmBlockRequest, titleVisibility: .visible) {
+                Button("Block Original Request") {
+                    selecting = true
+                    Task {
+                        do {
+                            try await ScreenplayHeldRequestFence.block(viewModel: viewModel, token: token)
+                            // Recording a fresh selection resets the retry presentation;
+                            // Save Copy remains a separate explicit action with a fresh server read.
+                            selectionRecorded = await viewModel.recordCustodySelection(token)
+                            requestBlocked = selectionRecorded
+                            requestBlockFailed = !selectionRecorded
+                        } catch { requestBlockFailed = true }
+                        selecting = false
+                    }
+                }
+            } message: {
+                Text("This request may already have saved. Blocking prevents it arriving later. Your original copies stay available. After confirmation, review and explicitly save the copy you want.")
+            }
+            .alert("Original request blocked", isPresented: $requestBlocked) {
+                Button("Review Copy") { }
+            } message: {
+                Text("The server confirmed this request cannot arrive later. Nothing was removed. Review the copy and tap Save Copy to save it against the current server draft.")
+            }
+            .alert("Request block not confirmed", isPresented: $requestBlockFailed) {
+                Button("OK") { }
+            } message: {
+                Text("The server or local receipt could not confirm the block. Your copies are still available. Retry the original save or save its text as a separate project.")
+            }
             .confirmationDialog("Create a separate recovery project?", isPresented: $confirmRecoveryCopy, titleVisibility: .visible) {
                 Button("Save Text as Recovery Copy") {
                     selecting = true
