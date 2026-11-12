@@ -1743,6 +1743,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 $0.utf8.elementsEqual(fountainDraft.utf8)
             } ?? false
             pendingNativeEditorDraft = nil
+            // Restoring another page cannot reuse permission to advance an older copy.
+            if let owned = ownedOrdinaryRecovery, !fountainDraft.utf8.elementsEqual(oldValue.utf8),
+               isHydratingDraft || isRestoringQueuedDraft ||
+                !owned.snapshot.draft.utf8.elementsEqual(oldValue.utf8) ||
+                !owned.snapshot.baseVersionId.utf8.elementsEqual(latestVersionID.utf8) {
+                ownedOrdinaryRecovery = nil
+            }
             if !isNativeEditorPublication, !fountainDraft.utf8.elementsEqual(oldValue.utf8) {
                 editorExternalDraftMutationRevision &+= 1
             }
@@ -2571,8 +2578,23 @@ final class ScreenplayStudioViewModel: ObservableObject {
             baseVersionId: latestVersionID, preferPreservedConflict: true)
         switch result {
         case .secured:
-            if recoveryCandidate == nil {
+            // The current page may have changed while live sync prepared a snapshot.
+            guard fountainDraft.utf8.elementsEqual(text.utf8) else {
+                autosaveStatusText = "Live sync paused"
+                errorText = "The page changed while live sync was preparing. Keep this page open and export it or retry Save."
+                return false
+            }
+            let previous = recoveryCandidate
+            if previous.map({ !$0.draft.utf8.elementsEqual(text.utf8) ||
+                !$0.baseVersionId.utf8.elementsEqual(latestVersionID.utf8) }) ?? true {
                 surfaceRemainingRecovery(owner: owner, projectID: cleanProjectID)
+            }
+            guard let selected = recoveryCandidate, selected.draft.utf8.elementsEqual(text.utf8),
+                  selected.baseVersionId.utf8.elementsEqual(latestVersionID.utf8), recoveryCandidateIsCurrent(selected) else {
+                recoveryCandidate = previous
+                autosaveStatusText = "Live sync paused"
+                errorText = "The exact local recovery copy could not be confirmed. Keep this page open and export it or retry Save."
+                return false
             }
             autosaveStatusText = "Local draft protected"
             infoText = "Your unsaved local draft is preserved while live sync loads the other device's text. Recover it or keep the server draft."
@@ -5611,7 +5633,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         switch stored {
         case .present: infoText = "Your newer edit is on the page. Save it when ready."
         case .occupied: infoText = "Another recovery copy is stored. Export this page before closing or retry Save."
-        case .unconfirmed: infoText = "This page could not be secured locally. Keep it open and export it or retry Save."
+        case .unconfirmed: infoText = ScreenplayDraftSaveRecoveryPresentationPolicy.unsecuredDraftWarning
         }
         return true
     }
@@ -7455,7 +7477,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 infoText = "Another recovery copy is stored. Export this page before closing or retry Save."
                 return
             case .unconfirmed:
-                infoText = "This page could not be secured locally. Keep it open and export it or retry Save."
+                infoText = ScreenplayDraftSaveRecoveryPresentationPolicy.unsecuredDraftWarning
                 return
             }
             guard selectedProject != nil, autosaveEnabled else { return }
@@ -8338,8 +8360,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
                         projectId: request.projectId,
                         draft: fountainDraft,
                         baseVersionId: serverVersion.id,
-                        dirty: hasUnsavedDraftChanges
+                        dirty: hasUnsavedDraftChanges,
+                        isSaveCompletion: true
                     )
+                    _ = reconcileRecoveryWarningAfterAcknowledgement()
                     return completion(serverVersion.id, confirmed: confirmed)
                 }
 
@@ -8481,7 +8505,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 autosaveStatusText = hasUnsavedDraftChanges ? "Unsaved changes" : "Saved"
                 infoText = hasUnsavedDraftChanges ? infoText : "Your latest words are already saved."
                 persistLocalDraftRecovery(projectId: request.projectId, draft: fountainDraft,
-                    baseVersionId: evidence.versionID, dirty: hasUnsavedDraftChanges)
+                    baseVersionId: evidence.versionID, dirty: hasUnsavedDraftChanges,
+                    isSaveCompletion: true)
+                _ = reconcileRecoveryWarningAfterAcknowledgement()
                 return completion(evidence.versionID, confirmed: evidence)
             }
             if conflictDetected, request.source == "studio_custody_selected" {
@@ -8492,8 +8518,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     custodyReviewRetryRequired = false
                     custodySupersededConfirmed = true
                     autosaveStatusText = "Local copies need review"
-                    errorText = ""
-                    infoText = "This copy was saved, then a newer server version appeared. Your local copies remain held."
+                    if !reconcileRecoveryWarningAfterAcknowledgement() {
+                        errorText = ""
+                        infoText = "This copy was saved, then a newer server version appeared. Your local copies remain held."
+                    }
                     return .superseded
                 }
                 try await draftSaveOutbox.markParked(id: request.id,
@@ -8690,7 +8718,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     errorText == "An earlier save may need review. Both copies remain held; select its original copy to check it." {
                     errorText = ""
                 }
-                infoText = "Selected copy saved. Your other local copies remain held for review."
+                if !reconcileRecoveryWarningAfterAcknowledgement() {
+                    infoText = "Selected copy saved. Your other local copies remain held for review."
+                }
                 await refreshDraftSaveOutboxStatus()
                 return completion(nextVersionId, confirmed: confirmed)
             } else if !request.supersededConflictRequests.isEmpty {
@@ -8776,11 +8806,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 projectId: request.projectId,
                 draft: fountainDraft,
                 baseVersionId: latestVersionID,
-                dirty: hasUnsavedDraftChanges
+                dirty: hasUnsavedDraftChanges,
+                isSaveCompletion: true
             )
             await recomputeRevision(for: fountainDraft, source: request.source, api: draftSaveAPI, isCurrent: ownsCompletion)
             guard ownsCompletion() else { return completion(nextVersionId, confirmed: confirmed) }
-            if !errorText.isEmpty {
+            if !reconcileRecoveryWarningAfterAcknowledgement(), !errorText.isEmpty {
                 errorText = ""
             }
             return completion(nextVersionId, confirmed: confirmed)
@@ -8835,12 +8866,56 @@ final class ScreenplayStudioViewModel: ObservableObject {
             }
             guard ownsCompletion() else { return nil }
             hasUnsavedDraftChanges = true
-            persistRecoveryForUnconfirmedSave(
+            let currentDraft = fountainDraft
+            let recovery = persistRecoveryForUnconfirmedSave(
                 projectId: request.projectId,
-                draft: fountainDraft,
+                draft: currentDraft,
                 baseVersionId: request.baseVersionId
             )
-            if retryable {
+            var recoveryMatches = recovery.map {
+                $0.draft.utf8.elementsEqual(currentDraft.utf8) &&
+                    $0.baseVersionId.utf8.elementsEqual(request.baseVersionId.utf8)
+            } ?? false
+            if !recoveryMatches {
+                recoveryMatches = localDraftRecoveryStore.hasExactDirtyRecovery(ownerUserId: request.ownerUserId,
+                    projectId: request.projectId, draft: currentDraft, baseVersionId: request.baseVersionId)
+            }
+            if !recoveryMatches, let origin = currentRecoveryOrigin(projectID: request.projectId),
+               case let .present(snapshot) = overflowRecoveryStore.load(ownerUserID: request.ownerUserId,
+                    projectID: request.projectId, backendURL: origin.backendURL, documentID: origin.documentID) {
+                recoveryMatches = snapshot.draft.utf8.elementsEqual(currentDraft.utf8) &&
+                    snapshot.baseVersionID.utf8.elementsEqual(request.baseVersionId.utf8)
+            }
+            let requestMatches = request.draft.utf8.elementsEqual(currentDraft.utf8)
+            let requestIsDurable: Bool
+            if requestMatches {
+                requestIsDurable = (try? await draftSaveOutbox.hasDurableTarget(id: request.id, matching: request.outboxEntry)) == true
+            } else {
+                requestIsDurable = false
+            }
+            let requestIsPending: Bool
+            if retryable && requestIsDurable {
+                requestIsPending = (try? await draftSaveOutbox.hasDurablePendingTarget(id: request.id, matching: request.outboxEntry)) == true
+            } else {
+                requestIsPending = false
+            }
+            guard ownsCompletion(), fountainDraft.utf8.elementsEqual(currentDraft.utf8) else { return nil }
+            guard recoveryMatches || requestIsDurable else {
+                autosaveStatusText = "Save needs attention"
+                infoText = ScreenplayDraftSaveRecoveryPresentationPolicy.unsecuredDraftWarning
+                errorText = "The latest page is not confirmed in local recovery."
+                await refreshDraftSaveOutboxStatus()
+                return nil
+            }
+            if retryable && requestIsDurable && !requestIsPending {
+                autosaveStatusText = "Save needs attention"
+                infoText = "Your words are kept locally. Review the saved copy and retry Save."
+                errorText = ""
+            } else if retryable && !requestIsDurable {
+                autosaveStatusText = "Unsaved changes"
+                infoText = "Your newer words are kept locally. Save them after reconnecting."
+                errorText = ""
+            } else if retryable {
                 autosaveStatusText = receiptUnconfirmed ? "Save confirmation pending" : "Queued locally - reconnecting"
                 infoText = receiptUnconfirmed
                     ? "The server response could not confirm your saved words. Your local draft is safe; any retry uses the same request."
@@ -9408,15 +9483,83 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
     }
 
+    // A receipt for another copy cannot retire the current page's safety warning.
+    private func reconcileRecoveryWarningAfterAcknowledgement() -> Bool {
+        guard let warning = ScreenplayDraftSaveRecoveryPresentationPolicy.localRecoveryWarning(
+            hasUnsavedChanges: hasUnsavedDraftChanges, info: infoText, error: errorText) else {
+            if !hasUnsavedDraftChanges {
+                if ScreenplayDraftSaveRecoveryPresentationPolicy.isLocalRecoveryWarning(errorText) { errorText = "" }
+                if ScreenplayDraftSaveRecoveryPresentationPolicy.isLocalRecoveryWarning(infoText) { infoText = "" }
+            }
+            return false
+        }
+        infoText = warning
+        if errorText.isEmpty || ScreenplayDraftSaveRecoveryPresentationPolicy.isLocalRecoveryWarning(errorText) {
+            errorText = warning
+        }
+        return true
+    }
+
+    // Only a byte-exact recovery write by this model can be advanced as typing continues.
+    private var ownedOrdinaryRecovery: (owner: ScreenplayStudioAuthContext, origin: ScreenplayDraftSaveOrigin,
+                                        snapshot: ScreenplayLocalDraftRecoverySnapshot)?
+
     private func persistLocalDraftRecovery(
         projectId: String,
         draft: String,
         baseVersionId: String,
         dirty: Bool,
-        savedAt: TimeInterval = Date().timeIntervalSince1970
+        savedAt: TimeInterval = Date().timeIntervalSince1970,
+        isSaveCompletion: Bool = false
     ) {
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else { return }
+        let owner = currentStudioAuthContext()
+        let ownerID = owner.userID
+        // This local identity is used only to compare writes already made and
+        // read back by this editor. It does not authorize backend or overflow access.
+        let origin: ScreenplayDraftSaveOrigin? = {
+            if let verified = currentRecoveryOrigin(projectID: normalizedProjectId) { return verified }
+            let bridge = ScreenplayLiveDraftBridge.shared
+            guard ScreenplayLiveDraftSyncService.shared.ownsEditor(self),
+                  bridge.draftOrigin.projectID == normalizedProjectId,
+                  let documentID = bridge.draftOrigin.documentID else { return nil }
+            return ScreenplayDraftSaveOrigin(documentID: documentID,
+                backendURL: BackendAuthClient.resolvedBackendBaseURL())
+        }()
+        let stored = localDraftRecoveryStore.dirtyOrdinarySnapshot(ownerUserId: ownerID, projectId: normalizedProjectId)
+        let ownedMatches = stored.map { current in
+            guard let owned = ownedOrdinaryRecovery, owned.owner == owner, let origin,
+                  owned.origin.documentID == origin.documentID,
+                  owned.origin.permitsBackend(origin.backendURL) else { return false }
+            let prior = owned.snapshot
+            return prior.projectId == current.projectId &&
+                prior.draft.utf8.elementsEqual(current.draft.utf8) &&
+                prior.baseVersionId.utf8.elementsEqual(current.baseVersionId.utf8) &&
+                prior.savedAt.bitPattern == current.savedAt.bitPattern
+        } ?? false
+        if recoveryCandidate == nil, (isSaveCompletion || !ownedMatches),
+           localDraftRecoveryStore.holdsDifferentUnsavedWork(ownerUserId: ownerID, projectId: normalizedProjectId,
+                                                             differingFrom: draft) {
+            if dirty {
+                switch secureRecoveryCopy(ownerUserId: ownerID, projectId: normalizedProjectId,
+                                          draft: draft, baseVersionId: baseVersionId, savedAt: savedAt) {
+                case .secured: break
+                case .occupied, .unconfirmed:
+                    infoText = ScreenplayDraftSaveRecoveryPresentationPolicy.unsecuredDraftWarning
+                }
+            }
+            if recoveryCandidate == nil,
+               let snapshot = localDraftRecoveryStore.dirtyOrdinarySnapshot(ownerUserId: ownerID,
+                                                                             projectId: normalizedProjectId) {
+                let owner = currentStudioAuthContext()
+                updateRecoveryReviewScope(owner: owner, projectID: normalizedProjectId)
+                recoveryCandidate = LocalDraftRecoveryCandidate(owner: owner, projectId: snapshot.projectId,
+                    draft: snapshot.draft, baseVersionId: snapshot.baseVersionId, savedAt: snapshot.savedAt,
+                    isPreservedConflict: false)
+            }
+            return
+        }
         if let candidate = recoveryCandidate,
            candidate.projectId == normalizedProjectId, authContextIsCurrent(candidate.owner) {
             guard recoveryCandidateIsCurrent(candidate) else {
@@ -9429,13 +9572,16 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     draft: draft, baseVersionId: baseVersionId, savedAt: savedAt)
                 switch result {
                 case .secured: break
-                case .occupied: infoText = "Other recovery copies are stored. Export this page before closing or retry Save."
-                case .unconfirmed: infoText = "This page could not be secured locally. Keep it open and export it or retry Save."
+                case .occupied:
+                    errorText = ScreenplayDraftSaveRecoveryPresentationPolicy.fullRecoveryWarning
+                    infoText = errorText
+                case .unconfirmed:
+                    errorText = ScreenplayDraftSaveRecoveryPresentationPolicy.unsecuredDraftWarning
+                    infoText = errorText
                 }
             }
             return
         }
-        let ownerID = currentStudioAuthContext().userID
         // An unknown startup base cannot supersede a known-base writer copy.
         if dirty, baseVersionId.isEmpty,
            let existing = localDraftRecoveryStore.dirtyOrdinarySnapshot(ownerUserId: ownerID, projectId: normalizedProjectId),
@@ -9445,7 +9591,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                                           draft: draft, baseVersionId: baseVersionId, savedAt: savedAt) {
                 case .secured: break
                 case .occupied, .unconfirmed:
-                    errorText = "This page could not be secured locally. Keep it open and export it or retry Save."
+                    errorText = ScreenplayDraftSaveRecoveryPresentationPolicy.unsecuredDraftWarning
                 }
             }
             return
@@ -9454,7 +9600,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         // dirty writer copy, even before its queued conflict has surfaced.
         if !dirty, let existing = localDraftRecoveryStore.dirtyOrdinarySnapshot(ownerUserId: ownerID, projectId: normalizedProjectId),
            !existing.draft.utf8.elementsEqual(draft.utf8) { return }
-        let recoverySaved = localDraftRecoveryStore.save(
+        let recoveryConfirmed = localDraftRecoveryStore.save(
             ownerUserId: ownerID,
             projectId: normalizedProjectId,
             draft: draft,
@@ -9462,8 +9608,22 @@ final class ScreenplayStudioViewModel: ObservableObject {
             dirty: dirty,
             savedAt: savedAt
         )
-        if dirty && !recoverySaved {
-            errorText = "This page could not be secured locally. Keep it open and export it or retry Save."
+        guard recoveryConfirmed else {
+            ownedOrdinaryRecovery = nil
+            if dirty {
+                errorText = ScreenplayDraftSaveRecoveryPresentationPolicy.unsecuredDraftWarning
+                infoText = errorText
+            }
+            return
+        }
+        if dirty, let origin, let stored = localDraftRecoveryStore.dirtyOrdinarySnapshot(ownerUserId: ownerID,
+                                                                                           projectId: normalizedProjectId),
+           stored.draft.utf8.elementsEqual(draft.utf8),
+           stored.baseVersionId.utf8.elementsEqual(baseVersionId.utf8),
+           stored.savedAt.bitPattern == savedAt.bitPattern {
+            ownedOrdinaryRecovery = (owner, origin, stored)
+        } else {
+            ownedOrdinaryRecovery = nil
         }
         let hasDifferentPreservedConflict = recoveryCandidate.map {
             $0.projectId == normalizedProjectId &&
@@ -9518,7 +9678,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             isPreservedConflict: false
         )
         guard recoveryCandidateIsCurrent(candidate) else {
-            infoText = "This page could not be secured locally. Keep it open and export it or retry Save."
+            infoText = ScreenplayDraftSaveRecoveryPresentationPolicy.unsecuredDraftWarning
             return nil
         }
         if surfaceCandidate {

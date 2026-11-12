@@ -1141,6 +1141,13 @@ actor ScreenplayDraftSaveOutbox {
         return stored.contains { $0.id == id && $0.hasSameTarget(as: entry) }
     }
 
+    func hasDurablePendingTarget(id: String, matching entry: ScreenplayDraftSaveOutboxEntry) throws -> Bool {
+        guard fileManager.fileExists(atPath: manifestURL.path) else { return false }
+        try loadIfNeeded()
+        let stored = try Self.decodeStoredEntries(Data(contentsOf: manifestURL))
+        return stored.contains { $0.id == id && $0.status == .pending && $0.hasSameTarget(as: entry) }
+    }
+
     func beginNext(
         projectId: String,
         ownerUserId: String,
