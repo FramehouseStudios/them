@@ -26,6 +26,20 @@ final class ScreenplayStudioInspectorHitTestingTests: XCTestCase {
         }
     }
 
+    func testVisibleOutlineBelongsToItsTabWithoutExtendingIntoTheGap() {
+        let visible = frames.mapValues {
+            ScreenplayStudioInspectorTabHitTesting.visibleFrame(for: $0, outlineWidth: 1)
+        }
+        XCTAssertEqual(ScreenplayStudioInspectorTabHitTesting.target(
+            at: CGPoint(x: 214.3333, y: 80), frames: visible), .them)
+        XCTAssertNil(ScreenplayStudioInspectorTabHitTesting.target(
+            at: CGPoint(x: 217, y: 80), frames: visible))
+        XCTAssertEqual(ScreenplayStudioInspectorTabHitTesting.visibleFrame(
+            for: frames[.them]!, outlineWidth: 0), frames[.them]!)
+        XCTAssertTrue(ScreenplayStudioInspectorTabHitTesting.visibleFrame(
+            for: frames[.them]!, outlineWidth: CGFloat.nan).isNull)
+    }
+
     func testMissingAmbiguousOrInvalidGeometryCannotSelectAControl() {
         let point = CGPoint(x: 111, y: 80)
         XCTAssertNil(ScreenplayStudioInspectorTabHitTesting.target(at: point, frames: [:]))

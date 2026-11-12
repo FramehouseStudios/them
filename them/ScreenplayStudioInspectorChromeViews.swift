@@ -5,6 +5,7 @@ struct ScreenplayStudioRightPanelTabs: View {
     @Binding var selection: ScreenplayStudioScreen.DirectionOneRightPanelTab
     @State private var tabFrames: [ScreenplayStudioScreen.DirectionOneRightPanelTab: CGRect] = [:]
     private static let coordinateSpace = "studio.inspector.tabs"
+    private static let tabOutlineWidth: CGFloat = 1
     let textColor: Color
     let secondaryTextColor: Color
     let panelColor: Color
@@ -81,8 +82,11 @@ struct ScreenplayStudioRightPanelTabs: View {
                     .onGeometryChange(for: CGRect.self) { proxy in
                         proxy.frame(in: .named(Self.coordinateSpace))
                     } action: { frame in
-                        if tabFrames[tab] != frame { tabFrames[tab] = frame }
-                        StudioUITestInputDiagnostics.inspectorFrame(tab: tab, frame: frame)
+                        let visibleFrame = ScreenplayStudioInspectorTabHitTesting.visibleFrame(
+                            for: frame, outlineWidth: Self.tabOutlineWidth
+                        )
+                        if tabFrames[tab] != visibleFrame { tabFrames[tab] = visibleFrame }
+                        StudioUITestInputDiagnostics.inspectorFrame(tab: tab, frame: visibleFrame)
                     }
                     .contentShape(Rectangle())
                     .background(
@@ -93,7 +97,7 @@ struct ScreenplayStudioRightPanelTabs: View {
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
                             .stroke(
                                 isActive ? selectionStrokeColor.opacity(0.72) : strokeColor.opacity(0.36),
-                                lineWidth: 1
+                                lineWidth: Self.tabOutlineWidth
                             )
                     )
                 }
@@ -110,6 +114,12 @@ struct ScreenplayStudioRightPanelTabs: View {
 
 /// Resolves the visible control under a pointer without choosing a neighbouring finger-area candidate.
 enum ScreenplayStudioInspectorTabHitTesting {
+    static func visibleFrame(for frame: CGRect, outlineWidth: CGFloat) -> CGRect {
+        guard outlineWidth.isFinite, outlineWidth >= 0 else { return .null }
+        // SwiftUI's centred outline extends half its width beyond layout bounds.
+        return frame.insetBy(dx: -outlineWidth / 2, dy: -outlineWidth / 2)
+    }
+
     static func target(
         at point: CGPoint,
         frames: [ScreenplayStudioScreen.DirectionOneRightPanelTab: CGRect]
