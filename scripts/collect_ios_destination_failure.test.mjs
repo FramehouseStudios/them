@@ -57,3 +57,27 @@ test("hosted failure upload retains destination reports for V1 and voice", () =>
   assert.match(workflow,/them-v1-ui-smoke\/v1-destination-failure-\*\.json/);
   assert.match(workflow,/them-voice-network-fault-smokes\/v1-destination-failure-\*\.json/);
 });
+test("missing executable and malformed inventories still produce private report", () => {
+  const dir=mkdtempSync(path.join(os.tmpdir(),"them-destination-malformed-"));
+  try {
+    const xcrun=path.join(dir,"xcrun");
+    writeFileSync(xcrun, `#!/bin/bash\ncase "$*" in\n '--find xcodebuild') echo '/Applications/Xcode_26.3.app/Contents/Developer/usr/bin/xcodebuild' ;;\n 'simctl list devices --json') echo '{"devices":[]}' ;;\n 'simctl list runtimes --json') echo '{"runtimes":{"PRIVATE_SECRET":"PRIVATE_DEVICE"}}' ;;\nesac\n`); chmodSync(xcrun,0o755);
+    const res=spawnSync(process.execPath,[collector,path.join(dir,"missing-xcode"),xcrun,"project","scheme","Debug",id,dir],{encoding:"utf8",timeout:8000});
+    assert.equal(res.status,0,res.stderr); const f=readdirSync(dir).find(n=>n.startsWith("v1-destination-failure-")); const text=readFileSync(path.join(dir,f),"utf8"), report=JSON.parse(text);
+    assert.equal(report.toolchain.status,"start_failed"); assert.equal(report.destinations.status,"start_failed");
+    assert.equal(report.devices.parseStatus,"invalid_shape"); assert.equal(report.runtimes.parseStatus,"invalid_shape");
+    assert.equal(report.selectedXcrunTool.identity,"Xcode_26.3.app"); assert.equal(report.selectedXcrunTool.configuredPathMatchesSelected,false);
+    assert.doesNotMatch(text,/PRIVATE_SECRET|PRIVATE_DEVICE|missing-xcode/);
+  } finally { rmSync(dir,{recursive:true,force:true}); }
+});
+test("unrecognized xcrun tool path is redacted", () => {
+  const dir=mkdtempSync(path.join(os.tmpdir(),"them-destination-path-"));
+  try {
+    const xcrun=path.join(dir,"xcrun"), xcode=path.join(dir,"xcode");
+    writeFileSync(xcrun, '#!/bin/bash\nif [[ "$1" == "--find" ]]; then echo "/Users/PRIVATE_NAME/xcodebuild"; else echo "{}"; fi\n');
+    writeFileSync(xcode, '#!/bin/bash\nexit 1\n'); chmodSync(xcrun,0o755);chmodSync(xcode,0o755);
+    const res=spawnSync(process.execPath,[collector,xcode,xcrun,"project","scheme","Debug",id,dir],{encoding:"utf8",timeout:8000});assert.equal(res.status,0,res.stderr);
+    const f=readdirSync(dir).find(n=>n.startsWith("v1-destination-failure-")), text=readFileSync(path.join(dir,f),"utf8");
+    assert.equal(JSON.parse(text).selectedXcrunTool.identity,null); assert.doesNotMatch(text,/PRIVATE_NAME/);
+  } finally {rmSync(dir,{recursive:true,force:true});}
+});
