@@ -3807,6 +3807,47 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(page.utf8))
     }
 
+    // These diagnostics are owner-scoped by the outbox and tagged by project.
+    // The same_* fields compare with the first retained row, not this request.
+    // Count the current project's valid conflict, without requiring deletion of
+    // independent passive/quarantined copies. Missing/incoherent data cannot pass.
+    private func currentConflictSaveCount(_ snapshot: [String: Any]) -> Int? {
+        guard let rows = snapshot["parked_save_relationships"] as? [String],
+              let total = snapshot["parked_draft_save_count"] as? Int,
+              total == rows.count else { return nil }
+        var count = 0
+        for row in rows {
+            let fields = row.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
+            guard fields.count == 9,
+                  ["current_project", "other_project"].contains(fields[0]),
+                  ["parked", "invalid_scope"].contains(fields[1]),
+                  ["valid_scope", "invalid_scope"].contains(fields[2]),
+                  ["passive", "nonpassive"].contains(fields[3]) else { return nil }
+            if fields.prefix(4).elementsEqual(["current_project", "parked", "valid_scope", "nonpassive"]) {
+                count += 1
+            }
+        }
+        return count
+    }
+
+    func test_conflict_recovery_counts_current_copy_without_deleting_independent_copies() {
+        let current = "current_project,parked,valid_scope,nonpassive,same_draft,same_base,same_origin,no_predecessor,same_target"
+        let quarantined = "current_project,invalid_scope,invalid_scope,passive,same_draft,different_base,different_origin,no_predecessor,different_target"
+        func snapshot(_ rows: [String]) -> [String: Any] {
+            ["parked_draft_save_count": rows.count, "parked_save_relationships": rows]
+        }
+        // Exact classifications retained in failed hosted run43200093429.
+        XCTAssertEqual(currentConflictSaveCount(snapshot([current, quarantined])), 1)
+        XCTAssertEqual(currentConflictSaveCount(snapshot([quarantined, current])), 1)
+        XCTAssertEqual(currentConflictSaveCount(snapshot([current, current, quarantined])), 2)
+        XCTAssertEqual(currentConflictSaveCount(snapshot([quarantined])), 0)
+        XCTAssertEqual(currentConflictSaveCount(snapshot([])), 0)
+        XCTAssertNil(currentConflictSaveCount([:]))
+        XCTAssertNil(currentConflictSaveCount(snapshot(["storage_unreadable"])))
+        XCTAssertNil(currentConflictSaveCount(["parked_draft_save_count": 0,
+                                               "parked_save_relationships": [current]]))
+    }
+
     @MainActor
     func test_screenplay_save_outbox_restores_conflict_choice_and_resolves_once() async throws {
         let configuredPort = Int(
@@ -3894,7 +3935,7 @@ final class V1SmokeUITests: XCTestCase {
                     && stringValue(snapshot["conflict_server_version_id"]).lowercased() == competingVersionID.lowercased()
                     && stringValue(snapshot["draft_tail_preview"]).contains(marker)
                     && intValue(snapshot["queued_draft_save_count"]) == 0
-                    && intValue(snapshot["parked_draft_save_count"]) == 1
+                    && currentConflictSaveCount(snapshot) == 1
                     && boolValue(snapshot["has_unsaved_draft_changes"])
                     && stringValue(snapshot["error_text"]).isEmpty
             },
@@ -3933,12 +3974,19 @@ final class V1SmokeUITests: XCTestCase {
             relaunchedConflict = snapshot
             return stringValue(snapshot["conflict_project_id"]).lowercased() == fixture.projectID.lowercased()
                 && stringValue(snapshot["conflict_server_version_id"]).lowercased() == competingVersionID.lowercased()
-                && stringValue(snapshot["draft_tail_preview"]).contains(marker)
+                && stringValue(snapshot["draft_tail_preview"]) == String(expectedQueuedDraft.suffix(260))
+                && intValue(snapshot["draft_character_count"]) == expectedQueuedDraft.count
+                && boolValue(snapshot["recovery_present"])
+                && boolValue(snapshot["recovery_matches_current_draft"])
+                && stringValue(snapshot["recovery_base_version_id"]).lowercased() == fixture.versionID.lowercased()
                 && intValue(snapshot["queued_draft_save_count"]) == 0
-                && intValue(snapshot["parked_draft_save_count"]) == 1
+                && currentConflictSaveCount(snapshot) == 1
                 && boolValue(snapshot["has_unsaved_draft_changes"])
                 && stringValue(snapshot["error_text"]).isEmpty
         }, "Unresolved conflict lost its durable writer copy after relaunch: \(relaunchedConflict)")
+
+        XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(expectedQueuedDraft.utf8),
+                       "The relaunched conflict must retain every writer byte.")
 
         let keepMine = app.buttons["studio.conflict.keep-mine"]
         if !keepMine.isHittable { app.swipeUp() }
@@ -3953,7 +4001,7 @@ final class V1SmokeUITests: XCTestCase {
                 return stringValue(snapshot["conflict_project_id"]).isEmpty
                     && stringValue(snapshot["draft_tail_preview"]).contains(marker)
                     && intValue(snapshot["queued_draft_save_count"]) == 0
-                    && intValue(snapshot["parked_draft_save_count"]) == 0
+                    && currentConflictSaveCount(snapshot) == 0
                     && !boolValue(snapshot["has_unsaved_draft_changes"])
                     && !boolValue(snapshot["is_saving"])
                     && stringValue(snapshot["error_text"]).isEmpty
@@ -3999,6 +4047,32 @@ final class V1SmokeUITests: XCTestCase {
             stringValue(resolvedBody["active_version_id"] ?? resolvedBody["activeVersionId"]).lowercased(),
             localVersionID.lowercased()
         )
+        XCTAssertEqual(stringValue(resolvedSnapshot["latest_version_id"]).lowercased(),
+                       localVersionID.lowercased(), "Saved must acknowledge the actual committed version.")
+        app.terminate()
+        app = launchApp(openStudio: true, resetState: false, launchEnvironment: recoveryEnvironment)
+        XCTAssertTrue(app.otherElements["studio.surface"].waitForExistence(timeout: 12))
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 75) { snapshot in
+            stringValue(snapshot["selected_project_id"]).lowercased() == fixture.projectID.lowercased()
+                && stringValue(snapshot["latest_version_id"]).lowercased() == localVersionID.lowercased()
+                && stringValue(snapshot["conflict_project_id"]).isEmpty
+                && intValue(snapshot["queued_draft_save_count"]) == 0
+                && currentConflictSaveCount(snapshot) == 0
+                && !boolValue(snapshot["has_unsaved_draft_changes"])
+                && !boolValue(snapshot["is_saving"])
+                && stringValue(snapshot["error_text"]).isEmpty
+        }, "Acknowledged conflict resolution did not survive a fresh launch.")
+        XCTAssertEqual(Data(accessibleDraftText(in: app).utf8), Data(expectedQueuedDraft.utf8))
+        let afterRelaunch = try await requestJSON(baseURL: baseURL,
+            path: "/screenplay/projects/\(fixture.projectID)", method: "GET", headers: ownerHeaders,
+            body: nil, queryItems: [URLQueryItem(name: "include_drafts", value: "1"),
+                                   URLQueryItem(name: "version_limit", value: "24")])
+        try assertHTTP(afterRelaunch, context: "resolved conflict after relaunch")
+        let envelope = afterRelaunch.payload["payload"] as? [String: Any] ?? afterRelaunch.payload
+        let project = envelope["project"] as? [String: Any] ?? envelope
+        let versions = project["versions"] as? [[String: Any]] ?? []
+        XCTAssertEqual(versions.filter { stringValue($0["draft"]).contains(marker) }.count, 1,
+                       "Relaunch must not create another version of the acknowledged words.")
     }
 
     @MainActor
