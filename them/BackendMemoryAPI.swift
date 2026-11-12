@@ -5867,25 +5867,8 @@ nonisolated enum BackendAuthClient {
         if let uiTestURL = BackendDefaultBaseURLPolicy.currentUITestOverrideBaseURL {
             return uiTestURL
         }
-        let fromBaseEnv = ProcessInfo.processInfo.environment["BACKEND_BASE_URL"] ?? ""
-        if isUsableConfigValue(fromBaseEnv), let url = URL(string: fromBaseEnv), isUsableBackendURL(url) {
-            return canonicalizeLoopbackURL(url)
-        }
-        let fromEnv = ProcessInfo.processInfo.environment["BACKEND_URL"] ?? ""
-        if isUsableConfigValue(fromEnv), let url = URL(string: fromEnv), isUsableBackendURL(url) {
-            return canonicalizeLoopbackURL(url)
-        }
-        if let fromInfo = Bundle.main.object(forInfoDictionaryKey: "BACKEND_BASE_URL") as? String,
-           isUsableConfigValue(fromInfo),
-           let url = URL(string: fromInfo),
-           isUsableBackendURL(url) {
-            return canonicalizeLoopbackURL(url)
-        }
-        if let fromInfo = Bundle.main.object(forInfoDictionaryKey: "BACKEND_URL") as? String,
-           isUsableConfigValue(fromInfo),
-           let url = URL(string: fromInfo),
-           isUsableBackendURL(url) {
-            return canonicalizeLoopbackURL(url)
+        if let configuredURL = BackendDefaultBaseURLPolicy.currentConfiguredPrimaryBaseURL {
+            return configuredURL
         }
         let fromDefaults = preferenceString(forKey: DefaultsKey.baseURL)
         if isUsableConfigValue(fromDefaults), let url = URL(string: fromDefaults), isUsableBackendURL(url) {
@@ -10256,25 +10239,8 @@ actor BackendMemoryAPI {
         if let uiTestURL = BackendDefaultBaseURLPolicy.currentUITestOverrideBaseURL {
             return uiTestURL
         }
-        let fromBaseEnv = ProcessInfo.processInfo.environment["BACKEND_BASE_URL"] ?? ""
-        if isUsableConfigValue(fromBaseEnv), let url = URL(string: fromBaseEnv), isUsableBackendURL(url) {
-            return canonicalizeLoopbackURL(url)
-        }
-        let fromEnv = ProcessInfo.processInfo.environment["BACKEND_URL"] ?? ""
-        if isUsableConfigValue(fromEnv), let url = URL(string: fromEnv), isUsableBackendURL(url) {
-            return canonicalizeLoopbackURL(url)
-        }
-        if let fromInfo = Bundle.main.object(forInfoDictionaryKey: "BACKEND_BASE_URL") as? String,
-           isUsableConfigValue(fromInfo),
-           let url = URL(string: fromInfo),
-           isUsableBackendURL(url) {
-            return canonicalizeLoopbackURL(url)
-        }
-        if let fromInfo = Bundle.main.object(forInfoDictionaryKey: "BACKEND_URL") as? String,
-           isUsableConfigValue(fromInfo),
-           let url = URL(string: fromInfo),
-           isUsableBackendURL(url) {
-            return canonicalizeLoopbackURL(url)
+        if let configuredURL = BackendDefaultBaseURLPolicy.currentConfiguredPrimaryBaseURL {
+            return configuredURL
         }
         let fromDefaults = BackendAuthClient.preferenceString(forKey: DefaultsKey.baseURL)
         if isUsableConfigValue(fromDefaults), let url = URL(string: fromDefaults), isUsableBackendURL(url) {

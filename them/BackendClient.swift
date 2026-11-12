@@ -158,6 +158,38 @@ nonisolated enum BackendDefaultBaseURLPolicy {
             || host == "[::1]"
     }
 
+    /// One configuration order for sign-in, saved drafts and voice requests.
+    static func configuredPrimaryBaseURL(environment: [String: String], infoDictionary: [String: Any],
+                                         isDebug: Bool) -> URL? {
+        let candidates = [environment["BACKEND_BASE_URL"], environment["BACKEND_URL"],
+                          infoDictionary["BACKEND_BASE_URL"] as? String, infoDictionary["BACKEND_URL"] as? String]
+        for candidate in candidates {
+            guard let candidate else { continue }
+            let raw = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard isUsableConfigValue(raw), let url = URL(string: raw),
+                  let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
+                  let host = url.host, !host.isEmpty else { continue }
+            let loopback = isLoopbackBackendURL(url)
+            guard isDebug || !loopback else { continue }
+            if loopback, var components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+                components.host = "127.0.0.1"
+                if let canonical = components.url { return canonical }
+            }
+            return url
+        }
+        return nil
+    }
+
+    static var currentConfiguredPrimaryBaseURL: URL? {
+        #if DEBUG
+        let isDebug = true
+        #else
+        let isDebug = false
+        #endif
+        return configuredPrimaryBaseURL(environment: ProcessInfo.processInfo.environment,
+            infoDictionary: Bundle.main.infoDictionary ?? [:], isDebug: isDebug)
+    }
+
     private static func isUsableConfigValue(_ raw: String) -> Bool {
         let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return false }
@@ -6388,19 +6420,25 @@ final class BackendClient {
         if let uiTestURL = BackendDefaultBaseURLPolicy.currentUITestOverrideBaseURL {
             return uiTestURL
         }
-        let envValue = (ProcessInfo.processInfo.environment[envName] ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if isUsableConfigValue(envValue), let url = URL(string: envValue), isUsableBackendURL(url) {
-            return canonicalizeLoopbackURL(url)
-        }
+        if envName == "BACKEND_URL" {
+            if let configuredURL = BackendDefaultBaseURLPolicy.currentConfiguredPrimaryBaseURL {
+                return configuredURL
+            }
+        } else {
+            let envValue = (ProcessInfo.processInfo.environment[envName] ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if isUsableConfigValue(envValue), let url = URL(string: envValue), isUsableBackendURL(url) {
+                return canonicalizeLoopbackURL(url)
+            }
 
-        if
-            let plistValue = Bundle.main.object(forInfoDictionaryKey: infoPlistKey) as? String,
-            isUsableConfigValue(plistValue),
-            let url = URL(string: plistValue),
-            isUsableBackendURL(url)
-        {
-            return canonicalizeLoopbackURL(url)
+            if
+                let plistValue = Bundle.main.object(forInfoDictionaryKey: infoPlistKey) as? String,
+                isUsableConfigValue(plistValue),
+                let url = URL(string: plistValue),
+                isUsableBackendURL(url)
+            {
+                return canonicalizeLoopbackURL(url)
+            }
         }
 
         let defaultsValue = (UserDefaults.standard.string(forKey: sharedBackendBaseURLDefaultsKeyStatic) ?? "")
