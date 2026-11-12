@@ -1,5 +1,30 @@
 import Foundation
 
+#if DEBUG
+nonisolated final class BackendAuthResumeFixtureActivationStore: @unchecked Sendable {
+    private let lock = NSLock()
+    private var activated = false
+
+    var isActivated: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return activated
+    }
+
+    func activate() {
+        lock.lock()
+        activated = true
+        lock.unlock()
+    }
+
+    func deactivate() {
+        lock.lock()
+        activated = false
+        lock.unlock()
+    }
+}
+#endif
+
 nonisolated enum BackendAuthDebugSessionPolicy {
     struct AutomationSessionOverride: Equatable, Sendable {
         let userID: String
@@ -57,11 +82,56 @@ nonisolated enum BackendAuthDebugSessionPolicy {
         )
     }
 
+    static func uiTestAuthenticationResumeFixtureOverride(
+        arguments: [String],
+        isActivated: Bool
+    ) -> AutomationSessionOverride? {
+        guard isActivated,
+              IOThemRuntime.allowsUITestAuthenticationResumeFixture(arguments: arguments) else {
+            return nil
+        }
+        return AutomationSessionOverride(
+            userID: "ui-auth-resume-user",
+            clientToken: "ui-auth-resume-client-token",
+            accessToken: "ui-auth-resume-access-token"
+        )
+    }
+
+    static func resolvedAutomationSessionOverride(
+        arguments: [String],
+        environment: [String: String],
+        isResumeFixtureActivated: Bool
+    ) -> AutomationSessionOverride? {
+        automationSessionOverride(arguments: arguments, environment: environment)
+            ?? uiTestAuthenticationResumeFixtureOverride(
+                arguments: arguments,
+                isActivated: isResumeFixtureActivated
+            )
+    }
+
     static func shouldPersistSessionBootstrapIdentity(
         arguments: [String],
-        environment: [String: String]
+        environment: [String: String],
+        isResumeFixtureActivated: Bool = false
     ) -> Bool {
-        automationSessionOverride(arguments: arguments, environment: environment) == nil
+        resolvedAutomationSessionOverride(
+            arguments: arguments,
+            environment: environment,
+            isResumeFixtureActivated: isResumeFixtureActivated
+        ) == nil
+    }
+
+    static func commitSessionBootstrapIdentity(
+        automationOverride: AutomationSessionOverride?,
+        responseUserID: String?,
+        persistIdentity: () -> Bool
+    ) -> Bool {
+        guard let automationOverride else { return persistIdentity() }
+        let normalizedUserID = normalizedEnvironmentValue(responseUserID)
+        guard normalizedUserID.isEmpty || normalizedUserID == automationOverride.userID else {
+            return false
+        }
+        return true
     }
 
     static func syntheticUser(
@@ -116,6 +186,27 @@ nonisolated struct ScreenplaySaveAuthFaultInjection {
               request.value(forHTTPHeaderField: "Authorization") != nil else { return }
         didInject = true
         request.setValue("Bearer expired-screenplay-save-access-token", forHTTPHeaderField: "Authorization")
+    }
+}
+#endif
+
+#if DEBUG
+extension BackendAuthClient {
+    static let uiTestAuthenticationResumeFixtureActivation = BackendAuthResumeFixtureActivationStore()
+
+    @discardableResult
+    static func activateUITestAuthenticationResumeFixture() -> Bool {
+        guard IOThemRuntime.allowsUITestAuthenticationResumeFixture else {
+            uiTestAuthenticationResumeFixtureActivation.deactivate()
+            return false
+        }
+        uiTestAuthenticationResumeFixtureActivation.activate()
+        let session = currentAuthSessionState()
+        guard session.isAuthenticated, !session.accessExpired else {
+            uiTestAuthenticationResumeFixtureActivation.deactivate()
+            return false
+        }
+        return true
     }
 }
 #endif

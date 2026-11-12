@@ -3799,16 +3799,8 @@ nonisolated enum BackendAuthClient {
         persistClientToken: Bool
     ) -> Bool {
         #if DEBUG
-        let processArguments = ProcessInfo.processInfo.arguments
-        let processEnvironment = ProcessInfo.processInfo.environment
-        let automationOverride = BackendAuthDebugSessionPolicy.automationSessionOverride(
-            arguments: processArguments,
-            environment: processEnvironment
-        )
-        let shouldPersistIdentity = BackendAuthDebugSessionPolicy.shouldPersistSessionBootstrapIdentity(
-            arguments: processArguments,
-            environment: processEnvironment
-        )
+        let automationOverride = currentAutomationSessionOverride()
+        let shouldPersistIdentity = automationOverride == nil
         #endif
         return authSessionStateQueue.sync {
             guard sessionBootstrapIdentityCommitIsAllowed(
@@ -5621,9 +5613,10 @@ nonisolated enum BackendAuthClient {
 
 #if DEBUG
     private static func currentAutomationSessionOverride() -> BackendAuthDebugSessionPolicy.AutomationSessionOverride? {
-        BackendAuthDebugSessionPolicy.automationSessionOverride(
+        BackendAuthDebugSessionPolicy.resolvedAutomationSessionOverride(
             arguments: ProcessInfo.processInfo.arguments,
-            environment: ProcessInfo.processInfo.environment
+            environment: ProcessInfo.processInfo.environment,
+            isResumeFixtureActivated: uiTestAuthenticationResumeFixtureActivation.isActivated
         )
     }
 #endif

@@ -187,4 +187,91 @@ final class ThemWorkspaceNavigationCommandTests: XCTestCase {
             return XCTFail("Expected a live access token to open Studio immediately.")
         }
     }
+
+    func testMagicMomentWaitsForAuthenticationBeforeStartingWork() {
+        XCTAssertEqual(
+            ThemMagicMomentOnboardingPolicy.startDecision(
+                workspaceAccessDecision: .requireAccount
+            ),
+            .presentAccount
+        )
+        XCTAssertEqual(
+            ThemMagicMomentOnboardingPolicy.startDecision(
+                workspaceAccessDecision: .refreshPersistedSession
+            ),
+            .restorePersistedSession
+        )
+        XCTAssertEqual(
+            ThemMagicMomentOnboardingPolicy.startDecision(
+                workspaceAccessDecision: .openWorkspace
+            ),
+            .proceed
+        )
+    }
+
+    func testMagicMomentConsumesCapturedPageIntentExactlyOnce() {
+        let expected = ThemMagicMomentOnboardingPolicy.PendingIntent.page(
+            name: " Ava ",
+            sceneSeed: "A woman finds a blue key under a motel door."
+        )
+        var pendingIntent: ThemMagicMomentOnboardingPolicy.PendingIntent? = expected
+
+        XCTAssertEqual(
+            ThemMagicMomentOnboardingPolicy.takePendingIntent(&pendingIntent),
+            expected,
+            "Authentication resume must preserve the exact name and scene captured before sign-in."
+        )
+        XCTAssertNil(pendingIntent)
+        XCTAssertNil(
+            ThemMagicMomentOnboardingPolicy.takePendingIntent(&pendingIntent),
+            "A late or duplicate authentication callback must not replay the page intent."
+        )
+    }
+
+    func testMagicMomentConsumesCapturedVoiceIntentExactlyOnce() {
+        let expected = ThemMagicMomentOnboardingPolicy.PendingIntent.voice(name: "Ava")
+        var pendingIntent: ThemMagicMomentOnboardingPolicy.PendingIntent? = expected
+
+        XCTAssertEqual(ThemMagicMomentOnboardingPolicy.takePendingIntent(&pendingIntent), expected)
+        XCTAssertNil(ThemMagicMomentOnboardingPolicy.takePendingIntent(&pendingIntent))
+    }
+
+    func testMagicMomentAccountDismissalCancelsPendingIntent() {
+        var pendingIntent: ThemMagicMomentOnboardingPolicy.PendingIntent? = .page(
+            name: "Ava",
+            sceneSeed: "Keep this draft visible."
+        )
+
+        ThemMagicMomentOnboardingPolicy.cancelPendingIntent(&pendingIntent)
+
+        XCTAssertNil(pendingIntent)
+        XCTAssertNil(
+            ThemMagicMomentOnboardingPolicy.takePendingIntent(&pendingIntent),
+            "A late authentication completion must not resume after account dismissal."
+        )
+    }
+
+    func testMagicMomentSuccessfulRestoreReconcilesAccountBeforeResume() {
+        var events: [String] = []
+
+        ThemMagicMomentOnboardingPolicy.reconcileThenResume(
+            reconcileAccountSession: { events.append("reconcile") },
+            resumePendingIntent: { events.append("resume") }
+        )
+
+        XCTAssertEqual(events, ["reconcile", "resume"])
+    }
+
+    func testMagicMomentDismissalWinsRaceWithLateAuthenticationCallback() {
+        var pendingIntent: ThemMagicMomentOnboardingPolicy.PendingIntent? = .voice(name: "Ava")
+        var starts = 0
+
+        ThemMagicMomentOnboardingPolicy.cancelPendingIntent(&pendingIntent)
+        if ThemMagicMomentOnboardingPolicy.takePendingIntent(&pendingIntent) != nil {
+            starts += 1
+        }
+
+        XCTAssertEqual(starts, 0)
+        XCTAssertNil(pendingIntent)
+    }
 }
