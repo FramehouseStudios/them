@@ -5159,6 +5159,66 @@ final class V1SmokeUITests: XCTestCase {
     }
 
     @MainActor
+    func test_stale_custody_retry_remains_unconfirmed_after_relaunch() async throws {
+        let baseURL = try XCTUnwrap(URL(string: "http://127.0.0.1:31337"))
+        guard await backendRestoreContractIsAvailable(baseURL: baseURL) else {
+            throw XCTSkip("Isolated authenticated backend unavailable")
+        }
+        let fixture = try await seedBackendRestoreContractFixture(baseURL: baseURL)
+        var environment = fixture.appLaunchEnvironment
+        environment["THEM_UITEST_CUSTODY_PROJECT_ID"] = fixture.projectID
+        let headers = ["X-APP-TOKEN": environment["THEM_UITEST_APP_TOKEN"] ?? "them-dev",
+                       "X-Client-Token": environment["THEM_UITEST_CLIENT_TOKEN"] ?? "",
+                       "Authorization": "Bearer \(environment["THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN"] ?? "")"]
+        var app = launchApp(openStudio: true, custodyBackendFixture: true,
+            restoreProjectID: fixture.projectID, restoreVersionID: fixture.versionID,
+            restoreLoadToken: fixture.loadToken, launchEnvironment: environment)
+        defer { app.terminate() }
+        func reviewAndSelect() {
+            let review = app.buttons["studio.conflict.review-local-copies"]
+            XCTAssertTrue(review.waitForExistence(timeout: 45)); review.tap()
+            XCTAssertTrue(app.buttons["Preview local copy 1"].waitForExistence(timeout: 10))
+            XCTAssertTrue(app.buttons["Preview local copy 2"].exists)
+            app.buttons["Preview local copy 1"].tap()
+            XCTAssertTrue(app.buttons["Select Copy"].waitForExistence(timeout: 5))
+            app.buttons["Select Copy"].tap()
+        }
+        reviewAndSelect()
+        XCTAssertTrue(app.buttons["Save Copy"].waitForExistence(timeout: 5))
+        app.buttons["Save Copy"].tap()
+        let unconfirmed = app.alerts["Action not confirmed"]
+        XCTAssertTrue(unconfirmed.waitForExistence(timeout: 30))
+        unconfirmed.buttons["OK"].tap()
+        app.terminate()
+        let competing = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects/\(fixture.projectID)/version",
+            method: "POST", headers: headers, body: ["draft": "INT. NEW HEAD - DAY\n\nAnother writer.",
+                "phase": "scene_draft", "source": "ui_test_competing", "base_version_id": fixture.versionID,
+                "conflict_strategy": "reject_if_stale", "client_request_id": "competing-\(UUID().uuidString.lowercased())"])
+        try assertHTTP(competing, context: "advance server head")
+        let competingID = stringValue(competing.payload["version_id"])
+        XCTAssertFalse(competingID.isEmpty)
+        for _ in 0..<2 {
+            app = launchApp(openStudio: true, resetState: false, launchEnvironment: environment)
+            reviewAndSelect()
+            let retry = app.buttons["Retry Original Save"]
+            XCTAssertTrue(retry.waitForExistence(timeout: 5)); retry.tap()
+            let stillUnconfirmed = app.alerts["Action not confirmed"]
+            XCTAssertTrue(stillUnconfirmed.waitForExistence(timeout: 30), "A stale original request remains unconfirmed.")
+            stillUnconfirmed.buttons["OK"].tap()
+            app.terminate()
+        }
+        let read = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects/\(fixture.projectID)",
+            method: "GET", headers: headers, body: nil,
+            queryItems: [URLQueryItem(name: "include_drafts", value: "1"), URLQueryItem(name: "version_limit", value: "24")])
+        try assertHTTP(read, context: "read after stale retries")
+        let envelope = read.payload["payload"] as? [String: Any] ?? read.payload
+        let project = envelope["project"] as? [String: Any] ?? envelope
+        XCTAssertEqual(stringValue(project["active_version_id"]), competingID)
+        let versions = project["versions"] as? [[String: Any]] ?? []
+        XCTAssertFalse(versions.contains { stringValue($0["draft"]).contains("FIRST HELD BACKEND COPY") })
+    }
+
+    @MainActor
     func test_superseded_custody_save_keeps_copies_and_allows_fresh_choice() async throws {
         let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_SCREENPLAY_SAVE_BACKEND_PORT"] ?? "") ?? 31337
         let baseURL = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)"))
