@@ -1,5 +1,7 @@
 # Unfinished onboarding input survives account hydration — 2026-11-12
 
+**Follow-up:** [The capture-handoff proof](onboarding-capture-handoff-proof-2026-11-12.md) now records the subsequent four real storage failures and their focused/native-UI repair. Historical “not yet fixed” statements below describe their earlier checkpoint.
+
 **VERIFIED:** source fix `1a96f142e039436010e0d3b05e1d2f928ddb61a8`; preserving CI merge `71693e0ad4b379cbf248a325a7457b7f95d6ceba`. Neither is a main merge or deployment. This supersedes the named-account/held-login uncertainty in the earlier onboarding checkpoint; it does not establish the complete physical-phone journey.
 
 ## Root cause and connected fix

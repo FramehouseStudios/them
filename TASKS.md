@@ -8,36 +8,37 @@
 ### Current checkpoint — T-1419 / T-1432 / T-1433 (2026-11-12)
 
 - **Owner:** Codex (Jarvis); actual bounded work by Zora (capture fix), Einstein
-  (failure diagnostics), Luna (hosted artifact investigation). Not human review.
-- **Branch:** `codex/T-1419-onboarding-action-owner`; hydration fix1a96f142 is
-  published on existing custody backup73ed8393, all original histories retained.
-  CI preserving merge0d5ef227 leaves every product tree exact. Private6d4ba7be
-  adds compileable custody regressions/session-epoch input; not a capture fix.
-- **Fixed/proven:** late named-account hydration no longer hides unfinished B.
-  Signed full units1603/0/0, causal held-login0/1/0→1/0/0, Mac build0, D009five0.
-  Earlier four teardown crashes/three setup failures remain documented. These
-  source results predate the new1433 characterization and are not a new full run.
-- **Next root bug:** intent-only login reservation revokes anonymous capture;
-  actual auth while A is in-flight can discard pending B. Zora is preparing a
-  sealed pre-auth drain with auth-epoch/descriptor isolation. Six real-FS cases
-  ran on erased owned81F:10 passed/4 failed/0 skipped, actual exit65. No
-  known-account migration, automatic restore or paid/model/backend call.
-- **GitHub:** original997f68eb60f ALL3green(run43244758406): backend3042/0/5,
-  units1566executed/0fail(no aggregate skip clause), V140/0/36, writer/recovery
-  controllers pass, voice1executed/0fail, Mac pass. This does not clear earlier
-  original987's To Page red or the missing1267 original landing path.
-  Original964 normally advancedca→831de836 with exit70-only metadata collection;
-  fresh run43260656345 running. Exact original+combined fake contracts47/0/0;
-  no native rerun for diagnostics. Original host cause unknown; keep979held.
-- **Publication:** strongest proven backup is73ed; private1433 baseline/fix must
-  be proven before advancement. Private1422/1424 still await earlier red/missing
-  path, not997alone. Main78b8c94f/review protections unchanged; no replacement,
-  squash, forced history, auto-merge, main/deployment or secret change.
-- **Human-only:** Xcode account sign-in pending; physical phone/intended backend
-  and live journey unproven. No fresh paid authorization; production hold stays.
-- **Evidence/files/retained failures:**
-  `docs/onboarding-name-hydration-proof-2026-11-12.md`; graph
-  `docs/integration-frontier-2026-11-12.md`; human device steps
+  (diagnostics/adversarial source check), Luna (hosted artifact investigation).
+  These roles are not human reviewers.
+- **Branch:** `codex/T-1419-onboarding-action-owner`; current source1c972214,
+  preserving tests-firstd5d9, fixd0fdb9, hydration1a96 and CI831de836 histories.
+  Published custody backup is73ed8393; next advance awaits current proof record.
+- **Fixed/proven:** late hydration no longer hides B; login reservation retains
+  anonymous capture; real auth/session boundary seals the pending pre-auth B
+  drain; only verified CAS advances it. Known-account C is not captured, old
+  receipts cannot grant a new UI lease/Saved, and session ABA revokes ownership.
+- **Current proof:** focused signed causal10/4/0→15/0/0; original14 bodies exact,
+  one new capacity negative. Real local held-login UI1/0/0 plus exact protected B
+  after termination, independent hydration and zero unexpected/provider writes.
+  Mac scaffold build passed; D009five0 vs fetched published73ed. Prior full1603/0/0
+  is historical; no new full
+  unit/backend suite claim. Backend3121/0/5 applies to unchanged core components.
+- **Next small bug:** oversized A can drop a distinct smaller queued B before
+  I/O. B remains visible with warning. Separate characterization/fix preparation;
+  do not weaken occupied/unconfirmed isolation or capture known-account edits.
+- **GitHub:** original997f68eb60f all three jobs green(run43244758406), with
+  actual V140/0/36 and backend3042/0/5. Original964 advanced normally to831de836
+  for exit70-only evidence; fresh run43260656345 pending at last observation.
+  Fake contracts47/0/0, no host-cause repair claim. Keep979held until fresh964
+  green and proper review. Main78b8c94f/protections unchanged; review deferred.
+- **Integration limits:** original987 To Page red and missing1267 original path
+  remain separate. Private1422/1424 stay unpublished; no wholesale retarget,
+  replacement, squash/force, main merge, deployment or secret changes.
+- **Human-only:** Xcode account sign-in, physical phone/intended backend/live
+  journey remain pending. No fresh paid authorization; production hold stays.
+- **Evidence/exact files/retained failures:**
+  `docs/onboarding-capture-handoff-proof-2026-11-12.md`; graph
+  `docs/integration-frontier-2026-11-12.md`; device steps
   `docs/physical-iphone-preparation-2026-11-12.md`. Older entries are history.
 
 ### T-1202 — Restore pending manual saves and exact queued recovery
