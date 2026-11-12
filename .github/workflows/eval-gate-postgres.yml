@@ -43,7 +43,7 @@ jobs:
   eval-gate-postgres:
     name: eval:gate against Postgres
     needs: live-approval
-    if: github.event_name == 'workflow_dispatch' && github.run_attempt == 1 && inputs.live_approved == true
+    if: github.event_name == 'workflow_dispatch' && inputs.live_approved == true
     runs-on: ubuntu-latest
     timeout-minutes: 30
     services:
@@ -63,18 +63,28 @@ jobs:
     env:
       DATABASE_URL: postgres://io_them:io_them_test@localhost:5432/io_them
       OPENAI_API_KEY: ""
+      LIVE_APPROVED: ${{ github.event_name == 'workflow_dispatch' && github.run_attempt == 1 && inputs.live_approved == true && '1' || '0' }}
       KNOWLEDGE_RAG_WARMUP_ON_BOOT: "0"
       APP_TOKEN: ${{ secrets.APP_TOKEN || 'them-eval-gate-app-token' }}
       JWT_SECRET: ${{ secrets.JWT_SECRET || 'them-eval-gate-jwt-secret' }}
       RUN_QUALITY_GATE: 1
       RUN_SERVER: 1
     steps:
+      # A job-only retry can reuse its successful approval dependency. Fail
+      # inside this job too; skipping it must not look like live coverage.
+      - name: Validate fresh live dispatch
+        run: |
+          if [[ "${LIVE_APPROVED}" != "1" ]]; then
+            echo "::error::Dispatch a new explicitly approved Postgres run; no live coverage ran."
+            exit 1
+          fi
+
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Validate required secrets
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_KEY: ${{ env.LIVE_APPROVED == '1' && secrets.OPENAI_API_KEY || '' }}
         run: |
           missing=()
           invalid=()
@@ -151,7 +161,7 @@ jobs:
 
       - name: Run eval gate against Postgres
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_KEY: ${{ env.LIVE_APPROVED == '1' && secrets.OPENAI_API_KEY || '' }}
         run: bash ./scripts/quality_gate.sh
 
       - name: Capture gate evidence

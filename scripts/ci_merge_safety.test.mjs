@@ -186,13 +186,25 @@ test("[ci-merge-safety] optional Postgres live gate fails unapproved dispatch an
   try {
     for (const event of ["push", "schedule", "workflow_dispatch"])
       for (const live_approved of [false, true]) for (const run_attempt of ["1", "2"]) {
-        const context = { github: { event_name: event, run_attempt }, inputs: { live_approved } };
-        const allowed = event === "workflow_dispatch" && run_attempt === "1" && live_approved;
-        assert.equal(Boolean(evaluate(`\${{ ${guard} }}`, context)), allowed);
+        const context = { github: { event_name: event, run_attempt }, inputs: { live_approved },
+          secrets: { OPENAI_API_KEY: fakeKey } };
+        const eligible = event === "workflow_dispatch" && live_approved;
+        const allowed = eligible && run_attempt === "1";
+        assert.equal(Boolean(evaluate(`\${{ ${guard} }}`, context)), eligible);
         const approvalEnv = environment(flatEnv(step("Validate live approval", postgresGate), 8), context);
         const result = spawnSync("bash", ["-c", stepRun("Validate live approval", postgresGate)],
           { encoding: "utf8", cwd: owned.root, env: { ...owned.env, ...approvalEnv } });
         assert.equal(result.status, allowed ? 0 : 1, result.stderr || result.stdout);
+        // A job-only retry may retain an earlier successful needs result, so
+        // execute the paid job's own fresh-dispatch check independently too.
+        const jobEnv = environment(flatEnv(pgJob, 4), context);
+        const fresh = spawnSync("bash", ["-c", stepRun("Validate fresh live dispatch", pgJob)],
+          { encoding: "utf8", cwd: owned.root, env: { ...owned.env, ...jobEnv } });
+        assert.equal(fresh.status, allowed ? 0 : 1, fresh.stderr || fresh.stdout);
+        for (const name of ["Validate required secrets", "Run eval gate against Postgres"]) {
+          const env = environment(flatEnv(step(name, pgJob), 8), { ...context, env: jobEnv });
+          assert.equal(env.OPENAI_API_KEY, allowed ? fakeKey : "");
+        }
       }
     assert.equal(evaluate(flatEnv(pgJob, 4).KNOWLEDGE_RAG_WARMUP_ON_BOOT, {}), "0");
     assert.equal(evaluate(flatEnv(pgJob, 4).OPENAI_API_KEY, {}), "");
