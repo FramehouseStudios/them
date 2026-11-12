@@ -3513,10 +3513,15 @@ final class V1SmokeUITests: XCTestCase {
         maxSwipes: Int
     ) -> Bool {
         func isFullyVisible() -> Bool {
-            target.exists &&
-                target.isHittable &&
-                target.frame.minY >= drawer.frame.minY + 8 &&
-                target.frame.maxY <= drawer.frame.maxY - 24
+            guard target.exists else { return false }
+            let frame = target.frame
+            let viewport = drawer.frame
+            // Offscreen lazy controls can have no activation point. Reveal
+            // their frame before asking XCTest to resolve hittability.
+            guard !frame.isEmpty,
+                  frame.minY >= viewport.minY + 8,
+                  frame.maxY <= viewport.maxY - 24 else { return false }
+            return target.isHittable
         }
 
         if isFullyVisible() {
