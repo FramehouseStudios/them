@@ -322,22 +322,31 @@ test("failed capacity admission publishes no phantom pending entry and can retry
   assert.equal(nextCalls, 1);
 });
 
-test("an evicted process cache entry still completes its durable pending result", async () => {
-  resetState();
-  const sb = stubScaleBackplane();
-  const guard = createTalkIdempotencyGuard({
-    isSpeculativePrepareRequest: () => false, talkIdempotencyEnabled: true,
-    normalizeIdempotencyKey: value => value, resolveTalkSessionKey: () => "eviction-proof",
-    scaleBackplane: sb, recordTalkMetric: () => {}, talkIdempotencyTtlMs: 60000,
-    talkIdempotencyMaxEntries: 1, logger: { log() {} },
-  });
-  const req = stubRequest({ headers: { "Idempotency-Key": "eviction-proof" } });
-  await guard(req, stubResponse(), () => {});
-  __test.reset();
-  const helper = createTalkIdempotencyHelpers({ scaleBackplane: sb, talkIdempotencyEnabled: true,
-    talkIdempotencyTtlMs: 60000, talkIdempotencyMaxEntries: 1 });
-  await helper.commitSuccess(req, { body: Buffer.from('accepted bytes') });
-  assert.equal((await sb.getIdempotency(req.talkIdempotency.cacheKey)).status, 'completed');
+test("an evicted process cache entry still completes its durable pending result without local caching", async t => {
+  const f = await pendingRetirementFixture(t);
+  const { req } = await f.admit();
+  const key = req.talkIdempotency.cacheKey;
+  const body = Buffer.from([0, 255, 128, 42]);
+  __test.reset(); // Existing cache-loss injection: the durable pending receipt is untouched.
+  await f.helpers.commitSuccess(req, { statusCode: 207,
+    headers: { "Content-Type": "application/octet-stream", "X-Turn-Id": "evicted-turn" }, body });
+  const cachedBeforeRecovery = __test.peekIdempotencyCache().has(key);
+  const durable = await f.backplane.getIdempotency(key);
+  const retry = stubRequest({ authUser: { id: "retirement-writer" },
+    headers: { "Idempotency-Key": "owned-turn" } });
+  const response = stubResponse();
+  await f.guard(retry, response, () => assert.fail("durable completion must replay without generation"));
+  t.diagnostic(JSON.stringify({ cachedBeforeRecovery, durableStatus: durable?.status,
+    replayStatus: response._recorded.statusCode }));
+  assert.equal(cachedBeforeRecovery, false);
+  assert.equal(durable.status, "completed");
+  assert.equal(durable.admissionId, req.talkIdempotency.pendingRecord.admissionId);
+  assert.deepEqual(durable.body, body);
+  assert.equal(response._recorded.statusCode, 207);
+  assert.equal(response._recorded.headers["x-idempotency-replay"], "1");
+  assert.equal(response._recorded.headers["x-turn-id"], "evicted-turn");
+  assert.deepEqual(response._recorded.body, body);
+  assert.equal(__test.peekIdempotencyCache().get(key).status, "completed", "initial hydration still owns an empty slot");
 });
 
 test("idempotency guard cache miss calls next()", async () => {
@@ -1735,4 +1744,97 @@ test("owned pending retirement: delayed admission ACK cannot publish over a newe
   assert.equal(res._recorded.statusCode, 409);
   assert.equal(__test.peekIdempotencyCache().get(key), current.pending);
   assert.equal((await f.backplane.getIdempotency(key)).admissionId, current.pending.admissionId);
+});
+
+
+test("owned pending publication: delayed prepared ACK leaves an absent local owner empty and durably recoverable", async t => {
+  const realNow = Date.now;
+  let clock = realNow();
+  Date.now = () => clock;
+  t.after(() => { Date.now = realNow; });
+  const committed = heldReply();
+  const acknowledge = heldReply();
+  const f = await pendingRetirementFixture(t, adapter => ({ ...adapter,
+    async compareAndSwap(args) {
+      const result = await adapter.compareAndSwap(args);
+      if (result && args.value?.status === "prepared") {
+        committed.resolve(); await acknowledge.promise;
+      }
+      return result;
+    },
+  }));
+  const { req } = await f.admit();
+  const key = req.talkIdempotency.cacheKey;
+  const body = Buffer.from([0, 255, 128, 42]);
+  let settlements = 0;
+  req.clementine = {
+    buildWalletSettlement: settlementKey => ({ settlementKey, ownerId: "retirement-writer", lane: "page",
+      settledMilliturns: 100, actualOutputTokens: 100 }),
+    async settleWalletDurably() {
+      settlements++;
+      assert.equal((await f.backplane.getIdempotency(key)).status, "prepared");
+    },
+  };
+  const committing = f.helpers.commitSuccess(req, { statusCode: 207,
+    headers: { "Content-Type": "application/octet-stream", "X-Turn-Id": "absent-owner-turn" }, body });
+  await committed.promise;
+  clock += 60_001;
+  f.helpers.pruneCache(clock); // Pending's local lease expires while its prepared receipt remains unsettled.
+  assert.equal(__test.peekIdempotencyCache().has(key), false);
+  const prepared = await f.backplane.getIdempotency(key);
+  assert.equal(prepared.status, "prepared");
+  assert.equal(prepared.expiresAt, 0);
+  assert.equal(prepared.admissionId, req.talkIdempotency.pendingRecord.admissionId);
+  acknowledge.resolve();
+  await committing;
+  const cachedBeforeRecovery = __test.peekIdempotencyCache().has(key);
+  const durable = await f.backplane.getIdempotency(key);
+  const retry = stubRequest({ authUser: { id: "retirement-writer" },
+    headers: { "Idempotency-Key": "owned-turn" } });
+  const response = stubResponse();
+  await f.guard(retry, response, () => assert.fail("accepted bytes must be recovered without generation"));
+  t.diagnostic(JSON.stringify({ cachedBeforeRecovery, durableStatus: durable.status,
+    replayStatus: response._recorded.statusCode, settlements }));
+  assert.equal(cachedBeforeRecovery, false);
+  assert.equal(durable.status, "completed");
+  assert.equal(durable.admissionId, prepared.admissionId);
+  assert.deepEqual(durable.body, body);
+  assert.equal(response._recorded.statusCode, 207);
+  assert.equal(response._recorded.headers["x-idempotency-replay"], "1");
+  assert.equal(response._recorded.headers["x-turn-id"], "absent-owner-turn");
+  assert.deepEqual(response._recorded.body, body);
+  assert.equal(settlements, 1);
+});
+
+test("owned pending publication: legacy prepared receipt hydrates and reconciles without an admission ID", async t => {
+  const f = await pendingRetirementFixture(t);
+  const key = "user:retirement-writer|owned-turn";
+  const body = Buffer.from([255, 0, 128, 42]);
+  const record = { status: "prepared", statusCode: 207,
+    headers: { "content-type": "application/octet-stream", "x-turn-id": "legacy-turn" }, body,
+    expiresAt: 0, settlement: { settlementKey: key, ownerId: "retirement-writer", lane: "page",
+      settledMilliturns: 100, actualOutputTokens: 100 } };
+  await f.backplane.setIdempotency(key, record);
+  let settlements = 0;
+  const guard = createTalkIdempotencyGuard({ ...f.guardConfig,
+    async reconcilePreparedIdempotency(_req, settlement) {
+      settlements++;
+      assert.deepEqual(settlement, record.settlement);
+    },
+  });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const req = stubRequest({ authUser: { id: "retirement-writer" },
+      headers: { "Idempotency-Key": "owned-turn" } });
+    const response = stubResponse();
+    await guard(req, response, () => assert.fail("legacy accepted bytes must not regenerate"));
+    assert.equal(response._recorded.statusCode, 207);
+    assert.equal(response._recorded.headers["x-idempotency-replay"], "1");
+    assert.equal(response._recorded.headers["x-turn-id"], "legacy-turn");
+    assert.deepEqual(response._recorded.body, body);
+  }
+  const durable = await f.backplane.getIdempotency(key);
+  assert.equal(durable.status, "completed");
+  assert.equal(durable.admissionId, undefined);
+  assert.equal(__test.peekIdempotencyCache().get(key).status, "completed");
+  assert.equal(settlements, 1);
 });

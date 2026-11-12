@@ -147,7 +147,7 @@ async function persistTalkIdempotencyTransition(
 
 function publishTalkIdempotencyTransition(cacheKey, expected, next) {
   const current = talkIdempotencyCache.get(cacheKey);
-  if (current && current !== expected) return;
+  if (current !== expected) return;
   talkIdempotencyCache.set(cacheKey, next);
 }
 
