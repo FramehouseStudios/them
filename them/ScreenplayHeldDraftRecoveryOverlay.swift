@@ -45,20 +45,37 @@ struct ScreenplayHeldDraftRecoveryOverlay: View {
                 }
             }
         }
+        .background(alignment: .topLeading) {
+            StudioUITestInputDiagnosticsView(identifier: "studio.debug.held-preview.trace")
+                .frame(width: 1, height: 1).allowsHitTesting(false)
+        }
         .sheet(item: $reviewedToken) { token in
             ScreenplayHeldDraftRecoveryReview(viewModel: viewModel, token: token)
+                .background(alignment: .topLeading) {
+                    StudioUITestInputDiagnosticsView(identifier: "studio.debug.held-preview.sheet.trace")
+                        .frame(width: 1, height: 1).allowsHitTesting(false)
+                }
+                .onAppear { StudioUITestInputDiagnostics.heldPreview(.appeared, owner: viewModel) }
         }
         .task(id: viewModel.heldDraftRecovery?.id) {
             hasCustodyCopies = !(await viewModel.custodyRowsForReview()).isEmpty
         }
-        .onChange(of: viewModel.selectedProjectID) { _, _ in reviewedToken = nil }
-        .onChange(of: bridge.draftOrigin.documentID) { _, _ in reviewedToken = nil }
+        .onChange(of: viewModel.selectedProjectID) { _, _ in
+            if reviewedToken != nil { StudioUITestInputDiagnostics.heldPreview(.projectInvalidated, owner: viewModel) }
+            reviewedToken = nil
+        }
+        .onChange(of: bridge.draftOrigin.documentID) { _, _ in
+            if reviewedToken != nil { StudioUITestInputDiagnostics.heldPreview(.documentInvalidated, owner: viewModel) }
+            reviewedToken = nil
+        }
         .onReceive(NotificationCenter.default.publisher(for: .themBackendIdentityPartitionChanged)) { _ in
+            if reviewedToken != nil { StudioUITestInputDiagnostics.heldPreview(.identityInvalidated, owner: viewModel) }
             reviewedToken = nil
         }
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
             guard let token = reviewedToken else { return }
             if viewModel.heldDraftRecoveryForReview(token) == nil {
+                StudioUITestInputDiagnostics.heldPreview(.contextInvalidated, owner: viewModel)
                 reviewedToken = nil
             }
         }
@@ -140,7 +157,13 @@ struct ScreenplayHeldDraftRecoveryOverlay: View {
                     prominence: viewModel.heldDraftRecoveryIsLoadServerCopy ? .regular : .prominent,
                     tint: Color.herStudioAccent, minimumLabelHeight: 44
                 ) {
-                    Task { reviewedToken = await viewModel.confirmedHeldDraftRecoveryForReview() }
+                    StudioUITestInputDiagnostics.heldPreview(.callback, owner: viewModel)
+                    Task {
+                        let token = await viewModel.confirmedHeldDraftRecoveryForReview()
+                        StudioUITestInputDiagnostics.heldPreview(
+                            token == nil ? .tokenRejected : .tokenConfirmed, owner: viewModel)
+                        reviewedToken = token
+                    }
                 }
                 .accessibilityIdentifier("studio.held-draft-recovery.preview")
                 NumberedChoiceActionButton(

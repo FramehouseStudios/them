@@ -1,5 +1,10 @@
 import SwiftUI
 
+enum StudioUITestHeldPreviewPhase: String {
+    case callback, tokenConfirmed, tokenRejected, appeared
+    case projectInvalidated, documentInvalidated, identityInvalidated, contextInvalidated
+}
+
 #if DEBUG && canImport(UIKit)
 import UIKit
 import ObjectiveC
@@ -34,6 +39,12 @@ enum StudioUITestInputDiagnostics {
             original.wrappedValue = new
             record(["kind": "autosave_binding", "owner": ownerID, "old": old, "new": original.wrappedValue, "requested": new])
         })
+    }
+
+    static func heldPreview(_ phase: StudioUITestHeldPreviewPhase, owner: AnyObject) {
+        guard requested else { return }
+        record(["kind": "held_preview", "phase": phase.rawValue,
+                "owner": ObjectIdentifier(owner).hashValue])
     }
 
     fileprivate static func capture(_ event: UIEvent) {
@@ -92,11 +103,12 @@ private final class StudioInputTraceView: UIView {
 }
 
 struct StudioUITestInputDiagnosticsView: UIViewRepresentable {
+    var identifier = "studio.debug.input.trace"
     func makeUIView(context: Context) -> UIView {
         let view = StudioInputTraceView()
         view.isUserInteractionEnabled = false
         view.isAccessibilityElement = StudioUITestInputDiagnostics.requested
-        view.accessibilityIdentifier = "studio.debug.input.trace"
+        view.accessibilityIdentifier = identifier
         view.accessibilityLabel = "Studio input delivery diagnostics"
         return view
     }
@@ -106,9 +118,11 @@ struct StudioUITestInputDiagnosticsView: UIViewRepresentable {
 @MainActor
 enum StudioUITestInputDiagnostics {
     static func installIfRequested() {}
+    static func heldPreview(_ phase: StudioUITestHeldPreviewPhase, owner: AnyObject) {}
     static func binding(_ original: Binding<Bool>, owner: AnyObject) -> Binding<Bool> { original }
 }
 struct StudioUITestInputDiagnosticsView: View {
+    var identifier = "studio.debug.input.trace"
     var body: some View { EmptyView() }
 }
 #endif

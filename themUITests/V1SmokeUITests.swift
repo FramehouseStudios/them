@@ -3227,7 +3227,8 @@ final class V1SmokeUITests: XCTestCase {
         let app = launchApp(
             openStudio: true,
             structuralSeed: true,
-            heldDraftRecoveryFixture: true
+            heldDraftRecoveryFixture: true,
+            launchEnvironment: ["THEM_UITEST_TRACE_INPUT": "1"]
         )
         defer { app.terminate() }
 
@@ -3260,7 +3261,18 @@ final class V1SmokeUITests: XCTestCase {
         let preview = app.buttons["studio.held-draft-recovery.preview"]
         preview.tap()
         let review = element(identifier: "studio.held-draft-recovery.review", in: app)
-        XCTAssertTrue(review.waitForExistence(timeout: 5), "Exact-copy preview did not open.")
+        let appeared = review.waitForExistence(timeout: 5)
+        let sheetTrace = element(identifier: "studio.debug.held-preview.sheet.trace", in: app)
+        let inputTrace = sheetTrace.exists ? sheetTrace : element(identifier: "studio.debug.held-preview.trace", in: app)
+        let traceValue = inputTrace.exists ? inputTrace.value as? String : nil
+        let traceAttachment = XCTAttachment(string: traceValue ?? "Held preview trace unavailable")
+        traceAttachment.name = "Held preview callback and presentation"
+        traceAttachment.lifetime = .keepAlways
+        add(traceAttachment)
+        guard appeared else {
+            XCTFail("Exact-copy preview did not open.")
+            return
+        }
         XCTAssertTrue(staticText(containing: "THE EXACT HELD UI FIXTURE COPY", in: app).exists)
         XCTAssertEqual(
             review.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "Export")).count,
@@ -4991,7 +5003,12 @@ final class V1SmokeUITests: XCTestCase {
                             heldDraftRecoveryFixture: true, custodyReviewFixture: true)
         defer { app.terminate() }
         let reviewButton = app.buttons["studio.conflict.review-local-copies"]
-        XCTAssertTrue(reviewButton.waitForExistence(timeout: 15))
+        guard reviewButton.waitForExistence(timeout: 15),
+              waitForStableFrame(of: reviewButton, timeout: 5),
+              waitForHittability(of: reviewButton, timeout: 5) else {
+            XCTFail("Review Local Copies did not settle into a hittable position.")
+            return
+        }
         reviewButton.tap()
         let first = app.buttons["Preview local copy 1"]
         XCTAssertTrue(first.waitForExistence(timeout: 10))
