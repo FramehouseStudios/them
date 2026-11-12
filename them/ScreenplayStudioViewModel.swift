@@ -7333,9 +7333,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
         if !allowOverwriteDirtyLocalDraft,
            normalizedProjectID == loadedDraftProjectID,
-           (normalizedServerVersionID.isEmpty || latestVersionID.isEmpty || normalizedServerVersionID == latestVersionID),
-           ScreenplayRemoteDraftConflictPolicy.isWhitespaceOnlyDifference(localDraft: fountainDraft, serverDraft: draft) {
-            // Without a distinct known version, keep the exact page and its base.
+           ScreenplayRemoteDraftConflictPolicy.shouldPreserveDraftDuringRefresh(
+               localDraft: fountainDraft, serverDraft: draft,
+               localVersionId: latestVersionID, serverVersionId: normalizedServerVersionID) {
+            // A background observation needs version authority to replace this page.
             return
         }
 
