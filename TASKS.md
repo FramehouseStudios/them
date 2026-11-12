@@ -5,38 +5,17 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
-### Current checkpoint — T-1419 / T-1432 / T-1433 (2026-11-12)
+### Current checkpoint — T-1434 / T-1435 / T-1437 (2026-11-12)
 
-- **Owner:** Codex (Jarvis), with actual bounded Zora implementation, Einstein
-  diagnostics/adversarial review and Luna artifact investigation. Not human review.
-- **Branch/source:** `codex/T-1419-onboarding-action-owner`, source3f134138;
-  original tests/fixes/private heads all preserved. Publication route is guarded
-  normal FF of existing custody backup; exact hash lives in proof/session report.
-  Unrelated node_modules cache link remains untracked and preserved.
-- **Fixed/proven:** late account hydration cannot hide edited B in the tested
-  flow; reservation retains anonymous capture, actual epoch/auth change seals
-  pre-auth input, verified CAS alone advances the drain, old receipts cannot
-  grant a new UI lease/Saved. Known-account C is excluded. A pre-I/O capacity
-  rejection now preserves a distinct strictly smaller queued B on original lineage.
-- **Proof:** hydration full1603/0/0 is historical; capture causal10/4/0→15/0/0,
-  local held-login UI1/0/0 plus exact protected B after termination. Capacity
-  follow-up16/1/0→17/0/0 on byte-identical case file; current Mac build0 and D009
-  five0 vs actual fetched102e7300. No unchanged UI/backend/full-unit reruns for
-  the capacity branch; wider integrated-main gates remain required.
-- **GitHub:** original997f68 all three jobs green(run43244758406). Original964
-  831de836 fresh43260656345 backend/D009/units/writer passed, V1 running last
-  observed, voice/Mac pending. No Quality-green claim. Original979 remains held.
-  Main78b8c94f and required genuine-review protections unchanged; review deferred.
-- **Next:** original987 To Page failure's root cause and missing1267 original
-  landing path; preserve original heads/follow-ups without wholesale retarget or
-  replacement. Private1422/1424 stay unpublished pending that earlier frontier.
-- **Limits/human:** no new paid calls; production hold remains. Xcode account,
-  connected phone/intended backend and actual speech/rewrite/restore/export
-  journey remain pending. Not every post-auth edit, failed I/O or same/larger
-  capacity case is guaranteed by the anonymous capture fix.
-- **Evidence/exact files:** `docs/onboarding-capture-handoff-proof-2026-11-12.md`;
-  frontier `docs/integration-frontier-2026-11-12.md`; human device steps
-  `docs/physical-iphone-preparation-2026-11-12.md`. Older entries are history.
+- **Owner:** Codex (Jarvis); actual bounded Atlas implementation, Luna hosted/native evidence and preserved904 reconciliation, Zora account-form investigation/implementation. Agent checks are not human approval.
+- **Branch/source:** `codex/T-1434-partner-page-trace`, runtime4581a31b; original8d and helpercf9886a7 preserved. Unrelated untracked node_modules link retained. Scoped normal publication only; no replacement PR/main merge.
+- **Fixed/proven:** unavailable Voice Pin no longer silently returns; exact current prompt is prepared once with Page/rewrite routing and no submit. Adjacent capability shrinks Screen1line. New opt-in filtered native trace confirms button→handler→resolved→composer and voicePin→page readback after one tap.
+- **Proof:** signed units 13/0/0 and unchanged-behavior UI 1/0/0 on erased task-owned81F; both immediate/final attachments readable. Correct macOS scaffold compile0; initial wrong Debug command65 at provisioning retained. Actual fetched8d D009 Screen−1/four0; no unchanged full-unit/backend rerun or paid call. Earlier unchanged8d UI 1/0/0 means original987 cause remains unproven.
+- **GitHub:** original964831 fresh43260656345 is RED: V1 26/2/9, units 633 executed / 0 failures, writer/backend/D009 pass; voice/Mac skipped. Original997f68 all three checks green. Original904909 stays remote unchanged; private preservingb2 has49/0/0 fake-shell contracts, no native claim. Main78b8c94f/protections unchanged; genuine review deferred.
+- **Graph:** all-state queries confirm no PR for1267/8ef or1238/17ab. 1267 is105commits/85files beyond986; preserve originals, do not retarget wholesale. Prior private1422/1424/1425 remain held.
+- **Next:** diagnose fresh964 lost-letter/inspector failures from retained native evidence and preserve original downstream fixes. Zora1437 privately extends existing raw-input custody for the real matching account/backend; anonymous exclusion and retention behavior stay unchanged, no automatic generation.
+- **Limits/human:** production held, no new paid calls. Physical signing/account, connected phone/reachable intended backend and actual speech/rewrite/save/offline/relaunch/external-export journey remain unproved. Latest Mac-unlock answer is not Apple-account or phone-connection confirmation.
+- **Evidence/files:** `docs/creative-partner-page-preparation-proof-2026-11-12.md`; `docs/integration-frontier-2026-11-12.md`; device steps `docs/physical-iphone-preparation-2026-11-12.md`. Older entries are history.
 
 ### T-1202 — Restore pending manual saves and exact queued recovery
 
