@@ -6,7 +6,7 @@ enum StudioUITestHeldPreviewPhase: String {
 }
 
 enum StudioUITestInspectorTabPhase: String {
-    case appeared, entered, applied, observed
+    case appeared, entered, applied, observed, routed
 }
 
 enum StudioUITestPartnerPagePhase: String {
@@ -72,7 +72,7 @@ enum StudioUITestInputDiagnostics {
         tab: ScreenplayStudioScreen.DirectionOneRightPanelTab, frame: CGRect
     ) {
         guard requested else { return }
-        record(["kind": "inspector_frame", "tab": tab.rawValue,
+        record(["kind": "inspector_frame", "space": "tabs", "tab": tab.rawValue,
                 "x": frame.minX, "y": frame.minY, "width": frame.width, "height": frame.height])
     }
 
