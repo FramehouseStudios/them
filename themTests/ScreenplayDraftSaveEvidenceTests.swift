@@ -180,11 +180,12 @@ final class ScreenplayDraftSaveEvidenceTests: XCTestCase {
 
     func testRetryAndRestartPreserveOriginalProvenance() async throws {
         let folder = temporaryFolder(); defer { try? FileManager.default.removeItem(at: folder) }
-        let queue = ScreenplayDraftSaveOutbox(storageDirectory: folder)
+        var queue: ScreenplayDraftSaveOutbox? = ScreenplayDraftSaveOutbox(storageDirectory: folder)
         let entry = entry()
-        try await queue.enqueue(entry)
-        try await queue.markInflight(id: entry.id)
-        try await queue.markRetryable(id: entry.id, error: "Local acknowledgement storage interrupted")
+        try await XCTUnwrap(queue).enqueue(entry)
+        try await XCTUnwrap(queue).markInflight(id: entry.id)
+        try await XCTUnwrap(queue).markRetryable(id: entry.id, error: "Local acknowledgement storage interrupted")
+        queue = nil // Release the original owner before simulating relaunch.
         let restarted = ScreenplayDraftSaveOutbox(storageDirectory: folder)
         let rows = try await restarted.entriesForTesting()
         XCTAssertEqual(rows.first?.deliveryOrigin, entry.deliveryOrigin)

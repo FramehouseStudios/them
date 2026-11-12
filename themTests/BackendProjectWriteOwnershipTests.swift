@@ -31,9 +31,9 @@ final class BackendProjectWriteOwnershipTests: XCTestCase {
         let backend = BackendAuthClient.resolvedBackendBaseURL()
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("InitialReceipt-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
-        let queue = ScreenplayDraftSaveOutbox(storageDirectory: directory.appendingPathComponent("queue"))
+        var queue: ScreenplayDraftSaveOutbox? = ScreenplayDraftSaveOutbox(storageDirectory: directory.appendingPathComponent("queue"))
         let exact = "\r\nINT. LAB - NIGHT\r\nCafe\u{0301}. \t"
-        let entry = try await queue.prepareInitialProject(ownerUserID: identity.userID, backendURL: backend,
+        let entry = try await XCTUnwrap(queue).prepareInitialProject(ownerUserID: identity.userID, backendURL: backend,
             documentID: "receipt-document", sourceProjectID: "", draft: exact, title: "Receipt",
             phase: "scene_draft", source: "studio_initial_seed")
         let reply = OfflineTalkOutbox(storageDirectory: directory.appendingPathComponent("reply"),
@@ -62,12 +62,13 @@ final class BackendProjectWriteOwnershipTests: XCTestCase {
             requestIdentityProvider: { _ in identity }, projectWriteAuthRefresher: { _ in .signedOut })
         do {
             _ = try await ScreenplayInitialProjectCreation.save(entry, owner: identity, localDraft: exact,
-                outbox: queue, api: api, liveReplyOutbox: reply)
+                outbox: try XCTUnwrap(queue), api: api, liveReplyOutbox: reply)
             XCTFail("A response for another request must not acknowledge the first draft.")
         } catch BackendMemoryAPIError.server(let status, let message) { XCTAssertEqual(status, 503, message) }
         catch { XCTFail("Unexpected error: \(error)") }
         XCTAssertEqual(observed.requests().filter { $0.url?.path == "/screenplay/projects/initialize" }.count, 1,
             "The mismatch must be observed on the actual initializer POST.")
+        queue = nil // A relaunch starts after the prior queue owner exits.
         let restored = ScreenplayDraftSaveOutbox(storageDirectory: directory.appendingPathComponent("queue"))
         let held = try await restored.pendingInitialProject(ownerUserID: identity.userID, backendURL: backend,
             documentID: "receipt-document", sourceProjectID: "")
