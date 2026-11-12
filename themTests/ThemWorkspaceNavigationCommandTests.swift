@@ -274,4 +274,128 @@ final class ThemWorkspaceNavigationCommandTests: XCTestCase {
         XCTAssertEqual(starts, 0)
         XCTAssertNil(pendingIntent)
     }
+
+    func testMagicMomentLateAccountCallbackCannotConsumeOrDismissReplacementAction() {
+        typealias Policy = ThemMagicMomentOnboardingPolicy
+        let first = Policy.PendingAction(intent: .page(name: "Ava", sceneSeed: "First scene"))
+        let replacement = Policy.PendingAction(intent: .voice(name: " Bea "))
+        var current: Policy.PendingAction? = first
+        XCTAssertTrue(Policy.cancelPendingAction(&current, actionID: first.id))
+        current = replacement
+        var events: [String] = []
+
+        Policy.reconcileThenResume(actionID: first.id, currentAction: { current },
+            reconcileAccountSession: { events.append("reconcile") },
+            resumePendingIntent: { events.append("resume") })
+
+        XCTAssertEqual(events, ["reconcile"], "A committed account change must reconcile even after its action was canceled.")
+        XCTAssertEqual(current?.id, replacement.id)
+        XCTAssertFalse(Policy.cancelPendingAction(&current, actionID: first.id),
+            "A delayed Done, binding update or dismissal from the old presenter must not cancel the replacement.")
+        XCTAssertEqual(Policy.takePendingAction(&current, actionID: replacement.id), replacement.intent)
+    }
+
+    func testMagicMomentIdenticalPayloadGetsFreshOwnerAndMatchingCallbackConsumesOnce() {
+        typealias Policy = ThemMagicMomentOnboardingPolicy
+        let payloads: [Policy.PendingIntent] = [
+            .page(name: " Ava ", sceneSeed: "  A blue key.\n🎬  "), .voice(name: " Ava "),
+        ]
+        for payload in payloads {
+            let first = Policy.PendingAction(intent: payload)
+            var current: Policy.PendingAction? = first
+            XCTAssertTrue(Policy.cancelPendingAction(&current, actionID: first.id))
+            let replacement = Policy.PendingAction(intent: payload)
+            current = replacement
+            XCTAssertNotEqual(first.id, replacement.id)
+            var started: [Policy.PendingIntent] = []
+            var reconciliations = 0
+            let callback = { (actionID: UUID) in
+                Policy.reconcileThenResume(actionID: actionID, currentAction: { current },
+                    reconcileAccountSession: { reconciliations += 1 }, resumePendingIntent: {
+                        if let intent = Policy.takePendingAction(&current, actionID: actionID) { started.append(intent) }
+                    })
+            }
+
+            callback(first.id)
+            XCTAssertTrue(started.isEmpty)
+            XCTAssertEqual(current?.id, replacement.id)
+            XCTAssertFalse(Policy.cancelPendingAction(&current, actionID: first.id))
+            callback(replacement.id)
+            callback(replacement.id)
+
+            XCTAssertEqual(reconciliations, 3)
+            XCTAssertEqual(started, [payload], "Only the new action's own completion may consume its exact captured fields.")
+            XCTAssertNil(current)
+            XCTAssertFalse(Policy.ownsPendingAction(current, actionID: replacement.id))
+            XCTAssertFalse(Policy.cancelPendingAction(&current, actionID: replacement.id))
+        }
+    }
+
+    func testMagicMomentLateRestoreSuccessAndFailureCannotAffectReplacement() {
+        typealias Policy = ThemMagicMomentOnboardingPolicy
+        for authenticated in [false, true] {
+            let first = Policy.PendingAction(intent: .page(name: "Ava", sceneSeed: "Same scene"))
+            var current: Policy.PendingAction? = first
+            XCTAssertTrue(Policy.cancelPendingAction(&current, actionID: first.id))
+            let replacement = Policy.PendingAction(intent: .page(name: "Ava", sceneSeed: "Same scene"))
+            current = replacement
+            var events: [String] = []
+
+            Policy.completeSessionRestore(actionID: first.id, currentAction: { current },
+                isAuthenticated: authenticated,
+                reconcileAccountSession: { events.append("reconcile") },
+                resumePendingIntent: { events.append("resume") },
+                presentAccount: { events.append("failure UI") })
+
+            XCTAssertEqual(events, authenticated ? ["reconcile"] : [],
+                "A stale restore may reconcile committed auth, but cannot resume or present failure UI for a new action.")
+            XCTAssertEqual(current?.id, replacement.id)
+            XCTAssertEqual(Policy.takePendingAction(&current, actionID: replacement.id), replacement.intent)
+        }
+    }
+
+    func testMagicMomentCurrentRestoreFailureKeepsActionForLaterAuthenticatedResume() {
+        typealias Policy = ThemMagicMomentOnboardingPolicy
+        let action = Policy.PendingAction(intent: .page(name: " Ava ", sceneSeed: "  Keep these exact words.\n"))
+        var current: Policy.PendingAction? = action
+        var events: [String] = []
+        var started: [Policy.PendingIntent] = []
+        let complete = { (authenticated: Bool) in
+            Policy.completeSessionRestore(actionID: action.id, currentAction: { current },
+                isAuthenticated: authenticated,
+                reconcileAccountSession: { events.append("reconcile") }, resumePendingIntent: {
+                    events.append("resume")
+                    if let intent = Policy.takePendingAction(&current, actionID: action.id) { started.append(intent) }
+                }, presentAccount: { events.append("account") })
+        }
+
+        complete(false)
+        XCTAssertEqual(events, ["account"])
+        XCTAssertEqual(current?.id, action.id)
+        complete(true)
+        complete(true)
+        complete(false)
+
+        XCTAssertEqual(events, ["account", "reconcile", "resume", "reconcile"])
+        XCTAssertEqual(started, [action.intent].compactMap { $0 })
+        XCTAssertNil(current)
+    }
+
+    func testMagicMomentRechecksActionOwnerAfterAccountReconciliation() {
+        typealias Policy = ThemMagicMomentOnboardingPolicy
+        let first = Policy.PendingAction(intent: .voice(name: "Ava"))
+        let replacement = Policy.PendingAction(intent: .voice(name: "Bea"))
+        var current: Policy.PendingAction? = first
+        var events: [String] = []
+
+        Policy.reconcileThenResume(actionID: first.id, currentAction: { current },
+            reconcileAccountSession: {
+                events.append("reconcile")
+                XCTAssertTrue(Policy.cancelPendingAction(&current, actionID: first.id))
+                current = replacement
+            }, resumePendingIntent: { events.append("resume") })
+
+        XCTAssertEqual(events, ["reconcile"])
+        XCTAssertEqual(Policy.takePendingAction(&current, actionID: replacement.id), replacement.intent)
+    }
 }

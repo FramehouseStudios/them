@@ -8,6 +8,15 @@ nonisolated enum ThemMagicMomentOnboardingPolicy {
         case voice(name: String)
     }
 
+    struct PendingAction: Equatable, Identifiable {
+        let id = UUID()
+        var intent: PendingIntent?
+
+        init(intent: PendingIntent) {
+            self.intent = intent
+        }
+    }
+
     enum StartDecision: Equatable {
         case proceed
         case restorePersistedSession
@@ -34,6 +43,53 @@ nonisolated enum ThemMagicMomentOnboardingPolicy {
 
     static func cancelPendingIntent(_ pendingIntent: inout PendingIntent?) {
         pendingIntent = nil
+    }
+
+    static func ownsPendingAction(_ pendingAction: PendingAction?, actionID: UUID) -> Bool {
+        pendingAction?.id == actionID && pendingAction?.intent != nil
+    }
+
+    static func takePendingAction(_ pendingAction: inout PendingAction?, actionID: UUID) -> PendingIntent? {
+        guard var action = pendingAction, ownsPendingAction(action, actionID: actionID) else { return nil }
+        let intent = takePendingIntent(&action.intent)
+        pendingAction = nil
+        return intent
+    }
+
+    @discardableResult
+    static func cancelPendingAction(_ pendingAction: inout PendingAction?, actionID: UUID) -> Bool {
+        guard var action = pendingAction, ownsPendingAction(action, actionID: actionID) else { return false }
+        cancelPendingIntent(&action.intent)
+        pendingAction = nil
+        return true
+    }
+
+    static func reconcileThenResume(
+        actionID: UUID,
+        currentAction: () -> PendingAction?,
+        reconcileAccountSession: () -> Void,
+        resumePendingIntent: () -> Void
+    ) {
+        reconcileThenResume(reconcileAccountSession: reconcileAccountSession) {
+            guard ownsPendingAction(currentAction(), actionID: actionID) else { return }
+            resumePendingIntent()
+        }
+    }
+
+    static func completeSessionRestore(
+        actionID: UUID,
+        currentAction: () -> PendingAction?,
+        isAuthenticated: Bool,
+        reconcileAccountSession: () -> Void,
+        resumePendingIntent: () -> Void,
+        presentAccount: () -> Void
+    ) {
+        if isAuthenticated {
+            reconcileThenResume(actionID: actionID, currentAction: currentAction,
+                reconcileAccountSession: reconcileAccountSession, resumePendingIntent: resumePendingIntent)
+        } else if ownsPendingAction(currentAction(), actionID: actionID) {
+            presentAccount()
+        }
     }
 
     static func reconcileThenResume(
@@ -92,10 +148,10 @@ struct MagicMomentOnboardingFlow: View {
     @State private var name: String
     @State private var sceneSeed = ""
     @State private var errorMessage = ""
-    @State private var pendingIntent: ThemMagicMomentOnboardingPolicy.PendingIntent?
+    @State private var pendingAction: ThemMagicMomentOnboardingPolicy.PendingAction?
     @State private var isSubmitting = false
-    @State private var isRestoringSession = false
-    @State private var isShowingAccount = false
+    @State private var restoringActionID: UUID?
+    @State private var accountActionID: UUID?
     @FocusState private var nameFocused: Bool
     @FocusState private var sceneFocused: Bool
     @AccessibilityFocusState private var headerAccessibilityFocused: Bool
@@ -225,26 +281,30 @@ struct MagicMomentOnboardingFlow: View {
                 .scrollBounceBehavior(.basedOnSize)
             }
         }
-        .sheet(isPresented: accountPresentation, onDismiss: accountSheetDismissed) {
-            ProfileAccountScreen(
-                onSessionChanged: accountSessionChanged,
-                onDone: cancelPendingAndDismiss
-            )
+        .background {
+            if let accountActionID {
+                accountSheet(for: accountActionID).id(accountActionID)
+            }
         }
     }
 
-    private var accountPresentation: Binding<Bool> {
-        Binding(
-            get: { isShowingAccount },
-            set: { shouldPresent in
-                if shouldPresent {
-                    isShowingAccount = true
-                } else {
-                    cancelPendingAndDismiss()
-                }
+    private func accountSheet(for actionID: UUID) -> some View {
+        // Each presenter keeps its captured owner through dismissal. An old
+        // sheet's callbacks must never read a replacement action's identity.
+        Color.clear.frame(width: 0, height: 0)
+            .sheet(isPresented: Binding(
+                get: { accountActionID == actionID },
+                set: { if !$0 { cancelPendingAndDismiss(actionID: actionID) } }
+            ), onDismiss: { cancelPendingAndDismiss(actionID: actionID) }) {
+                ProfileAccountScreen(
+                    onSessionChanged: { accountSessionChanged(actionID: actionID) },
+                    onDone: { cancelPendingAndDismiss(actionID: actionID) }
+                )
             }
-        )
     }
+
+    private var isRestoringSession: Bool { restoringActionID != nil }
+    private var isShowingAccount: Bool { accountActionID != nil }
 
     private var canStart: Bool {
         !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -348,7 +408,8 @@ struct MagicMomentOnboardingFlow: View {
     }
 
     private func begin(_ intent: ThemMagicMomentOnboardingPolicy.PendingIntent) {
-        pendingIntent = intent
+        let action = ThemMagicMomentOnboardingPolicy.PendingAction(intent: intent)
+        pendingAction = action
         errorMessage = ""
         let session = BackendAuthClient.currentAuthSessionState()
         let accessDecision = ThemWorkspaceAuthenticationPolicy.accessDecision(
@@ -360,58 +421,70 @@ struct MagicMomentOnboardingFlow: View {
 
         switch ThemMagicMomentOnboardingPolicy.startDecision(workspaceAccessDecision: accessDecision) {
         case .proceed:
-            resumePendingIntentIfAuthenticated()
+            resumePendingIntentIfAuthenticated(actionID: action.id)
         case .restorePersistedSession:
-            restoreSessionThenResume()
+            restoreSessionThenResume(actionID: action.id)
         case .presentAccount:
-            presentAccount()
+            presentAccount(actionID: action.id)
         }
     }
 
-    private func restoreSessionThenResume() {
-        guard !isRestoringSession else { return }
-        isRestoringSession = true
+    private func restoreSessionThenResume(actionID: UUID) {
+        guard !isRestoringSession,
+              ThemMagicMomentOnboardingPolicy.ownsPendingAction(pendingAction, actionID: actionID) else { return }
+        restoringActionID = actionID
         Task { @MainActor in
-            defer { isRestoringSession = false }
+            defer {
+                if restoringActionID == actionID { restoringActionID = nil }
+            }
             do {
                 let restored = try await BackendAuthClient.restorePersistedAuthSessionIfNeeded()
-                guard restored.isAuthenticated, !restored.accessExpired else {
-                    presentAccount()
-                    return
-                }
-                ThemMagicMomentOnboardingPolicy.reconcileThenResume(
+                ThemMagicMomentOnboardingPolicy.completeSessionRestore(
+                    actionID: actionID, currentAction: { pendingAction },
+                    isAuthenticated: restored.isAuthenticated && !restored.accessExpired,
                     reconcileAccountSession: onAccountSessionChanged,
-                    resumePendingIntent: resumePendingIntentIfAuthenticated
+                    resumePendingIntent: { resumePendingIntentIfAuthenticated(actionID: actionID) },
+                    presentAccount: { presentAccount(actionID: actionID) }
                 )
             } catch {
-                errorMessage = "Your saved session could not be refreshed. Sign in again when you’re ready."
-                presentAccount()
+                ThemMagicMomentOnboardingPolicy.completeSessionRestore(
+                    actionID: actionID, currentAction: { pendingAction }, isAuthenticated: false,
+                    reconcileAccountSession: onAccountSessionChanged,
+                    resumePendingIntent: { resumePendingIntentIfAuthenticated(actionID: actionID) },
+                    presentAccount: {
+                        errorMessage = "Your saved session could not be refreshed. Sign in again when you’re ready."
+                        presentAccount(actionID: actionID)
+                    }
+                )
             }
         }
     }
 
-    private func presentAccount() {
+    private func presentAccount(actionID: UUID) {
+        guard ThemMagicMomentOnboardingPolicy.ownsPendingAction(pendingAction, actionID: actionID) else { return }
         errorMessage = "Sign in to save this draft to your private workspace and sync it across your devices."
-        isShowingAccount = true
+        accountActionID = actionID
     }
 
-    private func accountSessionChanged() {
+    private func accountSessionChanged(actionID: UUID) {
         ThemMagicMomentOnboardingPolicy.reconcileThenResume(
+            actionID: actionID, currentAction: { pendingAction },
             reconcileAccountSession: onAccountSessionChanged,
-            resumePendingIntent: resumePendingIntentIfAuthenticated
+            resumePendingIntent: { resumePendingIntentIfAuthenticated(actionID: actionID) }
         )
     }
 
-    private func resumePendingIntentIfAuthenticated() {
-        guard pendingIntent != nil else { return }
+    private func resumePendingIntentIfAuthenticated(actionID: UUID) {
+        guard ThemMagicMomentOnboardingPolicy.ownsPendingAction(pendingAction, actionID: actionID) else { return }
         let session = BackendAuthClient.currentAuthSessionState()
         guard IOThemRuntime.bypassesAuthenticationForUITests
                 || (session.isAuthenticated && !session.accessExpired) else {
-            presentAccount()
+            presentAccount(actionID: actionID)
             return
         }
-        guard let intent = ThemMagicMomentOnboardingPolicy.takePendingIntent(&pendingIntent) else { return }
-        isShowingAccount = false
+        guard let intent = ThemMagicMomentOnboardingPolicy.takePendingAction(&pendingAction, actionID: actionID) else { return }
+        if accountActionID == actionID { accountActionID = nil }
+        if restoringActionID == actionID { restoringActionID = nil }
         errorMessage = ""
 
         switch intent {
@@ -443,16 +516,10 @@ struct MagicMomentOnboardingFlow: View {
         }
     }
 
-    private func accountSheetDismissed() {
-        guard pendingIntent != nil else { return }
-        cancelPendingAndDismiss()
-    }
-
-    private func cancelPendingAndDismiss() {
-        let didCancelPendingIntent = pendingIntent != nil
-        ThemMagicMomentOnboardingPolicy.cancelPendingIntent(&pendingIntent)
-        isShowingAccount = false
-        guard didCancelPendingIntent else { return }
+    private func cancelPendingAndDismiss(actionID: UUID) {
+        guard ThemMagicMomentOnboardingPolicy.cancelPendingAction(&pendingAction, actionID: actionID) else { return }
+        if accountActionID == actionID { accountActionID = nil }
+        if restoringActionID == actionID { restoringActionID = nil }
         errorMessage = "Sign in when you’re ready. Your name and scene idea are still here."
         nameFocused = true
     }
