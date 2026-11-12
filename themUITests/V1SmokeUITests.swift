@@ -5020,6 +5020,71 @@ final class V1SmokeUITests: XCTestCase {
     }
 
     @MainActor
+    func test_held_copy_lost_ack_retries_once_after_relaunch() async throws {
+        let baseURL = try XCTUnwrap(URL(string: "http://127.0.0.1:31337"))
+        guard await backendRestoreContractIsAvailable(baseURL: baseURL) else { throw XCTSkip("Isolated recovery backend unavailable.") }
+        let fixture = try await seedBackendRestoreContractFixture(baseURL: baseURL)
+        var environment = fixture.appLaunchEnvironment
+        environment["THEM_UITEST_CUSTODY_PROJECT_ID"] = fixture.projectID
+        let headers = ["X-APP-TOKEN": environment["THEM_UITEST_APP_TOKEN"] ?? "them-dev",
+                       "X-Client-Token": environment["THEM_UITEST_CLIENT_TOKEN"] ?? "",
+                       "Authorization": "Bearer \(environment["THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN"] ?? "")"]
+        var app = launchApp(openStudio: true, custodyBackendFixture: true,
+            restoreProjectID: fixture.projectID, restoreVersionID: fixture.versionID,
+            restoreLoadToken: fixture.loadToken, launchEnvironment: environment)
+        defer { app.terminate() }
+        func requestCopy() {
+            let review = app.buttons["studio.conflict.review-local-copies"]
+            XCTAssertTrue(review.waitForExistence(timeout: 45)); review.tap()
+            XCTAssertTrue(app.buttons["Preview local copy 1"].waitForExistence(timeout: 10))
+            app.buttons["Preview local copy 1"].tap()
+            let fork = app.buttons["Save as Separate Project"]
+            XCTAssertTrue(fork.waitForExistence(timeout: 10)); fork.tap()
+            XCTAssertTrue(app.buttons["Save Text as Recovery Copy"].waitForExistence(timeout: 5))
+            app.buttons["Save Text as Recovery Copy"].tap()
+        }
+        requestCopy()
+        let unconfirmed = app.alerts["Recovery copy not confirmed"]
+        XCTAssertTrue(unconfirmed.waitForExistence(timeout: 30), "The dropped acknowledgement must not report success.")
+        let first = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects", method: "GET", headers: headers, body: nil)
+        try assertHTTP(first, context: "committed recovery copy after lost response")
+        let firstEnvelope = first.payload["payload"] as? [String: Any] ?? first.payload
+        let copies = (firstEnvelope["screenplay_projects"] as? [[String: Any]] ?? []).filter { stringValue($0["title"]).hasPrefix("Recovery Copy ") }
+        XCTAssertEqual(copies.count, 1)
+        XCTAssertEqual(stringValue(firstEnvelope["screenplay_active_project_id"]), fixture.projectID)
+        let copyID = stringValue(try XCTUnwrap(copies.first)["id"])
+        let before = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects/\(copyID)", method: "GET", headers: headers, body: nil,
+            queryItems: [URLQueryItem(name: "include_drafts", value: "1"), URLQueryItem(name: "version_limit", value: "24")])
+        try assertHTTP(before, context: "exact committed recovery copy")
+        let beforeEnvelope = before.payload["payload"] as? [String: Any] ?? before.payload
+        let beforeProject = beforeEnvelope["project"] as? [String: Any] ?? beforeEnvelope
+        let beforeVersions = beforeProject["versions"] as? [[String: Any]] ?? []
+        XCTAssertEqual(beforeVersions.count, 1)
+        XCTAssertEqual(stringValue(beforeVersions.first?["draft"]), "INT. FIRST TEST ROOM - DAY\n\nFIRST HELD BACKEND COPY.")
+        let versionID = stringValue(beforeVersions.first?["id"])
+        app.terminate()
+        app = launchApp(openStudio: true, resetState: false, launchEnvironment: environment)
+        requestCopy()
+        XCTAssertTrue(app.alerts["Recovery copy saved"].waitForExistence(timeout: 30), "Exact retry should acknowledge the original save.")
+        let second = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects", method: "GET", headers: headers, body: nil)
+        try assertHTTP(second, context: "recovery copy after relaunch retry")
+        let secondEnvelope = second.payload["payload"] as? [String: Any] ?? second.payload
+        let afterCopies = (secondEnvelope["screenplay_projects"] as? [[String: Any]] ?? []).filter { stringValue($0["title"]).hasPrefix("Recovery Copy ") }
+        XCTAssertEqual(afterCopies.count, 1)
+        XCTAssertEqual(stringValue(afterCopies.first?["id"]), copyID)
+        XCTAssertEqual(stringValue(secondEnvelope["screenplay_active_project_id"]), fixture.projectID)
+        let after = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects/\(copyID)", method: "GET", headers: headers, body: nil,
+            queryItems: [URLQueryItem(name: "include_drafts", value: "1"), URLQueryItem(name: "version_limit", value: "24")])
+        try assertHTTP(after, context: "same version after retry")
+        let afterEnvelope = after.payload["payload"] as? [String: Any] ?? after.payload
+        let afterProject = afterEnvelope["project"] as? [String: Any] ?? afterEnvelope
+        let afterVersions = afterProject["versions"] as? [[String: Any]] ?? []
+        XCTAssertEqual(afterVersions.count, 1)
+        XCTAssertEqual(stringValue(afterVersions.first?["id"]), versionID)
+        XCTAssertEqual(stringValue(afterVersions.first?["draft"]), "INT. FIRST TEST ROOM - DAY\n\nFIRST HELD BACKEND COPY.")
+    }
+
+    @MainActor
     func test_held_copy_creates_one_separate_nonactivating_project_across_relaunch() async throws {
         let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_SCREENPLAY_SAVE_BACKEND_PORT"] ?? "") ?? 31337
         let baseURL = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)"))
