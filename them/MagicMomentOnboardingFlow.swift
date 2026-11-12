@@ -140,12 +140,13 @@ struct MagicMomentAuthResumeProofView: View {
 
 @MainActor
 struct MagicMomentOnboardingFlow: View {
-    let initialName: String
+    private let evolution: HerEvolutionStore
     let onAccountSessionChanged: () -> Void
     let onStartPage: (_ name: String, _ sceneSeed: String) async -> String?
     let onStartVoice: (_ name: String) -> String?
 
     @State private var name: String
+    @State private var inputOwner = NSObject()
     @State private var sceneSeed = ""
     @State private var errorMessage = ""
     @State private var pendingAction: ThemMagicMomentOnboardingPolicy.PendingAction?
@@ -158,16 +159,16 @@ struct MagicMomentOnboardingFlow: View {
     @AccessibilityFocusState private var statusAccessibilityFocused: Bool
 
     init(
-        initialName: String,
+        evolution: HerEvolutionStore,
         onAccountSessionChanged: @escaping () -> Void,
         onStartPage: @escaping (_ name: String, _ sceneSeed: String) async -> String?,
         onStartVoice: @escaping (_ name: String) -> String?
     ) {
-        self.initialName = initialName
+        self.evolution = evolution
         self.onAccountSessionChanged = onAccountSessionChanged
         self.onStartPage = onStartPage
         self.onStartVoice = onStartVoice
-        _name = State(initialValue: initialName)
+        _name = State(initialValue: evolution.preferredName)
     }
 
     var body: some View {
@@ -193,7 +194,7 @@ struct MagicMomentOnboardingFlow: View {
                                 .fixedSize(horizontal: false, vertical: true)
                         }
 
-                        OnboardingInputRecoveryScope(name: $name, premise: $sceneSeed) { nameInput, premiseInput in
+                        OnboardingInputRecoveryScope(name: ownedInput($name), premise: ownedInput($sceneSeed)) { nameInput, premiseInput in
                             VStack(alignment: .leading, spacing: 16) {
                                 fieldLabel("Your name")
                                 TextField("How should Clementine address you?", text: nameInput)
@@ -286,6 +287,13 @@ struct MagicMomentOnboardingFlow: View {
                 accountSheet(for: accountActionID).id(accountActionID)
             }
         }
+    }
+
+    private func ownedInput(_ input: Binding<String>) -> Binding<String> {
+        Binding(get: { input.wrappedValue }, set: { value in
+            evolution.preservePreferredNameWhileEditingOnboarding(owner: inputOwner)
+            input.wrappedValue = value
+        })
     }
 
     private func accountSheet(for actionID: UUID) -> some View {

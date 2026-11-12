@@ -48,7 +48,10 @@ final class HerEvolutionStore: ObservableObject {
         static let isScreenwriter = "her.isScreenwriter"
     }
 
-    private let d = UserDefaults.standard
+    private let d: UserDefaults
+    // The form owns these weak identities. Sheets/redraws retain its State;
+    // abandoning the form cannot leave a permanent profile-hydration hold.
+    private let onboardingInputOwners = NSHashTable<AnyObject>(options: [.weakMemory, .objectPointerPersonality])
 
     @Published private(set) var sessionCount: Int
     @Published private(set) var messageCount: Int
@@ -71,7 +74,14 @@ final class HerEvolutionStore: ObservableObject {
     @Published private(set) var creativeIdentityStrength: Double
     @Published private(set) var isScreenwriter: Bool
 
-    private init() {
+    // Teardown does not touch actor state. Use the same older-runtime
+    // executor-deinit workaround as BackendClient and latency telemetry.
+    nonisolated deinit {}
+
+    private convenience init() { self.init(defaults: .standard) }
+
+    init(defaults: UserDefaults) {
+        self.d = defaults
         self.sessionCount = d.integer(forKey: K.sessionCount)
         self.messageCount = d.integer(forKey: K.messageCount)
         self.depthScore = d.double(forKey: K.depthScore)
@@ -187,13 +197,21 @@ final class HerEvolutionStore: ObservableObject {
         }
         if let v = payload.preferredName,
            !v.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-           (shouldHydrateIdentity || preferredName.isEmpty) {
+           (shouldHydrateIdentity || preferredName.isEmpty),
+           onboardingInputOwners.allObjects.isEmpty {
             setPreferredName(v)
         }
         if payload.isScreenwriter == true {
             markAsScreenwriter()
         }
         d.set(true, forKey: K.hasRestoredFromBackend)
+    }
+
+    /// Remote names must not finish a form containing the writer's input.
+    /// Explicit user completion still uses setPreferredName; auth and all other
+    /// evolution fields continue hydrating while this form owns its input.
+    func preservePreferredNameWhileEditingOnboarding(owner: AnyObject) {
+        onboardingInputOwners.add(owner)
     }
 
     func setPreferredName(_ name: String) {

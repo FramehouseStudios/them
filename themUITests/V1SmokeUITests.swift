@@ -6456,8 +6456,9 @@ final class V1SmokeUITests: XCTestCase {
             }
         }
 
-        keyboard.swipeDown()
-        return waitForDisappearance(of: keyboard, timeout: 3)
+        // Swiping across keyboard keys can enter QuickPath text. Screens
+        // without a dismissal control must use their own native navigation.
+        return false
 #else
         return true
 #endif

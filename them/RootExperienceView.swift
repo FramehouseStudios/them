@@ -3876,7 +3876,7 @@ struct RootExperienceView: View {
 
     private var onboardingOverlay: some View {
         MagicMomentOnboardingFlow(
-            initialName: evolution.preferredName,
+            evolution: evolution,
             onAccountSessionChanged: handleAccountSessionChanged,
             onStartPage: startAuthenticatedMagicMomentPage,
             onStartVoice: startAuthenticatedMagicMomentVoice
