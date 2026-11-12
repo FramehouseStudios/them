@@ -1910,6 +1910,7 @@ test("[screenplay-projects-routes] POST /version rejects reused identity when sa
     const replay = await postJson(baseURL, "/screenplay/projects/p1/version", body);
     assert.equal(first.status, 201);
     assert.equal(replay.status, 200);
+    assert.equal(replay.body.replay_proof, "full_request_hash_v1");
     assert.match(project.versions[0].saveRequestHash, /^[a-f0-9]{64}$/);
 
     const changedRequests = [
@@ -1926,8 +1927,19 @@ test("[screenplay-projects-routes] POST /version rejects reused identity when sa
       assert.equal(reused.status, 409, `${label} change must not replay`);
       assert.equal(reused.body.status, "client_request_id_reused");
       assert.equal(reused.body.replayed, false);
+      assert.equal(reused.body.replay_proof, "none");
     }
-    assert.equal(project.versions.length, 2);
+    const advance = await postJson(baseURL, "/screenplay/projects/p1/version", {
+      ...body, draft: "A newer scene.", base_version_id: first.body.version_id,
+      client_request_id: "newer-save-identity",
+    });
+    assert.equal(advance.status, 201);
+    const superseded = await postJson(baseURL, "/screenplay/projects/p1/version", body);
+    assert.equal(superseded.status, 409);
+    assert.equal(superseded.body.status, "replayed_superseded");
+    assert.equal(superseded.body.replayed, true);
+    assert.equal(superseded.body.replay_proof, "full_request_hash_v1");
+    assert.equal(project.versions.length, 3);
   });
 });
 
@@ -1962,6 +1974,7 @@ test("[screenplay-projects-routes] legacy version replay compares only durable i
     });
     assert.equal(replay.status, 200);
     assert.equal(replay.body.status, "replayed");
+    assert.equal(replay.body.replay_proof, "legacy_partial");
     assert.equal(project.title, "First Project", "legacy replay must not infer or apply an unavailable title");
 
     const changed = await postJson(baseURL, "/screenplay/projects/p1/version", {

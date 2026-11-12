@@ -43,6 +43,7 @@ import { createScreenplayVersionRecord } from "./screenplay_version_record.js";
 import {
   buildScreenplayVersionReplayHash,
   legacyScreenplayVersionMatchesReplay,
+  SCREENPLAY_VERSION_REPLAY_HASH_VERSION,
 } from "./screenplay_version_replay_identity.js";
 import {
   defaultResolveScreenplayUserId,
@@ -1598,6 +1599,8 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
         server_version: latestVersion ? toScreenplayVersionPayload(latestVersion, { includeDraft: true }) : null,
         conflict: !requestMatches || replayWasSuperseded,
         replayed: requestMatches,
+        replay_proof: !requestMatches ? "none" : replayedVersion.saveRequestHash
+          ? `full_request_hash_v${SCREENPLAY_VERSION_REPLAY_HASH_VERSION}` : "legacy_partial",
       }));
     }
     // An explicit clear must not turn an unknown or missing server head into
