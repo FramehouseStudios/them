@@ -47,7 +47,8 @@ Exact commands, retained red source and hashes:
 
 ## Integration and limits
 
-Local only, preserving317 and all original ancestors. No original PR replacement,
+Scoped branch work, preserving317 and all original ancestors. A backup does not
+advance original PR heads or authorize landing. No original PR replacement,
 force push, main merge, human approval, deployment or paid call. Main review is
 still deferred. Physical microphone/model quality, the complete /talk pipeline,
 physical iPhone and intended shipping backend remain unproven. Production remains

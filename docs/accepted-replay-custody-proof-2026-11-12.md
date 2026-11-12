@@ -90,8 +90,9 @@ Private manifests/commands/hashes:
 `_proof/T-1396-expiry-custody-20261112/proof.json` and
 `_proof/T-1397-replay-authority-20261112/proof.json`.
 
-These changes remain local pending the chosen original-parent publication and
-fresh checks. Original #995/#997 work is preserved, not replaced. Main is unchanged;
+These changes are verified locally pending the chosen original-parent publication
+and fresh checks. A scoped backup branch may preserve them without advancing
+original PR heads or main. Original #995/#997 work is preserved, not replaced. Main is unchanged;
 #964 human review is deferred. No independent human approval, main merge,
 deployment, protection bypass, secret exposure or paid call is claimed.
 
