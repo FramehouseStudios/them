@@ -169,6 +169,40 @@ struct ScreenplayHeldDraftRecoveryOverlay: View {
     }
 }
 
+/// Conflict decisions use the existing resolution owner; custody copies require review.
+struct ScreenplayConflictActionButtons: View {
+    @ObservedObject var viewModel: ScreenplayStudioViewModel
+    let requiresCustodyReview: Bool
+
+    var body: some View {
+        if requiresCustodyReview {
+            ScreenplayConflictCustodyButton(viewModel: viewModel)
+        } else {
+            Button {
+                Task { await viewModel.applyServerVersionFromConflict() }
+            } label: {
+                Text("1 Load Server")
+            }
+            .buttonStyle(.bordered)
+            .tint(Color.white.opacity(0.24))
+            .keyboardShortcut("1", modifiers: [])
+            .accessibilityIdentifier("studio.conflict.load-server")
+            .disabled(viewModel.isPreparingConflictResolution)
+
+            Button {
+                Task { await viewModel.keepLocalDraftAfterConflict() }
+            } label: {
+                Text("2 Keep Mine")
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(Color.white.opacity(0.24))
+            .keyboardShortcut("2", modifiers: [])
+            .accessibilityIdentifier("studio.conflict.keep-mine")
+            .disabled(viewModel.isPreparingConflictResolution)
+        }
+    }
+}
+
 /// Opens only verified, read-only copies; selecting a row never resolves a conflict.
 struct ScreenplayConflictCustodyButton: View {
     @ObservedObject var viewModel: ScreenplayStudioViewModel

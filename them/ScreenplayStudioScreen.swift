@@ -9115,26 +9115,10 @@ Current draft version:
             tint: Color.red.opacity(0.88),
             excerpt: conflict.serverDraftExcerpt
         ) {
-            if conflict.requiresCustodyReview { ScreenplayConflictCustodyButton(viewModel: vm) } else {
-                Button {
-                    Task { await vm.applyServerVersionFromConflict() }
-                } label: {
-                    Text("1 Load Server")
-                }
-                .buttonStyle(.bordered)
-                .tint(Color.white.opacity(0.24))
-                .keyboardShortcut("1", modifiers: [])
-                .accessibilityIdentifier("studio.conflict.load-server").disabled(vm.isPreparingConflictResolution)
-                Button {
-                    Task { await vm.keepLocalDraftAfterConflict() }
-                } label: {
-                    Text("2 Keep Mine")
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(Color.white.opacity(0.24))
-                .keyboardShortcut("2", modifiers: [])
-                .accessibilityIdentifier("studio.conflict.keep-mine").disabled(vm.isPreparingConflictResolution)
-            }
+            ScreenplayConflictActionButtons(
+                viewModel: vm,
+                requiresCustodyReview: conflict.requiresCustodyReview
+            )
         }
     }
 
