@@ -78,7 +78,7 @@ app.use((req, res, next) => {
     let named = false;
     const originalJSON = res.json;
     res.json = function (body) {
-      named = res.statusCode === 200 && acceptedBearer
+      named = res.statusCode === 201 && acceptedBearer
         && req.get("Authorization") === acceptedBearer
         && body?.evolution_sync?.preferred_name === expectedName
         && body?.evolution_sync?.last_theme_cue === hydrationWitness;

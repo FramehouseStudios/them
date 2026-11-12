@@ -776,52 +776,54 @@ final class V1SmokeUITests: XCTestCase {
         defer { app.terminate() }
         // Reuse existing counters, not synthetic sign-in. Stored-auth mode
         // suppresses both immutable overrides; this case taps real email login.
-        func reveal(_ target: XCUIElement) -> Bool {
-            guard target.waitForExistence(timeout: 3),
-                  scrollFullyIntoWindow(target, in: app) else { return false }
-            return waitForHittability(of: target, timeout: 2)
+        // Native tap exposes scrollable fields/buttons before activation.
+        // The full-window helper cannot account for keyboard occlusion.
+        func ready(_ target: XCUIElement) -> Bool {
+            target.waitForExistence(timeout: 3) && target.isEnabled
         }
         let name = textInput("onboarding.name.field", in: app)
         XCTAssertTrue(name.waitForExistence(timeout: 8))
         name.tap(); name.typeText("Ada")
         let premise = textInput("onboarding.scene.field", in: app)
-        XCTAssertTrue(reveal(premise))
+        XCTAssertTrue(ready(premise))
         premise.tap(); premise.typeText("A first scene.")
-        _ = dismissKeyboardIfPresent(in: app)
         let start = app.buttons["onboarding.start-page"]
-        guard reveal(start) else { return XCTFail("Initial page action is unreachable.") }
+        XCTAssertTrue(start.waitForExistence(timeout: 3))
+        XCTAssertEqual(start.label, "Sign in & Start Page")
+        XCTAssertTrue(start.isEnabled)
         start.tap()
         let emailField = element(identifier: "profile-auth-email", in: app)
         XCTAssertTrue(emailField.waitForExistence(timeout: 6))
-        guard reveal(emailField) else { return XCTFail("Email input is unreachable.") }
+        guard ready(emailField) else { return XCTFail("Email input is unreachable.") }
         emailField.tap(); emailField.typeText(email)
         let passwordField = element(identifier: "profile-auth-password", in: app)
-        guard reveal(passwordField) else { return XCTFail("Password input is unreachable.") }
+        guard ready(passwordField) else { return XCTFail("Password input is unreachable.") }
         passwordField.tap(); passwordField.typeText(password)
-        _ = dismissKeyboardIfPresent(in: app)
         let signIn = try XCTUnwrap(app.buttons.matching(NSPredicate(format: "label == %@", "Sign In"))
             .allElementsBoundByIndex.last(where: { !$0.isSelected }))
-        guard reveal(signIn) else { return XCTFail("Real email sign-in is unreachable.") }
+        XCTAssertTrue(signIn.exists)
+        XCTAssertTrue(signIn.isEnabled)
         signIn.tap()
         let held = try await waitForMetric("heldLoginResponses")
         XCTAssertEqual(intValue(held["releasedLoginResponses"]), 0)
         let done = app.buttons["profile-account-done"]
-        guard reveal(done) else { return XCTFail("Pending login cannot be dismissed.") }
+        guard ready(done) else { return XCTFail("Pending login cannot be dismissed.") }
         done.tap()
 
         let expectedName = "  Berta  "
         let expectedPremise = "  B keeps the typed premise exactly.  "
         XCTAssertTrue(name.waitForExistence(timeout: 5))
-        guard reveal(name) else { return XCTFail("Replacement name input is unreachable.") }
+        guard ready(name) else { return XCTFail("Replacement name input is unreachable.") }
         name.tap(withNumberOfTaps: 3, numberOfTouches: 1)
         name.typeText(XCUIKeyboardKey.delete.rawValue); name.typeText(expectedName)
-        guard reveal(premise) else { return XCTFail("Replacement premise input is unreachable.") }
+        guard ready(premise) else { return XCTFail("Replacement premise input is unreachable.") }
         premise.tap(withNumberOfTaps: 3, numberOfTouches: 1)
         premise.typeText(XCUIKeyboardKey.delete.rawValue); premise.typeText(expectedPremise)
         XCTAssertEqual(name.value as? String, expectedName)
         XCTAssertEqual(premise.value as? String, expectedPremise)
-        _ = dismissKeyboardIfPresent(in: app)
-        guard reveal(start) else { return XCTFail("Replacement page action is unreachable.") }
+        XCTAssertTrue(start.waitForExistence(timeout: 3))
+        XCTAssertEqual(start.label, "Sign in & Start Page")
+        XCTAssertTrue(start.isEnabled)
         start.tap()
         XCTAssertTrue(app.staticTexts["Sign in to THEM"].waitForExistence(timeout: 6))
         let release = try await requestJSON(baseURL: baseURL, path: prefix + "/release", method: "POST",
@@ -836,7 +838,7 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertEqual(intValue(hydrated["blockedOutboundCalls"]), 0)
         XCTAssertTrue(waitForAccessibilityText(identifier: "onboarding.auth-resume.proof",
             containing: "Magic moment submissions 0. Voice starts 0.", in: app, timeout: 5))
-        if done.exists, reveal(done) { done.tap() }
+        if done.exists, ready(done) { done.tap() }
         guard name.waitForExistence(timeout: 5), premise.exists else {
             return XCTFail("Named account hydration removed the unfinished replacement form.")
         }
