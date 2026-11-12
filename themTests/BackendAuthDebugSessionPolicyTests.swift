@@ -220,6 +220,28 @@ final class BackendAuthDebugSessionPolicyTests: XCTestCase {
         }
     }
 
+    func testStoredCredentialJourneySuppressesActivatedResumeFallbackAndPersistsBootstrapIdentity() {
+        let arguments = [
+            "them", "--ui-testing", "--ui-enforce-production-auth", "--ui-auth-resume-fixture",
+        ]
+        var environment = completeAutomationEnvironment
+        environment["THEM_UITEST_USE_STORED_AUTH_SESSION"] = "1"
+        environment["THEM_UITEST_BACKEND_BASE_URL"] = "http://127.0.0.1:31337"
+
+        XCTAssertTrue(BackendAuthDebugSessionPolicy.usesStoredCredentials(
+            arguments: arguments, environment: environment
+        ))
+        XCTAssertNil(BackendAuthDebugSessionPolicy.automationSessionOverride(
+            arguments: arguments, environment: environment
+        ))
+        XCTAssertNil(BackendAuthDebugSessionPolicy.resolvedAutomationSessionOverride(
+            arguments: arguments, environment: environment, isResumeFixtureActivated: true
+        ), "An activated resume fixture must not replace the explicitly selected stored session.")
+        XCTAssertTrue(BackendAuthDebugSessionPolicy.shouldPersistSessionBootstrapIdentity(
+            arguments: arguments, environment: environment, isResumeFixtureActivated: true
+        ), "Stored-session bootstrap identity must follow the real persistence path.")
+    }
+
     func testExpiredSaveFaultChangesOnlyOneExplicitLocalRequest() {
         let arguments = ["--ui-testing", "--ui-screenplay-save-expire-auth-once"]
         var request = URLRequest(url: URL(string: "http://127.0.0.1:31337/screenplay/projects/proof/version")!)
