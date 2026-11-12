@@ -256,6 +256,10 @@ export async function createScaleBackplane({
     outbox: new FileOutboxStore(outboxFilePath || path.resolve(process.cwd(), "outbox_store.json")),
   };
   let idempotencyAdmissionChain = Promise.resolve();
+  // A configured read/write adapter owns replay; Redis still serves locks,
+  // streams, and deployments without durable idempotency persistence.
+  const hasDurableIdempotency = typeof persistence?.get === "function"
+    && typeof persistence?.put === "function";
 
   function withIdempotencyAdmissionLock(operation) {
     const next = idempotencyAdmissionChain.then(operation, operation);
@@ -575,7 +579,7 @@ export async function createScaleBackplane({
   async function getIdempotency(cacheKey) {
     const key = safeString(cacheKey, 320);
     if (!key) return null;
-    if (state.redisEnabled && state.redis) {
+    if (!hasDurableIdempotency && state.redisEnabled && state.redis) {
       try {
         const redisKey = `them:talk:idemp:${key}`;
         const raw = await state.redis.get(redisKey);
@@ -599,7 +603,7 @@ export async function createScaleBackplane({
         logger?.log?.(`[scale_backplane] idempotency_get_error key=${key} err=${String(err?.message || err)}`);
       }
     }
-    if (persistence && typeof persistence.get === "function") {
+    if (hasDurableIdempotency) {
       try {
         const storedRaw = await persistence.get({
           domain: TALK_IDEMPOTENCY_DOMAIN,
@@ -615,16 +619,6 @@ export async function createScaleBackplane({
           }));
           if (!stored || isExpiredIdempotencyRecord(stored)) return null;
         }
-        if (state.redisEnabled && state.redis) {
-          const remainingMs = Math.max(1_000, Number(stored.expiresAt || 0) - nowMs());
-          void state.redis.set(
-            `them:talk:idemp:${key}`,
-            JSON.stringify(encodeIdempotencyRecord(stored)),
-            { PX: remainingMs }
-          ).catch((err) => {
-            logger?.log?.(`[scale_backplane] idempotency_warm_error key=${key} err=${String(err?.message || err)}`);
-          });
-        }
         return stored;
       } catch (err) {
         logger?.log?.(`[scale_backplane] idempotency_persistence_get_error key=${key} err=${String(err?.message || err)}`);
@@ -639,7 +633,7 @@ export async function createScaleBackplane({
     if (!key) return;
     const encoded = encodeIdempotencyRecord(value);
     const isPendingAdmission = String(encoded?.status || "") === "pending";
-    if (persistence && typeof persistence.put === "function") {
+    if (hasDurableIdempotency) {
       if (typeof persistence.list !== "function" || typeof persistence.delete !== "function") {
         const err = new Error("durable idempotency admission requires persistence list/delete methods");
         err.code = "TALK_IDEMPOTENCY_CAPACITY_UNAVAILABLE";
@@ -682,12 +676,12 @@ export async function createScaleBackplane({
         }
       });
     }
-    if (state.redisEnabled && state.redis) {
+    if (!hasDurableIdempotency && state.redisEnabled && state.redis) {
       try {
         const redisKey = `them:talk:idemp:${key}`;
         const payload = JSON.stringify(encoded);
         const options = { PX: Math.max(1_000, Number(ttlMs || 300_000)) };
-        if (isPendingAdmission && !persistence) options.NX = true;
+        if (isPendingAdmission) options.NX = true;
         const result = await state.redis.set(redisKey, payload, options);
         if (options.NX && result !== "OK") throw new TalkIdempotencyConflictError();
       } catch (err) {
@@ -707,7 +701,7 @@ export async function createScaleBackplane({
     if (!key) throw new TalkIdempotencyConflictError();
     const expected = encodeIdempotencyRecord(expectedValue);
     const encoded = encodeIdempotencyRecord(value);
-    if (persistence && typeof persistence.compareAndSwap === "function") {
+    if (hasDurableIdempotency && typeof persistence.compareAndSwap === "function") {
       const changed = await persistence.compareAndSwap({
         domain: TALK_IDEMPOTENCY_DOMAIN,
         key,
@@ -719,23 +713,12 @@ export async function createScaleBackplane({
       await setIdempotency(key, value, ttlMs);
       return;
     }
-    if (state.redisEnabled && state.redis) {
-      try {
-        await state.redis.set(
-          `them:talk:idemp:${key}`,
-          JSON.stringify(encoded),
-          { PX: Math.max(1_000, Number(ttlMs || 300_000)) }
-        );
-      } catch (err) {
-        logger?.log?.(`[scale_backplane] idempotency_set_error key=${key} err=${String(err?.message || err)}`);
-      }
-    }
   }
 
   async function deleteIdempotency(cacheKey) {
     const key = safeString(cacheKey, 320);
     if (!key) return;
-    if (state.redisEnabled && state.redis) {
+    if (!hasDurableIdempotency && state.redisEnabled && state.redis) {
       try {
         const redisKey = `them:talk:idemp:${key}`;
         await state.redis.del(redisKey);
@@ -743,7 +726,7 @@ export async function createScaleBackplane({
         logger?.log?.(`[scale_backplane] idempotency_delete_error key=${key} err=${String(err?.message || err)}`);
       }
     }
-    if (persistence && typeof persistence.delete === "function") {
+    if (hasDurableIdempotency && typeof persistence.delete === "function") {
       try {
         await persistence.delete({ domain: TALK_IDEMPOTENCY_DOMAIN, key });
       } catch (err) {

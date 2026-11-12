@@ -503,3 +503,162 @@ for (const atomicDeletion of [true, false]) {
     if (atomicDeletion) assert.equal(redis.evaluations[0].arguments[0], raw);
   });
 }
+
+
+test("replay cache authority: delayed durable snapshot cannot hide prepared replay", async (t) => {
+  const { root, persistence } = fixture();
+  const redis = redisProtocolFixture();
+  const cacheWrites = [];
+  const set = redis.client.set;
+  redis.client.set = async (key, raw, options) => {
+    cacheWrites.push(JSON.parse(raw).status);
+    return set(key, raw, options);
+  };
+  const key = "user:writer-a|mixed-cache-authority";
+  const redisKey = `them:talk:idemp:${key}`;
+  const pending = { status: "pending", createdAt: 1, expiresAt: Date.now() + 60_000 };
+  const prepared = { ...pending, status: "prepared", expiresAt: 0,
+    body: Buffer.from([255, 0, 128, 42, 254]) };
+  const makeBackplane = (store) => createScaleBackplane({
+    persistence: store,
+    redisUrl: "redis-fixture",
+    redisClientFactory: () => redis.client,
+    outboxFilePath: path.join(root, "outbox.json"),
+    logger: { log() {} },
+  });
+  const writer = await makeBackplane(persistence);
+  let advanceAfterSnapshot = false;
+  const reader = await makeBackplane({
+    ...persistence,
+    async get(input) {
+      const snapshot = await persistence.get(input);
+      if (advanceAfterSnapshot && input.domain === "talk_idempotency" && input.key === key) {
+        advanceAfterSnapshot = false;
+        await writer.compareAndSetIdempotency(key, pending, prepared, 60_000);
+      }
+      return snapshot;
+    },
+  });
+  const fresh = await makeBackplane(persistence);
+  t.after(async () => {
+    await Promise.all([reader.close(), writer.close(), fresh.close()]);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+  await Promise.all([reader.init(), writer.init(), fresh.init()]);
+  await writer.setIdempotency(key, pending, 60_000, 1);
+  redis.values.delete(redisKey); // An ordinary cache miss while durable A remains.
+  cacheWrites.length = 0;
+  advanceAfterSnapshot = true;
+  const overlappingRead = await reader.getIdempotency(key);
+  const durable = await persistence.get({ domain: "talk_idempotency", key });
+  assert.equal(durable.status, "prepared");
+  assert.deepEqual(durable.body, { encoding: "base64", data: prepared.body.toString("base64") });
+  const cached = JSON.parse(redis.values.get(redisKey) || "null");
+  assert.deepEqual(await fresh.getIdempotency(key), prepared,
+    JSON.stringify({ durableStatus: durable.status, cachedStatus: cached?.status,
+      overlappingReadStatus: overlappingRead?.status, cacheWrites }));
+});
+
+
+for (const conditionalDeletion of [true, false]) {
+  test(`durable replay authority bypasses Redis with conditional deletion ${conditionalDeletion}`, async (t) => {
+    const { root, persistence } = fixture();
+    const redis = redisProtocolFixture();
+    const calls = [];
+    for (const command of ["get", "set", "del"]) {
+      const invoke = redis.client[command];
+      redis.client[command] = async (...args) => {
+        calls.push({ command, key: args[0] });
+        return invoke(...args);
+      };
+    }
+    const streams = [];
+    redis.client.xAdd = async (...args) => { streams.push(args); return "1-0"; };
+    const backplane = await createScaleBackplane({
+      persistence: conditionalDeletion ? persistence : { ...persistence, compareAndDelete: undefined },
+      redisUrl: "redis-fixture", redisClientFactory: () => redis.client,
+      outboxFilePath: path.join(root, "outbox.json"), logger: { log() {} },
+    });
+    t.after(async () => {
+      await backplane.close();
+      fs.rmSync(root, { recursive: true, force: true });
+    });
+    await backplane.init();
+    assert.equal(backplane.status().redisEnabled, true);
+    const key = "user:writer-a|durable-authority";
+    const redisKey = `them:talk:idemp:${key}`;
+    const stale = JSON.stringify({ status: "pending", createdAt: 0, expiresAt: Date.now() + 60_000 });
+    redis.values.set(redisKey, stale);
+    const pending = { status: "pending", createdAt: 1, expiresAt: Date.now() + 60_000 };
+    await backplane.setIdempotency(key, pending, 60_000, 1);
+    assert.deepEqual(await backplane.getIdempotency(key), pending);
+    const prepared = { ...pending, status: "prepared", expiresAt: 0, body: Buffer.from([255, 0, 128, 42]) };
+    await backplane.compareAndSetIdempotency(key, pending, prepared, 60_000);
+    assert.deepEqual(await backplane.getIdempotency(key), prepared);
+    await backplane.deleteIdempotency(key);
+    assert.equal(await backplane.getIdempotency(key), null);
+    assert.equal(redis.values.get(redisKey), stale);
+    assert.deepEqual(calls, []);
+    assert.deepEqual(redis.evaluations, []);
+
+    assert.deepEqual(await backplane.acquireSessionLock("session-a", "worker-a"), { ok: true, owner: "worker-a" });
+    assert.equal(redis.values.get("them:talk:lock:session-a"), "worker-a");
+    await backplane.emitTalkCommit({ turnId: "turn-a", statusCode: 207 });
+    assert.deepEqual(streams, [["them:talk:commits", "*", {
+      payload: JSON.stringify({ turnId: "turn-a", statusCode: 207 }),
+    }]]);
+  });
+}
+
+test("durable replay outage fails closed instead of returning stale Redis", async (t) => {
+  const { root, persistence } = fixture();
+  const redis = redisProtocolFixture();
+  let durableReads = 0;
+  let redisReads = 0;
+  const get = redis.client.get;
+  redis.client.get = async (...args) => { redisReads += 1; return get(...args); };
+  const key = "user:writer-a|durable-outage";
+  redis.values.set(`them:talk:idemp:${key}`, JSON.stringify({
+    status: "completed", body: { encoding: "base64", data: "/wCA" }, expiresAt: Date.now() + 60_000,
+  }));
+  const backplane = await createScaleBackplane({
+    persistence: { ...persistence, async get() {
+      durableReads += 1;
+      throw new Error("synthetic durable outage");
+    } },
+    redisUrl: "redis-fixture", redisClientFactory: () => redis.client,
+    outboxFilePath: path.join(root, "outbox.json"), logger: { log() {} },
+  });
+  t.after(async () => {
+    await backplane.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+  await backplane.init();
+  await assert.rejects(backplane.getIdempotency(key), /synthetic durable outage/);
+  assert.equal(durableReads, 1);
+  assert.equal(redisReads, 0);
+});
+
+test("Redis-only admission and exact replay remain functional", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "them-replay-redis-only-"));
+  const redis = redisProtocolFixture();
+  const backplane = await createScaleBackplane({
+    redisUrl: "redis-fixture", redisClientFactory: () => redis.client,
+    outboxFilePath: path.join(root, "outbox.json"), logger: { log() {} },
+  });
+  t.after(async () => {
+    await backplane.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+  await backplane.init();
+  const key = "user:writer-a|redis-only";
+  const pending = { status: "pending", createdAt: 1, expiresAt: Date.now() + 60_000 };
+  await backplane.setIdempotency(key, pending, 60_000);
+  await assert.rejects(backplane.setIdempotency(key, pending, 60_000),
+    (error) => error?.code === "TALK_IDEMPOTENCY_CONFLICT");
+  const completed = { ...pending, status: "completed", body: Buffer.from([255, 0, 128, 42]) };
+  await backplane.setIdempotency(key, completed, 60_000);
+  assert.deepEqual(await backplane.getIdempotency(key), completed);
+  await backplane.deleteIdempotency(key);
+  assert.equal(await backplane.getIdempotency(key), null);
+});
