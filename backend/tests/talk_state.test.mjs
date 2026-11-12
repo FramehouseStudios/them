@@ -19,6 +19,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import express from "express";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
+import { createJsonPersistence } from "../lib/persistence_json.js";
+import { createScaleBackplane } from "../lib/scale_backplane.mjs";
 
 import {
   createTalkRateLimitGuard,
@@ -270,6 +276,11 @@ function stubScaleBackplane() {
     async deleteIdempotency(key) {
       this._idempotency.delete(key);
     },
+    async retirePendingIdempotency(key, expected) {
+      if (this._idempotency.get(key) !== expected) return false;
+      this._idempotency.delete(key);
+      return true;
+    },
     async acquireSessionLock(key, requestId /* , ttlMs */) {
       if (this._sessionLocks.has(key)) return { ok: false };
       this._sessionLocks.set(key, requestId);
@@ -353,6 +364,7 @@ test("idempotency guard cache miss calls next()", async () => {
     cacheKey: "ip:1.2.3.4|abc",
     key: "abc",
     sessionKey: "ip:1.2.3.4",
+    pendingRecord: __test.peekIdempotencyCache().get("ip:1.2.3.4|abc"),
   });
   assert.equal(talkIdempotencyCacheSize(), 1);
 });
@@ -492,7 +504,8 @@ test("idempotency guard finish handler removes unresolved pending", async () => 
   await guard(req, res, () => {});
   assert.equal(talkIdempotencyCacheSize(), 1);
   res.emit("finish");
-  assert.equal(talkIdempotencyCacheSize(), 0, "finish on unresolved pending should evict cache entry");
+  await req.talkIdempotency.pendingRetirement;
+  assert.equal(talkIdempotencyCacheSize(), 0, "confirmed finish retirement should evict cache entry");
 });
 
 // =====================================================================
@@ -787,6 +800,7 @@ test("ops/metrics integration: accessors match live state after a turn sequence"
   // Finish releases session + concurrency counters; idempotency
   // pending entry is also cleared on finish.
   res1.emit("finish");
+  await req1.talkIdempotency.pendingRetirement;
   assert.equal(talkInFlightBySessionSize(), 0);
   assert.equal(talkInFlight(), 0);
   // Pending was removed via the finish handler.
@@ -894,8 +908,8 @@ test("idempotency helpers clearPending removes pending but keeps completed", asy
   const req = stubRequest({ headers: { "Idempotency-Key": "cp" } });
   await guard(req, stubResponse(), () => {});
   assert.equal(talkIdempotencyCacheSize(), 1);
-  helpers.clearPending(req, { keepCompleted: true });
-  // Pending should be wiped because keepCompleted only protects completed.
+  await helpers.clearPending(req, { keepCompleted: true });
+  // Exact pending retirement must be confirmed before local ownership is removed.
   assert.equal(talkIdempotencyCacheSize(), 0);
 });
 
@@ -1458,4 +1472,267 @@ test("session handoff: disabled serial guard preserves bypass behavior", async (
   await guard(stubRequest(), stubResponse(), () => continuations++);
   assert.equal(continuations, 1);
   assert.equal(talkInFlightBySessionSize(), 0);
+});
+
+
+// Real JSON persistence and backplane; only acknowledgment timing is controlled.
+async function pendingRetirementFixture(t, wrap = adapter => adapter) {
+  resetState();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "them-owned-pending-"));
+  const jsonRoot = path.join(root, "persistence");
+  const persistence = createJsonPersistence({ jsonRoot });
+  const backplane = await createScaleBackplane({ persistence: wrap(persistence),
+    outboxFilePath: path.join(root, "outbox.json"), logger: { log() {} } });
+  await backplane.init();
+  t.after(async () => { await backplane.close(); fs.rmSync(root, { recursive: true, force: true }); });
+  const config = { scaleBackplane: backplane, talkIdempotencyEnabled: true,
+    talkIdempotencyTtlMs: 60_000, talkIdempotencyMaxEntries: 16 };
+  const helpers = createTalkIdempotencyHelpers(config);
+  const guardConfig = { ...config,
+    isSpeculativePrepareRequest: () => false, normalizeIdempotencyKey: v => String(v || ""),
+    resolveTalkSessionKey: () => "retirement-session", recordTalkMetric() {},
+    logger: { log() {}, warn() {} }, now: () => Date.now() };
+  const guard = createTalkIdempotencyGuard(guardConfig);
+  async function admit(selectedGuard = guard) {
+    const req = stubRequest({ authUser: { id: "retirement-writer" },
+      requestId: "reused-request-id", headers: { "X-Idempotency-Key": "owned-turn" } });
+    const res = stubResponse();
+    let called = false;
+    await selectedGuard(req, res, error => { assert.ifError(error); called = true; });
+    assert.equal(called, true, JSON.stringify(res._recorded.body));
+    return { req, res, pending: __test.peekIdempotencyCache().get(req.talkIdempotency.cacheKey) };
+  }
+  return { persistence, backplane, helpers, guard, guardConfig, admit, jsonRoot };
+}
+
+for (const cleanup of ["finish", "clearPending"]) {
+  test(`owned pending retirement: ${cleanup} during committed prepared ACK preserves fresh-process replay`, async t => {
+    const prepared = heldReply();
+    const acknowledge = heldReply();
+    const retired = heldReply();
+    const f = await pendingRetirementFixture(t, adapter => ({ ...adapter,
+      async compareAndSwap(args) {
+        const result = await adapter.compareAndSwap(args);
+        if (result && args.value?.status === "prepared") {
+          prepared.resolve(); await acknowledge.promise;
+        }
+        return result;
+      },
+      async delete(args) { const result = await adapter.delete(args); retired.resolve(); return result; },
+      async compareAndDelete(args) {
+        const result = await adapter.compareAndDelete(args); retired.resolve(); return result;
+      },
+    }));
+    const { req, res } = await f.admit();
+    const key = req.talkIdempotency.cacheKey;
+    const body = Buffer.from([0, 255, 128, 42]);
+    const committing = f.helpers.commitSuccess(req, { statusCode: 207,
+      headers: { "Content-Type": "application/octet-stream", "X-Turn-Id": "exact-turn" }, body })
+      .then(() => ({ ok: true }), error => ({ ok: false, code: error.code }));
+    await prepared.promise;
+    if (cleanup === "finish") res.emit("finish");
+    else f.helpers.clearPending(req, { keepCompleted: true });
+    await retired.promise;
+    const durableBeforeAck = await f.persistence.get({ domain: "talk_idempotency", key });
+    // An entirely new process must see the accepted receipt while the original ACK is still withheld.
+    const child = spawnSync(process.execPath, ["--input-type=module", "-e", `
+      import {createJsonPersistence} from ${JSON.stringify(new URL("../lib/persistence_json.js", import.meta.url).href)};
+      import {createScaleBackplane} from ${JSON.stringify(new URL("../lib/scale_backplane.mjs", import.meta.url).href)};
+      const bp=await createScaleBackplane({persistence:createJsonPersistence({jsonRoot:process.argv[1]}),
+        outboxFilePath:process.argv[1]+'/restart-outbox.json',logger:{log(){}}});
+      await bp.init(); const r=await bp.getIdempotency(process.argv[2]);
+      console.log(JSON.stringify(r ? {...r,body:[...r.body]} : null)); await bp.close();
+    `, f.jsonRoot, key], { encoding: "utf8" });
+    acknowledge.resolve();
+    const outcome = await committing;
+    assert.equal(child.status, 0, child.stderr);
+    const recovered = JSON.parse(child.stdout);
+    const trace = { durableBeforeAck: durableBeforeAck?.status ?? null,
+      freshProcess: recovered?.status ?? null, outcome };
+    t.diagnostic(JSON.stringify(trace));
+    assert.equal(durableBeforeAck?.status, "prepared");
+    assert.equal(recovered?.status, "prepared");
+    assert.deepEqual(recovered.body, [...body]);
+    assert.equal(recovered.statusCode, 207);
+    assert.equal(recovered.headers["x-turn-id"], "exact-turn");
+    assert.deepEqual(outcome, { ok: true });
+    assert.equal((await f.backplane.getIdempotency(key)).status, "completed");
+  });
+}
+
+for (const staleAction of ["finish", "clearPending", "commitSuccess"]) {
+  test(`owned pending retirement: old ${staleAction} cannot mutate same-clock retry`, async t => {
+    const realNow = Date.now;
+    const clock = realNow();
+    Date.now = () => clock;
+    t.after(() => { Date.now = realNow; });
+    const f = await pendingRetirementFixture(t);
+    const old = await f.admit();
+    await f.helpers.clearPending(old.req, { keepCompleted: true });
+    // Existing callers do not await clearPending; let their fire-and-forget storage settle on the old source too.
+    await new Promise(resolve => setImmediate(resolve));
+    const current = await f.admit();
+    assert.equal(old.pending.createdAt, current.pending.createdAt);
+    assert.equal(old.req.requestId, current.req.requestId);
+    if (staleAction === "finish") old.res.emit("finish");
+    if (staleAction === "clearPending") await f.helpers.clearPending(old.req, { keepCompleted: false });
+    if (staleAction === "commitSuccess") {
+      await assert.rejects(f.helpers.commitSuccess(old.req, { body: Buffer.from("stale bytes") }),
+        error => error?.code === "TALK_IDEMPOTENCY_CONFLICT");
+    }
+    await new Promise(resolve => setImmediate(resolve));
+    const key = current.req.talkIdempotency.cacheKey;
+    assert.equal(__test.peekIdempotencyCache().get(key), current.pending);
+    assert.equal((await f.backplane.getIdempotency(key))?.status, "pending");
+    assert.notEqual(old.pending.admissionId, current.pending.admissionId);
+    await f.helpers.commitSuccess(current.req, { body: Buffer.from("current exact bytes") });
+    assert.deepEqual((await f.backplane.getIdempotency(key)).body, Buffer.from("current exact bytes"));
+  });
+}
+
+for (const delayedStatus of ["prepared", "completed"]) {
+  test(`owned pending retirement: delayed ${delayedStatus} publication cannot overwrite retry owner`, async t => {
+    const realNow = Date.now;
+    let clock = realNow();
+    Date.now = () => clock;
+    t.after(() => { Date.now = realNow; });
+    const committed = heldReply();
+    const acknowledge = heldReply();
+    let held = false;
+    const f = await pendingRetirementFixture(t, adapter => ({ ...adapter,
+      async compareAndSwap(args) {
+        const result = await adapter.compareAndSwap(args);
+        if (!held && result && args.value?.status === delayedStatus) {
+          held = true; committed.resolve(); await acknowledge.promise;
+        }
+        return result;
+      },
+    }));
+    const old = await f.admit();
+    const committing = f.helpers.commitSuccess(old.req, { body: Buffer.from("expired old bytes") })
+      .then(() => ({ ok: true }), error => ({ ok: false, code: error.code }));
+    await committed.promise;
+    clock += 60_001;
+    f.helpers.pruneCache(clock);
+    const current = await f.admit();
+    acknowledge.resolve();
+    await committing;
+    const key = current.req.talkIdempotency.cacheKey;
+    assert.equal(__test.peekIdempotencyCache().get(key), current.pending);
+    assert.equal((await f.backplane.getIdempotency(key))?.status, "pending");
+    await f.helpers.commitSuccess(current.req, { body: Buffer.from("retry exact bytes") });
+    assert.deepEqual((await f.backplane.getIdempotency(key)).body, Buffer.from("retry exact bytes"));
+  });
+}
+
+test("owned pending retirement: generic error clear then recovery commit leaves fallback unkeyed and permits retry", async t => {
+  const f = await pendingRetirementFixture(t);
+  const { req } = await f.admit();
+  const key = req.talkIdempotency.cacheKey;
+  // This is the production generic catch ordering: no await between cleanup and fallback commit.
+  f.helpers.clearPending(req, { keepCompleted: true });
+  await f.helpers.commitSuccess(req, { body: Buffer.from("error fallback audio") });
+  assert.equal(await f.backplane.getIdempotency(key), null);
+  assert.equal(__test.peekIdempotencyCache().has(key), false);
+  const retry = await f.admit();
+  await f.helpers.commitSuccess(retry.req, { body: Buffer.from("retried accepted audio") });
+  assert.deepEqual((await f.backplane.getIdempotency(key)).body, Buffer.from("retried accepted audio"));
+});
+
+
+for (const capability of ["missing", "throws"]) {
+  test(`owned pending retirement: ${capability} atomic deletion retains ownership without unhandled cleanup errors`, async t => {
+    const f = await pendingRetirementFixture(t, adapter => ({ ...adapter,
+      compareAndDelete: capability === "missing" ? undefined : async () => { throw new Error("retirement unavailable"); },
+      async delete() { assert.fail("pending retirement must never fall back to delete"); },
+    }));
+    const { req, res, pending } = await f.admit();
+    res.emit("finish");
+    assert.equal(await req.talkIdempotency.pendingRetirement, false);
+    const key = req.talkIdempotency.cacheKey;
+    assert.equal(__test.peekIdempotencyCache().get(key), pending);
+    assert.equal((await f.backplane.getIdempotency(key))?.status, "pending");
+    await assert.rejects(f.helpers.commitSuccess(req, { body: Buffer.from("error fallback") }),
+      error => error?.code === "TALK_IDEMPOTENCY_CONFLICT");
+    const retryRes = stubResponse();
+    await f.guard(req, retryRes, () => assert.fail("unconfirmed retirement cannot admit another generation"));
+    assert.equal(retryRes._recorded.statusCode, 409);
+    assert.equal(retryRes._recorded.headers["retry-after"], "1");
+  });
+}
+
+test("owned pending retirement: delayed delete ACK cannot evict a newer local retry", async t => {
+  const realNow = Date.now;
+  let clock = realNow();
+  Date.now = () => clock;
+  t.after(() => { Date.now = realNow; });
+  const deleted = heldReply();
+  const acknowledge = heldReply();
+  const f = await pendingRetirementFixture(t, adapter => ({ ...adapter,
+    async compareAndDelete(args) {
+      const result = await adapter.compareAndDelete(args);
+      if (result) { deleted.resolve(); await acknowledge.promise; }
+      return result;
+    },
+  }));
+  const old = await f.admit();
+  const retiring = f.helpers.clearPending(old.req);
+  await deleted.promise;
+  clock += 60_001;
+  f.helpers.pruneCache(clock);
+  const current = await f.admit();
+  acknowledge.resolve();
+  assert.equal(await retiring, true);
+  const key = current.req.talkIdempotency.cacheKey;
+  assert.equal(__test.peekIdempotencyCache().get(key), current.pending);
+  assert.equal((await f.backplane.getIdempotency(key)).admissionId, current.pending.admissionId);
+});
+
+test("owned pending retirement: explicit cleanup cannot discard completed bytes even with keepCompleted false", async t => {
+  const f = await pendingRetirementFixture(t);
+  const { req } = await f.admit();
+  const body = Buffer.from([255, 0, 128]);
+  await f.helpers.commitSuccess(req, { body });
+  assert.equal(await f.helpers.clearPending(req, { keepCompleted: false }), false);
+  assert.deepEqual((await f.backplane.getIdempotency(req.talkIdempotency.cacheKey)).body, body);
+});
+
+
+test("owned pending retirement: delayed admission ACK cannot publish over a newer retry", async t => {
+  const realNow = Date.now;
+  let clock = realNow();
+  Date.now = () => clock;
+  t.after(() => { Date.now = realNow; });
+  const admitted = heldReply();
+  const acknowledge = heldReply();
+  let held = false;
+  const f = await pendingRetirementFixture(t, adapter => ({ ...adapter,
+    async compareAndSwap(args) {
+      const result = await adapter.compareAndSwap(args);
+      if (!held && result && args.value?.status === "pending") {
+        held = true; admitted.resolve(); await acknowledge.promise;
+      }
+      return result;
+    },
+  }));
+  const req = stubRequest({ authUser: { id: "retirement-writer" },
+    headers: { "X-Idempotency-Key": "owned-turn" } });
+  const res = stubResponse();
+  let oldNext = false;
+  const admitting = f.guard(req, res, () => { oldNext = true; });
+  await admitted.promise;
+  clock += 60_001;
+  // A second production owner has its own admission queue, as another worker does.
+  const other = await createScaleBackplane({ persistence: f.persistence,
+    outboxFilePath: path.join(f.jsonRoot, "other-outbox.json"), logger: { log() {} } });
+  await other.init();
+  t.after(() => other.close());
+  const current = await f.admit(createTalkIdempotencyGuard({ ...f.guardConfig, scaleBackplane: other }));
+  acknowledge.resolve();
+  await admitting;
+  const key = current.req.talkIdempotency.cacheKey;
+  assert.equal(oldNext, false);
+  assert.equal(res._recorded.statusCode, 409);
+  assert.equal(__test.peekIdempotencyCache().get(key), current.pending);
+  assert.equal((await f.backplane.getIdempotency(key)).admissionId, current.pending.admissionId);
 });

@@ -715,6 +715,20 @@ export async function createScaleBackplane({
     }
   }
 
+  async function retirePendingIdempotency(cacheKey, expectedValue) {
+    const key = safeString(cacheKey, 320);
+    if (!key || expectedValue?.status !== "pending" || !expectedValue?.admissionId) return false;
+    const expected = encodeIdempotencyRecord(expectedValue);
+    if (hasDurableIdempotency) return deleteIdempotencySnapshot(key, expected);
+    if (state.redisEnabled && state.redis) {
+      if (typeof state.redis.eval !== "function") return false;
+      return Number(await state.redis.eval(REDIS_COMPARE_AND_DELETE, {
+        keys: [`them:talk:idemp:${key}`], arguments: [JSON.stringify(expected)],
+      })) === 1;
+    }
+    return true; // Without an external store the caller's exact local owner is authoritative.
+  }
+
   async function deleteIdempotency(cacheKey) {
     const key = safeString(cacheKey, 320);
     if (!key) return;
@@ -766,6 +780,7 @@ export async function createScaleBackplane({
     setIdempotency,
     compareAndSetIdempotency,
     deleteIdempotency,
+    retirePendingIdempotency,
     emitTalkCommit,
     acquireSessionLock,
     releaseSessionLock,

@@ -750,3 +750,62 @@ for (const failure of ["missing eval", "eval error"]) {
     assert.equal(redis.unconditionalDeletes, 0);
   });
 }
+
+
+for (const store of ["durable", "redis"]) {
+  for (const winner of ["pending", "prepared", "completed"]) {
+    test(`pending retirement: ${store} rejects old snapshot after same-clock ${winner} replacement`, async t => {
+      const { root, persistence } = fixture();
+      const redis = redisProtocolFixture();
+      const config = { ...(store === "durable" ? { persistence } : {
+        redisUrl: "redis-fixture", redisClientFactory: () => redis.client }),
+        outboxFilePath: path.join(root, "outbox.json"), logger: { log() {} } };
+      const reader = await createScaleBackplane(config);
+      const writer = await createScaleBackplane(config);
+      await Promise.all([reader.init(), writer.init()]);
+      t.after(async () => { await Promise.all([reader.close(), writer.close()]); fs.rmSync(root, { recursive: true, force: true }); });
+      const key = "user:writer-a|retirement";
+      const pending = { status: "pending", admissionId: "admission-a", createdAt: Date.now(),
+        expiresAt: Date.now() + 60_000, body: Buffer.from([0, 255, 128]) };
+      await reader.setIdempotency(key, pending, 60_000, 16);
+      const rawPending = store === "durable"
+        ? await persistence.get({ domain: "talk_idempotency", key })
+        : redis.values.get(`them:talk:idemp:${key}`);
+      assert.equal(await writer.retirePendingIdempotency(key, pending), true);
+      const nextPending = { ...pending, admissionId: "admission-b" };
+      await writer.setIdempotency(key, nextPending, 60_000, 16);
+      const accepted = { ...nextPending, status: winner };
+      if (winner !== "pending") await writer.compareAndSetIdempotency(key, nextPending, accepted);
+      assert.equal(await reader.retirePendingIdempotency(key, pending), false);
+      assert.deepEqual(await writer.getIdempotency(key), accepted);
+      if (store === "redis") {
+        assert.equal(redis.unconditionalDeletes, 0);
+        assert.equal(redis.evaluations.at(-1).arguments[0], rawPending);
+        assert.equal(JSON.parse(rawPending).body.encoding, "base64");
+      } else {
+        assert.equal(rawPending.body.encoding, "base64");
+      }
+      assert.equal(await reader.retirePendingIdempotency(key, { ...accepted, status: "completed" }), false);
+      assert.deepEqual(await writer.getIdempotency(key), accepted);
+    });
+  }
+}
+
+for (const capability of ["missing", "throws"]) {
+  test(`pending retirement: Redis ${capability} eval retains lease for TTL without DEL fallback`, async t => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "them-retirement-redis-"));
+    const redis = redisProtocolFixture();
+    redis.client.eval = capability === "missing" ? undefined : async () => { throw new Error("eval unavailable"); };
+    const backplane = await createScaleBackplane({ redisUrl: "redis-fixture",
+      redisClientFactory: () => redis.client, outboxFilePath: path.join(root, "outbox.json"), logger: { log() {} } });
+    await backplane.init();
+    t.after(async () => { await backplane.close(); fs.rmSync(root, { recursive: true, force: true }); });
+    const key = "user:writer-a|no-eval";
+    const pending = { status: "pending", admissionId: "owned-admission", createdAt: Date.now(), expiresAt: Date.now() + 60_000 };
+    await backplane.setIdempotency(key, pending);
+    if (capability === "missing") assert.equal(await backplane.retirePendingIdempotency(key, pending), false);
+    else await assert.rejects(backplane.retirePendingIdempotency(key, pending), /eval unavailable/);
+    assert.deepEqual(await backplane.getIdempotency(key), pending);
+    assert.equal(redis.unconditionalDeletes, 0);
+  });
+}

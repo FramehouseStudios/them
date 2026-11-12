@@ -34,6 +34,8 @@
 // setTalkRateLimiter, setTalkIdempotencyCache, etc.). Per-entry
 // access is named through commitSuccess / clearPending only.
 
+import { randomUUID } from "node:crypto";
+
 const talkRateBuckets = new Map();
 const talkIdempotencyCache = new Map();
 const talkInFlightBySession = new Map();
@@ -141,6 +143,32 @@ async function persistTalkIdempotencyTransition(
     return scaleBackplane.compareAndSetIdempotency(cacheKey, expected, next, ttlMs);
   }
   return scaleBackplane.setIdempotency(cacheKey, next, ttlMs, maxEntries);
+}
+
+function publishTalkIdempotencyTransition(cacheKey, expected, next) {
+  const current = talkIdempotencyCache.get(cacheKey);
+  if (current && current !== expected) return;
+  talkIdempotencyCache.set(cacheKey, next);
+}
+
+function retireOwnedTalkPending(scaleBackplane, ctx, logger = console) {
+  const expected = ctx?.pendingRecord;
+  if (!expected || talkIdempotencyCache.get(ctx.cacheKey) !== expected) return Promise.resolve(false);
+  if (ctx.pendingRetirement) return ctx.pendingRetirement;
+  ctx.pendingRetirement = (async () => {
+    try {
+      if (typeof scaleBackplane.retirePendingIdempotency !== "function") return false;
+      const retired = await scaleBackplane.retirePendingIdempotency(ctx.cacheKey, expected);
+      if (retired && talkIdempotencyCache.get(ctx.cacheKey) === expected) {
+        talkIdempotencyCache.delete(ctx.cacheKey);
+      }
+      return retired;
+    } catch (error) {
+      logger.warn?.(`[talk_idempotency] pending_retirement_error=${error?.message || error}`);
+      return false; // Keep ownership until TTL when exact retirement cannot be confirmed.
+    }
+  })();
+  return ctx.pendingRetirement;
 }
 
 async function restoreAcceptedTalkMetadata(req, record, restoreTurnMetadata) {
@@ -267,7 +295,8 @@ export function createTalkIdempotencyGuard({
               ? distributed.body
               : (distributed.body ? Buffer.from(distributed.body?.data || []) : Buffer.alloc(0)),
           };
-          talkIdempotencyCache.set(cacheKey, existing);
+          publishTalkIdempotencyTransition(cacheKey, undefined, existing);
+          existing = talkIdempotencyCache.get(cacheKey);
         }
       }
       if (existing) {
@@ -326,7 +355,7 @@ export function createTalkIdempotencyGuard({
               talkIdempotencyTtlMs,
               talkIdempotencyMaxEntries
             );
-            talkIdempotencyCache.set(cacheKey, completed);
+            publishTalkIdempotencyTransition(cacheKey, existing, completed);
             recordTalkMetric({
               statusCode: 208,
               totalMs: 0,
@@ -380,27 +409,31 @@ export function createTalkIdempotencyGuard({
         sessionKey,
         userId: String(req?.authUser?.id || req?.authUser?.user_id || req?.authUser?.userId || "").trim(),
         status: "pending",
+        admissionId: randomUUID(),
         createdAt: t,
         expiresAt: t + talkIdempotencyTtlMs,
       };
+      const localBeforeAdmission = talkIdempotencyCache.get(cacheKey);
       await scaleBackplane.setIdempotency(
         cacheKey,
         pendingRecord,
         talkIdempotencyTtlMs,
         talkIdempotencyMaxEntries
       );
-      talkIdempotencyCache.set(cacheKey, pendingRecord);
+      publishTalkIdempotencyTransition(cacheKey, localBeforeAdmission, pendingRecord);
+      if (talkIdempotencyCache.get(cacheKey) !== pendingRecord) {
+        const error = new Error("talk idempotency admission was superseded");
+        error.code = "TALK_IDEMPOTENCY_CONFLICT";
+        throw error;
+      }
       req.talkIdempotency = {
         cacheKey,
         key: headerKey,
         sessionKey,
+        pendingRecord,
       };
-      res.on("finish", () => {
-        const record = talkIdempotencyCache.get(cacheKey);
-        if (!record || String(record.status || "") !== "pending") return;
-        talkIdempotencyCache.delete(cacheKey);
-        void scaleBackplane.deleteIdempotency(cacheKey);
-      });
+      const ctx = req.talkIdempotency;
+      res.on("finish", () => { void retireOwnedTalkPending(scaleBackplane, ctx, logger); });
       next();
     } catch (err) {
       if (err?.code === "TALK_IDEMPOTENCY_CONFLICT") {
@@ -626,6 +659,7 @@ export function createTalkIdempotencyHelpers({
   talkIdempotencyTtlMs,
   talkIdempotencyMaxEntries,
   restoreTurnMetadata = null,
+  logger = console,
 } = {}) {
   if (
     !scaleBackplane ||
@@ -670,8 +704,15 @@ export function createTalkIdempotencyHelpers({
       if (!talkIdempotencyEnabled) return settlePageWithoutReplay(req);
       const ctx = req?.talkIdempotency;
       if (!ctx?.cacheKey) return settlePageWithoutReplay(req);
+      const retired = ctx.pendingRetirement ? await ctx.pendingRetirement : null;
       const existing = talkIdempotencyCache.get(ctx.cacheKey) || await scaleBackplane.getIdempotency(ctx.cacheKey);
       if (!existing) return;
+      if ((ctx.pendingRecord && existing.admissionId !== ctx.pendingRecord.admissionId) || retired === false) {
+        const error = new Error("talk idempotency pending ownership was not retained");
+        error.code = "TALK_IDEMPOTENCY_CONFLICT";
+        error.retryable = true;
+        throw error;
+      }
       if (String(existing.status || "") === "completed") {
         // A send failure or late recovery callback cannot replace accepted
         // bytes after the durable receipt and response already committed.
@@ -698,7 +739,7 @@ export function createTalkIdempotencyHelpers({
             talkIdempotencyTtlMs,
             talkIdempotencyMaxEntries
           );
-          talkIdempotencyCache.set(ctx.cacheKey, completed);
+          publishTalkIdempotencyTransition(ctx.cacheKey, existing, completed);
         }
         const error = new Error("talk response was already prepared for settlement recovery");
         error.code = "TALK_IDEMPOTENCY_RESPONSE_PREPARED";
@@ -733,7 +774,7 @@ export function createTalkIdempotencyHelpers({
         talkIdempotencyTtlMs,
         talkIdempotencyMaxEntries
       );
-      talkIdempotencyCache.set(ctx.cacheKey, prepared);
+      publishTalkIdempotencyTransition(ctx.cacheKey, existing, prepared);
       await restoreAcceptedTalkMetadata(req, prepared, restoreTurnMetadata);
       if (prepared.settlement && typeof req?.clementine?.settleWalletDurably === "function") {
         await req.clementine.settleWalletDurably(prepared.settlement);
@@ -752,21 +793,15 @@ export function createTalkIdempotencyHelpers({
         talkIdempotencyTtlMs,
         talkIdempotencyMaxEntries
       );
-      talkIdempotencyCache.set(ctx.cacheKey, completed);
+      publishTalkIdempotencyTransition(ctx.cacheKey, prepared, completed);
       pruneTalkIdempotencyCacheInternal(
         talkIdempotencyTtlMs,
         talkIdempotencyMaxEntries,
         now
       );
     },
-    clearPending(req, { keepCompleted = true } = {}) {
-      const ctx = req?.talkIdempotency;
-      if (!ctx?.cacheKey) return;
-      const existing = talkIdempotencyCache.get(ctx.cacheKey);
-      if (!existing) return;
-      if (keepCompleted && ["prepared", "completed"].includes(String(existing.status || ""))) return;
-      talkIdempotencyCache.delete(ctx.cacheKey);
-      void scaleBackplane.deleteIdempotency(ctx.cacheKey);
+    clearPending(req) {
+      return retireOwnedTalkPending(scaleBackplane, req?.talkIdempotency, logger);
     },
   };
 }
