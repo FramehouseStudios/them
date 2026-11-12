@@ -708,6 +708,149 @@ final class V1SmokeUITests: XCTestCase {
 #endif
     }
 
+    @MainActor
+    func test_first_run_held_login_hydration_preserves_replacement_fields() async throws {
+#if os(iOS)
+        guard let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_WRITER_LOOP_BACKEND_PORT"] ?? ""),
+              (1...65_535).contains(port), let baseURL = URL(string: "http://127.0.0.1:\(port)") else {
+            throw XCTSkip("The isolated held-login backend runner is required.")
+        }
+        let prefix = "/__test/onboarding-hydration"
+        let appToken = "onboarding-hydration-local-proof"
+        let controlHeaders = ["X-APP-TOKEN": appToken]
+        var setupHeaders = controlHeaders
+        setupHeaders["X-THEM-ONBOARDING-SETUP"] = "1"
+        let stamp = UUID().uuidString.lowercased()
+        let email = "onboarding-held-\(stamp)@example.test"
+        let password = "Local-onboarding-\(stamp)-aA1!"
+        let serverName = "Server Account A"
+        let witness = "T1426 hydration consumed"
+        let signup = try await requestJSON(baseURL: baseURL, path: "/auth/signup", method: "POST",
+            headers: setupHeaders, body: ["email": email, "password": password, "display_name": serverName])
+        try assertHTTP(signup, context: "Held-login synthetic signup")
+        let user = signup.payload["user"] as? [String: Any] ?? [:]
+        let userID = try firstNonEmptyString(user["user_id"], user["userId"], user["id"],
+            message: "Held-login fixture needs its real user ID")
+        let access = try firstNonEmptyString(signup.payload["access_token"], signup.payload["accessToken"],
+            message: "Held-login fixture needs its real access token")
+        setupHeaders["Authorization"] = "Bearer \(access)"
+        let session = try await requestJSON(baseURL: baseURL, path: "/session", method: "POST",
+            headers: setupHeaders, body: ["user_id": userID])
+        try assertHTTP(session, context: "Held-login seed session")
+        setupHeaders["X-Client-Token"] = try firstNonEmptyString(session.payload["client_token"],
+            message: "Held-login fixture needs its real client token")
+        let seeded = try await requestJSON(baseURL: baseURL, path: "/session/evolution", method: "PATCH",
+            headers: setupHeaders, body: ["preferred_name": serverName, "last_theme_cue": witness])
+        try assertHTTP(seeded, context: "Held-login seed named evolution")
+        let verified = try await requestJSON(baseURL: baseURL, path: "/session", method: "POST",
+            headers: setupHeaders, body: ["user_id": userID])
+        try assertHTTP(verified, context: "Held-login verify canonical evolution")
+        let evolution = verified.payload["evolution_sync"] as? [String: Any] ?? [:]
+        XCTAssertEqual(evolution["preferred_name"] as? String, serverName)
+        XCTAssertEqual(evolution["last_theme_cue"] as? String, witness)
+        let armed = try await requestJSON(baseURL: baseURL, path: prefix + "/arm", method: "POST",
+            headers: controlHeaders, body: nil)
+        try assertHTTP(armed, context: "Arm held real login")
+
+        func metrics() async throws -> [String: Any] {
+            let response = try await requestJSON(baseURL: baseURL, path: prefix + "/stats", method: "GET",
+                headers: controlHeaders, body: nil)
+            try assertHTTP(response, context: "Read held-login proof counts")
+            return response.payload
+        }
+        func waitForMetric(_ key: String) async throws -> [String: Any] {
+            let deadline = Date().addingTimeInterval(15)
+            while Date() < deadline {
+                let value = try await metrics()
+                if intValue(value[key]) > 0 { return value }
+                try await Task.sleep(nanoseconds: 100_000_000)
+            }
+            XCTFail("The real HTTP fixture never observed \(key).")
+            throw NSError(domain: "HeldOnboardingHydration", code: 1)
+        }
+        let app = launchApp(skipOnboarding: false, onboardingInputRecoveryToken: UUID().uuidString,
+            enforceProductionAuth: true, authResumeFixture: true, launchEnvironment: [
+                "THEM_UITEST_BACKEND_BASE_URL": baseURL.absoluteString,
+                "THEM_UITEST_APP_TOKEN": appToken, "THEM_UITEST_USE_STORED_AUTH_SESSION": "1",
+            ])
+        defer { app.terminate() }
+        // Reuse existing counters, not synthetic sign-in. Stored-auth mode
+        // suppresses both immutable overrides; this case taps real email login.
+        func reveal(_ target: XCUIElement) -> Bool {
+            guard target.waitForExistence(timeout: 3),
+                  scrollFullyIntoWindow(target, in: app) else { return false }
+            return waitForHittability(of: target, timeout: 2)
+        }
+        let name = textInput("onboarding.name.field", in: app)
+        XCTAssertTrue(name.waitForExistence(timeout: 8))
+        name.tap(); name.typeText("Ada")
+        let premise = textInput("onboarding.scene.field", in: app)
+        XCTAssertTrue(reveal(premise))
+        premise.tap(); premise.typeText("A first scene.")
+        _ = dismissKeyboardIfPresent(in: app)
+        let start = app.buttons["onboarding.start-page"]
+        guard reveal(start) else { return XCTFail("Initial page action is unreachable.") }
+        start.tap()
+        let emailField = element(identifier: "profile-auth-email", in: app)
+        XCTAssertTrue(emailField.waitForExistence(timeout: 6))
+        guard reveal(emailField) else { return XCTFail("Email input is unreachable.") }
+        emailField.tap(); emailField.typeText(email)
+        let passwordField = element(identifier: "profile-auth-password", in: app)
+        guard reveal(passwordField) else { return XCTFail("Password input is unreachable.") }
+        passwordField.tap(); passwordField.typeText(password)
+        _ = dismissKeyboardIfPresent(in: app)
+        let signIn = try XCTUnwrap(app.buttons.matching(NSPredicate(format: "label == %@", "Sign In"))
+            .allElementsBoundByIndex.last(where: { !$0.isSelected }))
+        guard reveal(signIn) else { return XCTFail("Real email sign-in is unreachable.") }
+        signIn.tap()
+        let held = try await waitForMetric("heldLoginResponses")
+        XCTAssertEqual(intValue(held["releasedLoginResponses"]), 0)
+        let done = app.buttons["profile-account-done"]
+        guard reveal(done) else { return XCTFail("Pending login cannot be dismissed.") }
+        done.tap()
+
+        let expectedName = "  Berta  "
+        let expectedPremise = "  B keeps the typed premise exactly.  "
+        XCTAssertTrue(name.waitForExistence(timeout: 5))
+        guard reveal(name) else { return XCTFail("Replacement name input is unreachable.") }
+        name.tap(withNumberOfTaps: 3, numberOfTouches: 1)
+        name.typeText(XCUIKeyboardKey.delete.rawValue); name.typeText(expectedName)
+        guard reveal(premise) else { return XCTFail("Replacement premise input is unreachable.") }
+        premise.tap(withNumberOfTaps: 3, numberOfTouches: 1)
+        premise.typeText(XCUIKeyboardKey.delete.rawValue); premise.typeText(expectedPremise)
+        XCTAssertEqual(name.value as? String, expectedName)
+        XCTAssertEqual(premise.value as? String, expectedPremise)
+        _ = dismissKeyboardIfPresent(in: app)
+        guard reveal(start) else { return XCTFail("Replacement page action is unreachable.") }
+        start.tap()
+        XCTAssertTrue(app.staticTexts["Sign in to THEM"].waitForExistence(timeout: 6))
+        let release = try await requestJSON(baseURL: baseURL, path: prefix + "/release", method: "POST",
+            headers: controlHeaders, body: nil)
+        try assertHTTP(release, context: "Release original real login response")
+        _ = try await waitForMetric("namedAppSessionResponses")
+        let hydrated = try await waitForMetric("hydrationContinuationRequests")
+        XCTAssertEqual(intValue(hydrated["heldLoginResponses"]), 1)
+        XCTAssertEqual(intValue(hydrated["releasedLoginResponses"]), 1)
+        XCTAssertEqual(intValue(hydrated["closedHeldLogins"]), 0)
+        XCTAssertEqual(intValue(hydrated["unexpectedMutations"]), 0)
+        XCTAssertEqual(intValue(hydrated["blockedOutboundCalls"]), 0)
+        XCTAssertTrue(waitForAccessibilityText(identifier: "onboarding.auth-resume.proof",
+            containing: "Magic moment submissions 0. Voice starts 0.", in: app, timeout: 5))
+        if done.exists, reveal(done) { done.tap() }
+        guard name.waitForExistence(timeout: 5), premise.exists else {
+            return XCTFail("Named account hydration removed the unfinished replacement form.")
+        }
+        XCTAssertEqual(Data((name.value as? String ?? "").utf8), Data(expectedName.utf8))
+        XCTAssertEqual(Data((premise.value as? String ?? "").utf8), Data(expectedPremise.utf8))
+        let projects = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects", method: "GET",
+            headers: setupHeaders, body: nil)
+        try assertHTTP(projects, context: "No automatically created projects")
+        XCTAssertEqual((projects.payload["screenplay_projects"] as? [[String: Any]] ?? []).count, 0)
+#else
+        throw XCTSkip("Held real-login onboarding hydration is an iPhone regression.")
+#endif
+    }
+
     func test_first_run_preserves_scene_while_authentication_is_required() throws {
 #if os(iOS)
         let app = launchApp(
