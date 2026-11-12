@@ -1,3 +1,68 @@
+# Original #994 — recovery ownership and acknowledgement proof, 2026-11-11
+
+## Latest follow-up: ordinary recovery page continuity
+
+Runtime source: `7911a5e38401310ae753ec3ce6d623db5eb921b0`, a descendant
+of publication `a3b172c6`. Original #994 and all prior heads remain preserved.
+
+VERIFIED: reviewing ordinary A, restoring preserved B at the same base, then
+editing B could overwrite A. The in-memory permission to advance A survived
+the page replacement. The before actual-model/fresh-store case failed 0/1/0
+(two assertions). No server save or explicit discard authorized replacing A.
+
+The canonical draft boundary now clears ordinary overwrite authority on changed
+hydration/queued restoration or when the remembered draft/base does not match
+the previous editor page/base. It does not delete stored data. Both contiguous
+typing controls still advance their own current snapshot. The newer page is
+retained separately, and the reviewed original and preserved copy remain exact.
+
+PR #994 is the earliest owner of this bug. #996's separate active-journal lease
+issue is being fixed locally and will receive this upstream correction by a
+preserving merge. It is not included in this PR's proof or claimed shipped.
+
+### Current-source verification
+
+Xcode 26.3 (17C529), erased task-owned iPhone17 Pro/iOS26.2 (23C54),
+UDID `81F0FF38-9DAD-4011-907B-357DFADD094C`, normal signing enabled for tests.
+
+| Check | Result |
+| --- | --- |
+| Ordinary replacement regression before fix | 0 passed / 1 failed / 0 skipped |
+| Same regression plus both continuous-typing controls after fix | 3 passed / 0 failed / 0 skipped |
+| Full signed themTests | 1,530 passed / 0 failed / 0 skipped |
+| Authenticated writer/create/save/export/relaunch UI | 1 passed / 0 failed / 0 skipped |
+| Authenticated custody save/lost-ack/reopen UI | 1 passed / 0 failed / 0 skipped |
+| Authenticated superseded custody/relaunch/new-choice UI | 1 passed / 0 failed / 0 skipped |
+| macOS scaffold compile | Passed |
+| D009 against actual parent #993 at5287e587; diff check | Passed; five zero deltas |
+
+Backend tree remains `2c40a5c3d1022c583462ad71014c0e173fed1ee8`. The
+unchanged Node20.20.2 full result 3,042/0/5 is inherited, not rerun locally.
+Four skips need dedicated PostgreSQL setup; one live case needs fresh paid-call
+approval. Local UI uses authenticated persistence and synthetic providers.
+No live model, physical phone, integrated-main or production proof is claimed.
+
+Artifacts for this follow-up:
+
+- `/private/tmp/them-t1380-ordinary-lineage-before.log` and `.xcresult`
+- `/private/tmp/them-t1380-ordinary-lineage-before-summary.json`
+- `/private/tmp/them-t1380-ordinary-lineage-after.log` and `.xcresult`
+- `/private/tmp/them-t1380-ordinary-lineage-after-summary.json`
+- `/private/tmp/them-t1380-ordinary-units.log` and `.xcresult`
+- `/private/tmp/them-t1380-ordinary-units-summary.json`
+- `/private/tmp/them-t1380-ordinary-mac.log`
+- `/private/tmp/them-t1380-ordinary-writer.log` and `.xcresult`
+- `/private/tmp/them-t1380-ordinary-custody-ui.log`
+- `/private/tmp/them-t1380-ordinary-superseded-ui.log`
+
+Fresh hosted checks and independent review remain required on the new head.
+Main remains unchanged. Production remains held; no paid model calls occurred.
+
+## Earlier acknowledgement checkpoint — runtime7ab85895, publicationa3b172c6
+
+The following record applies to the earlier source and preserves its original
+failure classifications. Its 1,529 unit count is not the current-source result.
+
 # Original #994 — recovery acknowledgement proof, 2026-11-11
 
 ## Scope and preserved history
@@ -54,7 +119,7 @@ another copy cannot establish that the newest visible page is safe.
 - Intermediate three-case after matrix passed 3/0/0. Final focused proof below
   additionally covers both readback paths on the final runtime source.
 
-## Final-source proof
+## Earlier-source proof (7ab85895)
 
 Xcode 26.3 (17C529), erased task-owned iPhone 17 Pro/iOS 26.2 (23C54),
 UDID `81F0FF38-9DAD-4011-907B-357DFADD094C`; normal signing enabled for tests.
