@@ -370,6 +370,25 @@ final class OnboardingInputRecoveryModelTests: XCTestCase {
         XCTAssertFalse(model.canRecover(editGeneration: model.editGeneration, access: known))
     }
 
+    func testTooLargeSealedCandidatePreservesVerifiedAWithoutSavingKnownC() async throws {
+        let (root, custody, hold) = heldFixture()
+        defer { hold.release(); try? FileManager.default.removeItem(at: root) }
+        let model = OnboardingInputRecoveryModel(custody: custody)
+        await model.inspect(signedOut); hold.arm()
+        model.editPremise("A stays protected", access: signedOut)
+        try await waitForHold(hold)
+        let original = try Data(contentsOf: root.appendingPathComponent("pending.json"))
+        model.editPremise(String(repeating: "B", count: OnboardingInputCustody.maximumCheckpointBytes + 1), access: signedOut)
+        let known = OnboardingInputAccess(active: true, credentialFree: false, authIntent: 11, sessionEpoch: 1)
+        model.updateAccess(known); model.editPremise("known C is only local", access: known)
+        hold.release(); try await waitForIdle(model)
+        XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent("current.json")), original)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("pending.json").path))
+        XCTAssertEqual(model.fields.premiseUTF8, Data("known C is only local".utf8))
+        XCTAssertEqual(model.status, .accountRestricted)
+        XCTAssertFalse(model.canRecover(editGeneration: model.editGeneration, access: known))
+    }
+
     func testSealedCaptureNeverAdoptsAnotherWindowsOccupiedDescriptor() async throws {
         let (root, custody, model) = fixture(); defer { try? FileManager.default.removeItem(at: root) }
         await model.inspect(signedOut)

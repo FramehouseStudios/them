@@ -27,12 +27,15 @@ final class OnboardingInputRecoveryModel: ObservableObject {
             case .tooLarge: "This input is too large for protected setup storage. Shorten it or copy it before closing."
             case .unconfirmed: "Setup storage could not be confirmed. Keep this screen open or copy your text before closing, then retry."
             case .readOnly: "Earlier fields may omit your latest words. Recovery is read-only; current edits are not saved. Both original files remain on this device."
-            case .accountRestricted: "These fields are only in this screen. Protected device-only setup capture requires signing out completely."
+            case .accountRestricted: "New signed-in edits are not captured here. Sign out completely to unlock protected device-only copies."
             }
         }
     }
     @Published private(set) var status: Status = .checking
     @Published private(set) var hasCapture = false
+    @Published private var earlierCapture: EarlierCapture = .none
+    private enum EarlierCapture { case none, sealing, protected, unconfirmed }
+    private var earlierDrainID: UUID?
     private(set) var editGeneration: UInt64 = 0
     private(set) var fields = OnboardingInputFields()
     let custody: OnboardingInputCustody
@@ -47,27 +50,87 @@ final class OnboardingInputRecoveryModel: ObservableObject {
     private var readOnlyRecovery = false
     private var failed: Write?
     private var verifiedFields: OnboardingInputFields?
+    private var drain: Drain?
     private struct Write: Sendable {
         let fields: OnboardingInputFields
         let expected: OnboardingInputDescriptor?
         let revisionID: String
         let epoch: UInt64
     }
+    private struct Candidate {
+        let fields: OnboardingInputFields
+        let revisionID: String
+    }
+    @MainActor private final class Drain {
+        let id = UUID()
+        let epoch: UInt64
+        var expected: OnboardingInputDescriptor?
+        var initial: Write?
+        var active: Write?
+        var pending: Candidate?
+        var sealed = false
+
+        init(_ work: Write, retry: Bool = false) {
+            epoch = work.epoch; expected = work.expected
+            if retry { initial = work }
+            else { pending = .init(fields: work.fields, revisionID: work.revisionID) }
+        }
+        func enqueue(_ fields: OnboardingInputFields) {
+            if fields == (active ?? initial)?.fields { pending = nil }
+            else if pending?.fields != fields {
+                pending = .init(fields: fields, revisionID: UUID().uuidString.lowercased())
+            }
+        }
+        func takeNext() -> Write? {
+            if let work = initial { initial = nil; return work }
+            guard let candidate = pending else { return nil }
+            pending = nil
+            return .init(fields: candidate.fields, expected: expected, revisionID: candidate.revisionID, epoch: epoch)
+        }
+    }
+
+    var custodyMessage: String {
+        guard access?.credentialFree == false else { return status.message }
+        switch earlierCapture {
+        case .none: return status.message
+        case .sealing: return "Finishing the earlier signed-out copy. New signed-in edits are not saved here. Keep these fields open."
+        case .protected: return "The earlier signed-out copy is protected on this device. New signed-in edits are not saved here. Sign out completely to recover device-only copies."
+        case .unconfirmed: return "The earlier signed-out copy could not be confirmed. Keep these fields open or copy your text before closing. New signed-in edits are not saved here."
+        }
+    }
 
     init(custody: OnboardingInputCustody = UnassignedLegacyRecoveryVault.onboardingInputs()) { self.custody = custody }
 
     func updateAccess(_ next: OnboardingInputAccess) {
-        if let previous = access, previous.authIntent != next.authIntent || previous.credentialFree != next.credentialFree {
-            epoch &+= 1
-            lease = nil
-            mayWrite = false
-            failed = nil
-            verifiedFields = nil
-            readOnlyRecovery = false
-            fields = .init()
-            editGeneration &+= 1
-            inspected = false
-            status = next.credentialFree ? .existing : .accountRestricted
+        if let previous = access {
+            let sameAnonymousBoundary = previous.credentialFree && next.credentialFree
+                && previous.sessionEpoch == next.sessionEpoch
+            let boundaryChanged = previous.sessionEpoch != next.sessionEpoch
+                || previous.credentialFree != next.credentialFree
+                || (previous.authIntent != next.authIntent && !sameAnonymousBoundary)
+            if boundaryChanged {
+                earlierDrainID = nil; earlierCapture = .none
+                if previous.credentialFree, let drain, drain.epoch == epoch, !drain.sealed {
+                    // Only snapshots enqueued under the old anonymous authority
+                    // may finish. Current bindings/new account fields are never read.
+                    drain.sealed = true
+                    earlierDrainID = drain.id; earlierCapture = .sealing
+                } else if previous.credentialFree, mayWrite, lease != nil, fields.hasEdits,
+                          fields == verifiedFields {
+                    earlierCapture = .protected
+                } else if previous.credentialFree, fields.hasEdits {
+                    earlierCapture = .unconfirmed
+                }
+                epoch &+= 1
+                lease = nil; mayWrite = false; failed = nil; verifiedFields = nil
+                readOnlyRecovery = false; fields = .init(); inspected = false
+                editGeneration &+= 1
+                status = next.credentialFree ? .existing : .accountRestricted
+            } else if previous.authIntent != next.authIntent {
+                // Reservation invalidates the exact reveal challenge, not the
+                // already-owned device-only capture lineage.
+                editGeneration &+= 1
+            }
         }
         access = next
         if !next.credentialFree { status = .accountRestricted }
@@ -117,35 +180,62 @@ final class OnboardingInputRecoveryModel: ObservableObject {
     }
 
     private func schedule() {
-        guard !writing, !readOnlyRecovery, !capturePausedUntilEdit, inspected, mayWrite, fields.hasEdits, fields != verifiedFields,
+        guard !readOnlyRecovery, !capturePausedUntilEdit, inspected, mayWrite, fields.hasEdits,
               access?.permitsAccess == true else { return }
-        writing = true
-        Task { @MainActor in
-            defer { writing = false }
-            while mayWrite, access?.permitsAccess == true, fields.hasEdits {
-                let work = Write(fields: fields, expected: lease, revisionID: UUID().uuidString.lowercased(), epoch: epoch)
-                status = .saving
-                let custody = custody
-                let result = await Task.detached(priority: .utility) {
-                    custody.checkpoint(work.fields, expected: work.expected, revisionID: work.revisionID)
-                }.value
-                guard accept(result, work: work) else { return }
-                if fields == work.fields { return }
+        if writing {
+            guard let drain, drain.epoch == epoch, !drain.sealed else { return }
+            // Freeze the value now, while capture is permitted, rather than
+            // reading mutable fields after an asynchronous write/auth change.
+            drain.enqueue(fields)
+            return
+        }
+        guard fields != verifiedFields else { return }
+        let owner = Drain(.init(fields: fields, expected: lease,
+            revisionID: UUID().uuidString.lowercased(), epoch: epoch))
+        drain = owner; writing = true
+        Task { @MainActor in await run(owner) }
+    }
+
+    private func run(_ owner: Drain) async {
+        defer {
+            if drain === owner {
+                drain = nil; writing = false
+                // A later anonymous epoch may have independently gained an
+                // empty-store lease while the old sealed write was finishing.
+                if owner.epoch != epoch { schedule() }
+            }
+        }
+        while let work = owner.takeNext() {
+            owner.active = work
+            let custody = custody
+            let result = await Task.detached(priority: .utility) {
+                custody.checkpoint(work.fields, expected: work.expected, revisionID: work.revisionID)
+            }.value
+            owner.active = nil
+            let publishesCurrent = !owner.sealed && owner.epoch == epoch && access?.credentialFree == true
+            if publishesCurrent { accept(result, work: work) }
+            switch result {
+            case .verified(let descriptor):
+                // Only this exact write's verified receipt advances its sealed
+                // successor. Never adopt an occupied/read-back descriptor.
+                owner.expected = descriptor
+                if earlierDrainID == owner.id {
+                    earlierCapture = owner.pending == nil ? .protected : .sealing
+                }
+            case .occupied, .tooLarge, .unconfirmed:
+                if earlierDrainID == owner.id { earlierCapture = .unconfirmed }
+                return
             }
         }
     }
 
-    private func accept(_ result: OnboardingInputWriteResult, work: Write) -> Bool {
-        guard work.epoch == epoch, access?.credentialFree == true else {
-            hasCapture = true; mayWrite = false
-            status = access?.credentialFree == true ? .existing : .accountRestricted
-            return false
-        }
+    private func accept(_ result: OnboardingInputWriteResult, work: Write) {
+        guard work.epoch == epoch, access?.credentialFree == true else { return }
         switch result {
         case .verified(let descriptor):
             lease = descriptor; verifiedFields = work.fields; mayWrite = true; hasCapture = true; failed = nil
             status = fields == work.fields ? .saved : .saving
-            return true
+            return
         case .occupied:
             hasCapture = true; mayWrite = false; failed = nil; status = .existing
         case .tooLarge:
@@ -154,7 +244,6 @@ final class OnboardingInputRecoveryModel: ObservableObject {
         case .unconfirmed:
             hasCapture = true; mayWrite = false; failed = work; status = .unconfirmed
         }
-        return false
     }
 
     func retry(_ next: OnboardingInputAccess) async {
@@ -162,14 +251,10 @@ final class OnboardingInputRecoveryModel: ObservableObject {
         guard !readOnlyRecovery else { status = .readOnly; return }
         guard !writing, next.permitsAccess else { return }
         if let work = failed, work.epoch == epoch {
-            writing = true; status = .saving
-            let custody = custody
-            let result = await Task.detached(priority: .utility) {
-                custody.checkpoint(work.fields, expected: work.expected, revisionID: work.revisionID)
-            }.value
-            let confirmed = accept(result, work: work)
-            writing = false
-            if confirmed && fields != work.fields { schedule() }
+            let owner = Drain(work, retry: true)
+            if fields != work.fields { owner.enqueue(fields) }
+            drain = owner; writing = true; status = .saving
+            await run(owner)
         } else {
             inspected = false
             await inspect(next)
@@ -343,7 +428,7 @@ struct OnboardingInputRecoveryScope<Content: View>: View {
             || model.fields.premiseWasEdited && Data(premise.utf8) != model.fields.premiseUTF8) {
             return "The previous input is protected. Current changed fields are not saved."
         }
-        return model.status.message
+        return model.custodyMessage
     }
 
     private func challengeIsCurrent() -> Bool {
@@ -353,12 +438,16 @@ struct OnboardingInputRecoveryScope<Content: View>: View {
     }
 
     private var currentAccess: OnboardingInputAccess {
+        // Bracket admission; this does not hold the auth lock across a UI edit.
+        let before = BackendAuthClient.currentAuthSessionEpoch()
         let session = BackendAuthClient.currentAuthSessionState()
+        let deletionPending = BackendAuthClient.authSessionTokenDeletionIsPending()
+        let intent = BackendAuthClient.currentAuthSessionIntentGeneration()
+        let after = BackendAuthClient.currentAuthSessionEpoch()
         return .init(active: scenePhase == .active,
-                     credentialFree: !BackendAuthClient.authSessionTokenDeletionIsPending()
+                     credentialFree: before == after && !deletionPending
                         && session.user == nil && !session.accessTokenPresent && !session.refreshTokenPresent,
-                     authIntent: BackendAuthClient.currentAuthSessionIntentGeneration(),
-                     sessionEpoch: BackendAuthClient.currentAuthSessionEpoch())
+                     authIntent: intent, sessionEpoch: after)
     }
 
     private static func processCustody() -> OnboardingInputCustody {
