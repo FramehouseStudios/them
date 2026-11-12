@@ -82,6 +82,18 @@ struct ScreenplayStudioHistoryMigrationPolicy {
 struct ScreenplayDraftSaveRecoveryPresentationPolicy {
     static let unreadableQueueStatus = "Local saves need attention"
     static let unreadableQueueError = "Local saves cannot be read. Your current page was kept. Export it before retrying."
+    static let unsecuredDraftWarning = "This page could not be secured locally. Keep it open and export it or retry Save."
+    static let fullRecoveryWarning = "Other recovery copies are stored. Export this page before closing or retry Save."
+
+    static func isLocalRecoveryWarning(_ message: String) -> Bool {
+        message == unsecuredDraftWarning || message == fullRecoveryWarning
+    }
+
+    static func localRecoveryWarning(hasUnsavedChanges: Bool, info: String, error: String) -> String? {
+        guard hasUnsavedChanges else { return nil }
+        if isLocalRecoveryWarning(error) { return error }
+        return isLocalRecoveryWarning(info) ? info : nil
+    }
 
     static func failureStatus(source: String) -> String {
         switch normalizedSource(source) {
@@ -114,6 +126,7 @@ struct ScreenplayDraftSaveRecoveryPresentationPolicy {
     }
 
     static func shouldClearInfoAfterSuccessfulSave(_ info: String) -> Bool {
+        if isLocalRecoveryWarning(info) { return true }
         let normalized = info.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !normalized.isEmpty else { return false }
         return normalized.contains("did not finish") ||

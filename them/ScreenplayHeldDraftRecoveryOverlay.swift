@@ -19,6 +19,7 @@ struct ScreenplayHeldDraftRecoveryOverlay: View {
     @ObservedObject private var bridge = ScreenplayLiveDraftBridge.shared
     let topInset: CGFloat
     @State private var reviewedToken: ScreenplayStudioViewModel.HeldDraftRecoveryReviewToken?
+    @State private var hasCustodyCopies = false
 
     var body: some View {
         Group {
@@ -46,6 +47,9 @@ struct ScreenplayHeldDraftRecoveryOverlay: View {
         }
         .sheet(item: $reviewedToken) { token in
             ScreenplayHeldDraftRecoveryReview(viewModel: viewModel, token: token)
+        }
+        .task(id: viewModel.heldDraftRecovery?.id) {
+            hasCustodyCopies = !(await viewModel.custodyRowsForReview()).isEmpty
         }
         .onChange(of: viewModel.selectedProjectID) { _, _ in reviewedToken = nil }
         .onChange(of: bridge.draftOrigin.documentID) { _, _ in reviewedToken = nil }
@@ -118,6 +122,9 @@ struct ScreenplayHeldDraftRecoveryOverlay: View {
 
     @ViewBuilder
     private var actionButtons: some View {
+                if hasCustodyCopies {
+                    ScreenplayConflictCustodyButton(viewModel: viewModel)
+                }
                 if viewModel.heldDraftRecoveryIsLoadServerCopy {
                     NumberedChoiceActionButton(
                         number: "1", title: "Recover Local", prominence: .prominent,
@@ -162,16 +169,109 @@ struct ScreenplayHeldDraftRecoveryOverlay: View {
     }
 }
 
+/// Conflict decisions use the existing resolution owner; custody copies require review.
+struct ScreenplayConflictActionButtons: View {
+    @ObservedObject var viewModel: ScreenplayStudioViewModel
+    let requiresCustodyReview: Bool
+
+    var body: some View {
+        if requiresCustodyReview {
+            ScreenplayConflictCustodyButton(viewModel: viewModel)
+        } else {
+            Button {
+                Task { await viewModel.applyServerVersionFromConflict() }
+            } label: {
+                Text("1 Load Server")
+            }
+            .buttonStyle(.bordered)
+            .tint(Color.white.opacity(0.24))
+            .keyboardShortcut("1", modifiers: [])
+            .accessibilityIdentifier("studio.conflict.load-server")
+            .disabled(viewModel.isPreparingConflictResolution)
+
+            Button {
+                Task { await viewModel.keepLocalDraftAfterConflict() }
+            } label: {
+                Text("2 Keep Mine")
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(Color.white.opacity(0.24))
+            .keyboardShortcut("2", modifiers: [])
+            .accessibilityIdentifier("studio.conflict.keep-mine")
+            .disabled(viewModel.isPreparingConflictResolution)
+        }
+    }
+}
+
+/// Opens only verified, read-only copies; selecting a row never resolves a conflict.
+struct ScreenplayConflictCustodyButton: View {
+    @ObservedObject var viewModel: ScreenplayStudioViewModel
+    @State private var showingCopies = false
+
+    var body: some View {
+        Button("Review Local Copies") { showingCopies = true }
+            .buttonStyle(.borderedProminent)
+            .accessibilityIdentifier("studio.conflict.review-local-copies")
+            .sheet(isPresented: $showingCopies) {
+                ScreenplayConflictCustodyReview(viewModel: viewModel)
+            }
+    }
+}
+
+private struct ScreenplayConflictCustodyReview: View {
+    @ObservedObject var viewModel: ScreenplayStudioViewModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var rows: [ScreenplayDraftSaveOutboxEntry] = []
+    @State private var reviewedToken: ScreenplayStudioViewModel.HeldDraftRecoveryReviewToken?
+    @State private var loaded = false
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Text("These copies are held separately. Reviewing them does not save or remove either copy.")
+                if loaded && rows.isEmpty {
+                    Text("The copies could not be confirmed for this document. Check the account and try again.")
+                }
+                ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                    Button("Preview local copy \(index + 1)") {
+                        Task { reviewedToken = await viewModel.selectCustodyRowForReview(id: row.id) }
+                    }
+                }
+            }
+            .navigationTitle("Held Local Copies")
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } } }
+            .task { rows = await viewModel.custodyRowsForReview(); loaded = true }
+            .sheet(item: $reviewedToken) { token in
+                ScreenplayHeldDraftRecoveryReview(viewModel: viewModel, token: token, allowsCustodySelection: true)
+            }
+            .onChange(of: viewModel.selectedProjectID) { _, _ in dismiss() }
+            .onReceive(NotificationCenter.default.publisher(for: .themBackendIdentityPartitionChanged)) { _ in dismiss() }
+        }
+    }
+}
+
 private struct ScreenplayHeldDraftRecoveryReview: View {
     @ObservedObject var viewModel: ScreenplayStudioViewModel
     let token: ScreenplayStudioViewModel.HeldDraftRecoveryReviewToken
+    var allowsCustodySelection = false
     @Environment(\.dismiss) private var dismiss
+    @State private var selecting = false
+    @State private var selectionRecorded = false
+    @State private var selectionFailed = false
+    @State private var supersededNotice = false
 
     var body: some View {
         NavigationStack {
             Group {
                 if let entry = viewModel.heldDraftRecoveryForReview(token) {
                     ScrollView {
+                        if selectionRecorded {
+                            Text(viewModel.custodyReviewRetryRequired
+                                 ? "The earlier save may already have reached the server. Retry the original save; if it was not saved before, this can save it now. Your copies stay held."
+                                 : "Selected on this device. Tap Save Copy to save it; the other copies stay held.")
+                                .font(.footnote)
+                                .padding(.horizontal)
+                        }
                         Text(entry.draft)
                             .font(.body.monospaced())
                             .textSelection(.enabled)
@@ -186,9 +286,41 @@ private struct ScreenplayHeldDraftRecoveryReview: View {
                 }
             }
             .navigationTitle("Exact Held Copy")
+            .alert("Saved, then superseded", isPresented: $supersededNotice) {
+                Button("Review Copies") { dismiss() }
+            } message: {
+                Text("This copy was saved, then a newer server version appeared. Your local copies remain held. Review them before choosing what to save next.")
+            }
+            .alert("Action not confirmed", isPresented: $selectionFailed) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text("The action could not be confirmed. Reopen the review to check your copies and save status.")
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
+                }
+                if allowsCustodySelection {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(selecting ? "Working…" : (selectionRecorded ? (viewModel.custodyReviewRetryRequired ? "Retry Original Save" : "Save Copy") : "Select Copy")) {
+                            selecting = true
+                            Task {
+                                if selectionRecorded {
+                                    if await viewModel.saveSelectedCustodyCopy(token) {
+                                        if viewModel.custodySupersededConfirmed { supersededNotice = true }
+                                        else { dismiss() }
+                                    } else { selectionFailed = true }
+                                } else if await viewModel.recordCustodySelection(token) {
+                                    selectionRecorded = true
+                                } else {
+                                    selectionFailed = true
+                                }
+                                selecting = false
+                            }
+                        }
+                        .disabled(selecting || viewModel.heldDraftRecoveryForReview(token) == nil)
+                        .accessibilityHint(selectionRecorded ? (viewModel.custodyReviewRetryRequired ? "Retries the original save. If it was not saved before, this can save it now." : "Saves this selected copy after checking the server; other copies remain held.") : "Records this choice locally. It does not save to the server.")
+                    }
                 }
                 #if DEBUG
                 if IOThemRuntime.isRunningUITests,

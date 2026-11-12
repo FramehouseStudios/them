@@ -2247,6 +2247,82 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     }
 
     @MainActor
+    func testRemoteLiveReplacementKeepsDisplacedJournalAfterTyping() throws {
+        try verifyDisplacedJournalSurvivesReplacement(restoringRecovery: false)
+    }
+
+    @MainActor
+    func testRecoveryRestoreKeepsPreviousJournalAfterTyping() throws {
+        try verifyDisplacedJournalSurvivesReplacement(restoringRecovery: true)
+    }
+
+    @MainActor
+    private func verifyDisplacedJournalSurvivesReplacement(restoringRecovery: Bool) throws {
+        let owner = "journal-lineage-owner"
+        let project = "journal-lineage-project"
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let overflow = ScreenplayRecoveryOverflowStore(rootDirectory: root)
+        let origin = ScreenplayDraftSaveOrigin(documentID: "document", backendURL: URL(string: "https://example.test")!)
+        let identity = ScreenplayStudioAuthContext(userID: owner, sessionIntentGeneration: 1)
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store, overflowRecoveryStore: overflow,
+            recoveryOriginProvider: { _ in origin }, studioAuthContextProvider: { identity })
+        model.autosaveEnabled = false
+        model.selectedProjectID = project
+        let base = restoringRecovery ? "" : "known"
+        model.applyStructuralUITestDraft("Saved page", versionID: base)
+        XCTAssertTrue(store.save(ownerUserId: owner, projectId: project, draft: "Earlier ordinary page",
+            baseVersionId: "earlier", dirty: true, backendOrigin: origin.backendURL))
+        guard case .stored(.preservedConflict) = store.saveInVacantRecoverySlot(ownerUserId: owner, projectId: project,
+            draft: "Earlier preserved page", baseVersionId: "earlier", preferPreservedConflict: true,
+            backendOrigin: origin.backendURL) else {
+            return XCTFail("The second independent recovery page must be stored before typing.")
+        }
+        guard case .stored = overflow.saveIfVacant(ownerUserID: owner, projectID: project,
+            backendURL: origin.backendURL, documentID: origin.documentID, draft: "Earlier overflow page", baseVersionID: "earlier") else {
+            return XCTFail("Earlier recovery slots must be full before the active journal is created.")
+        }
+        let displaced = "INT. CAFE - NIGHT\r\n\r\nA cafe\u{0301} stays open. \t "
+        model.publishNativeEditorDraft(displaced)
+        model.noteManualDraftEdit()
+        guard case let .present(initial) = overflow.journalCopies(ownerUserID: owner, projectID: project,
+            backendURL: origin.backendURL),
+              let original = initial.first(where: { $0.draft.utf8.elementsEqual(displaced.utf8) }) else {
+            return XCTFail("The actual editor must first retain its displaced page in the journal.")
+        }
+        let replacement = "INT. OTHER ROOM - DAY\n\nA different page."
+        if restoringRecovery {
+            guard case let .stored(selected) = overflow.appendJournalCopy(ownerUserID: owner, projectID: project,
+                backendURL: origin.backendURL, documentID: origin.documentID,
+                draft: replacement, baseVersionID: base) else {
+                return XCTFail("The selected recovery page must already be stored independently.")
+            }
+            model.recoveryCandidate = .init(owner: identity, projectId: project, draft: selected.draft,
+                baseVersionId: selected.baseVersionID, savedAt: selected.savedAt,
+                isPreservedConflict: false, journalSnapshot: selected)
+            model.restoreDraftFromRecovery()
+        } else {
+            XCTAssertTrue(model.preserveLocalDraftForLiveSyncRecovery(displaced, projectID: project))
+            XCTAssertTrue(model.applyRemoteLiveDraft(replacement, projectID: project, sourceDeviceID: "other-device"))
+        }
+        XCTAssertEqual(Data(model.fountainDraft.utf8), Data(replacement.utf8))
+        let continued = replacement + "\nThe writer adds another exact line.\r\n"
+        model.publishNativeEditorDraft(continued)
+        model.noteManualDraftEdit()
+        let reopened = ScreenplayRecoveryOverflowStore(rootDirectory: root)
+        guard case let .present(records) = reopened.journalCopies(ownerUserID: owner, projectID: project,
+            backendURL: origin.backendURL) else { return XCTFail("Both independent pages must remain on disk.") }
+        XCTAssertTrue(records.contains { $0.recordID == original.recordID && $0.draft.utf8.elementsEqual(displaced.utf8) },
+                      "Typing on the replacement page must not retire the displaced writer's independent journal copy.")
+        XCTAssertTrue(records.contains { $0.draft.utf8.elementsEqual(continued.utf8) },
+                      "The new page's exact latest words must also be durable.")
+        XCTAssertEqual(Data(model.fountainDraft.utf8), Data(continued.utf8))
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertEqual(store.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: project)?.draft, "Earlier ordinary page")
+        XCTAssertEqual(store.currentPreservedConflict(ownerUserId: owner, projectId: project)?.draft, "Earlier preserved page")
+    }
+
+    @MainActor
     func testLiveSyncSelectsExactLocalSlotDespiteOlderJournal() throws {
         let owner = "live-exact-slot-owner"
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

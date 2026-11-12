@@ -7,4 +7,5 @@ nonisolated struct BackendReadResult<Payload> {
     let sync: BackendSyncState
     let notModified: Bool
     var responseURL: URL? = nil
+    var httpStatusCode: Int? = nil
 }
