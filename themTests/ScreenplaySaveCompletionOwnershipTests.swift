@@ -1647,8 +1647,9 @@ private final class SaveCompletionFixture {
     }
 
     func reloadQueueEntries() async throws -> [ScreenplayDraftSaveOutboxEntry] {
-        let reopened = ScreenplayDraftSaveOutbox(storageDirectory: directory)
-        return try await reopened.entriesForTesting()
+        // Inspect the durable manifest through its live owner; a second actor
+        // cannot represent a relaunch while this fixture still owns the queue.
+        return try await queue.persistedEntriesForTesting()
     }
 
     func currentOrigin() throws -> ScreenplayDraftSaveOrigin {
