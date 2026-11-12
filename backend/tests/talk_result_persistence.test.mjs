@@ -662,3 +662,91 @@ test("Redis-only admission and exact replay remain functional", async (t) => {
   await backplane.deleteIdempotency(key);
   assert.equal(await backplane.getIdempotency(key), null);
 });
+
+
+async function sessionLockFixture(t) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "them-session-lock-"));
+  const redis = redisProtocolFixture();
+  const backplanes = [];
+  const createBackplane = async () => {
+    const backplane = await createScaleBackplane({
+      redisUrl: "redis-fixture", redisClientFactory: () => redis.client,
+      outboxFilePath: path.join(root, `outbox-${backplanes.length}.json`), logger: { log() {} },
+    });
+    backplanes.push(backplane);
+    await backplane.init();
+    return backplane;
+  };
+  t.after(async () => {
+    await Promise.all(backplanes.map(backplane => backplane.close()));
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+  return { redis, createBackplane };
+}
+
+test("session lock custody: stale release preserves the reacquired owner", async (t) => {
+  const { redis, createBackplane } = await sessionLockFixture(t);
+  const previous = await createBackplane();
+  const successor = await createBackplane();
+  const session = "session-custody";
+  const key = `them:talk:lock:${session}`;
+  const trace = [];
+  assert.deepEqual(await previous.acquireSessionLock(session, "owner-a"), { ok: true, owner: "owner-a" });
+  let interleave = true;
+  const expireAndReacquire = async () => {
+    if (!interleave) return;
+    interleave = false;
+    redis.values.delete(key); // Model server TTL expiry between commands.
+    assert.deepEqual(await successor.acquireSessionLock(session, "owner-b"), { ok: true, owner: "owner-b" });
+    trace.push("TTL expired; owner-b reacquired");
+  };
+  const get = redis.client.get;
+  redis.client.get = async (lookupKey) => {
+    const snapshot = await get(lookupKey);
+    if (lookupKey === key) {
+      trace.push(`GET:${snapshot}`);
+      await expireAndReacquire();
+    }
+    return snapshot;
+  };
+  const evaluate = redis.client.eval;
+  redis.client.eval = async (script, options) => {
+    if (options.keys[0] === key) {
+      await expireAndReacquire();
+      trace.push(`atomic compare:${options.arguments[0]}`);
+    }
+    return evaluate(script, options);
+  };
+
+  await previous.releaseSessionLock(session, "owner-a");
+  assert.equal(redis.values.get(key), "owner-b", JSON.stringify(trace));
+  assert.equal((await previous.acquireSessionLock(session, "owner-c")).ok, false);
+  assert.equal(redis.unconditionalDeletes, 0);
+});
+
+for (const releasingOwner of ["owner-a", "another-owner"]) {
+  test(`session lock custody: release by ${releasingOwner} respects ownership`, async (t) => {
+    const { redis, createBackplane } = await sessionLockFixture(t);
+    const backplane = await createBackplane();
+    await backplane.acquireSessionLock("session-owner", "owner-a");
+    await backplane.releaseSessionLock("session-owner", releasingOwner);
+    const shouldRelease = releasingOwner === "owner-a";
+    assert.equal(redis.values.has("them:talk:lock:session-owner"), !shouldRelease);
+    assert.equal((await backplane.acquireSessionLock("session-owner", "owner-b")).ok, shouldRelease);
+  });
+}
+
+for (const failure of ["missing eval", "eval error"]) {
+  test(`session lock custody: ${failure} retains the lock without unsafe deletion`, async (t) => {
+    const { redis, createBackplane } = await sessionLockFixture(t);
+    const backplane = await createBackplane();
+    await backplane.acquireSessionLock("session-unconfirmed", "owner-a");
+    redis.client.eval = failure === "missing eval" ? undefined : async () => {
+      throw new Error("synthetic Redis eval failure");
+    };
+    await backplane.releaseSessionLock("session-unconfirmed", "owner-a");
+    assert.equal(redis.values.get("them:talk:lock:session-unconfirmed"), "owner-a");
+    assert.equal((await backplane.acquireSessionLock("session-unconfirmed", "owner-b")).ok, false);
+    assert.equal(redis.unconditionalDeletes, 0);
+  });
+}

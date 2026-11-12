@@ -742,10 +742,11 @@ export async function createScaleBackplane({
     if (state.redisEnabled && state.redis) {
       const lockKey = `them:talk:lock:${key}`;
       try {
-        const current = await state.redis.get(lockKey);
-        if (current && current === owner) {
-          await state.redis.del(lockKey);
-        }
+        if (typeof state.redis.eval !== "function") return;
+        await state.redis.eval(REDIS_COMPARE_AND_DELETE, {
+          keys: [lockKey],
+          arguments: [owner],
+        });
       } catch (err) {
         logger?.log?.(`[scale_backplane] redis_lock_release_error key=${key} err=${String(err?.message || err)}`);
       }
