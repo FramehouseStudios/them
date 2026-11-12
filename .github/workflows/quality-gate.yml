@@ -48,7 +48,7 @@ on:
         description: Run ops alert checks
         required: false
         type: boolean
-        default: false
+        default: true
       run_load:
         description: Run load profile
         required: false
@@ -84,7 +84,7 @@ on:
       run_alert:
         required: false
         type: boolean
-        default: false
+        default: true
       run_load:
         required: false
         type: boolean
@@ -155,13 +155,13 @@ jobs:
     timeout-minutes: 105
     env:
       RUN_SERVER: 1
-      LIVE_PROVIDER_REQUESTED: ${{ github.event_name == 'workflow_dispatch' && github.run_attempt == 1 && inputs.live_approved == true && (inputs.run_eval || inputs.run_speculative_reuse_gate || inputs.run_smoke || inputs.run_talk_recovery_gate || inputs.run_alert || inputs.run_load) && '1' || '0' }}
+      LIVE_PROVIDER_REQUESTED: ${{ github.event_name == 'workflow_dispatch' && github.run_attempt == 1 && inputs.live_approved == true && (inputs.run_eval || inputs.run_speculative_reuse_gate || inputs.run_smoke || inputs.run_talk_recovery_gate || inputs.run_load) && '1' || '0' }}
       RUN_EVAL: ${{ github.event_name == 'workflow_dispatch' && github.run_attempt == 1 && inputs.live_approved == true && inputs.run_eval && '1' || '0' }}
       RUN_CANON: ${{ github.event_name == 'pull_request' && '1' || (inputs.run_canon && '1' || '0') }}
       RUN_SPECULATIVE_REUSE_GATE: ${{ github.event_name == 'workflow_dispatch' && github.run_attempt == 1 && inputs.live_approved == true && inputs.run_speculative_reuse_gate && '1' || '0' }}
       RUN_SMOKE: ${{ github.event_name == 'workflow_dispatch' && github.run_attempt == 1 && inputs.live_approved == true && inputs.run_smoke && '1' || '0' }}
       RUN_TALK_RECOVERY_GATE: ${{ github.event_name == 'workflow_dispatch' && github.run_attempt == 1 && inputs.live_approved == true && inputs.run_talk_recovery_gate && '1' || '0' }}
-      RUN_ALERT: ${{ github.event_name == 'workflow_dispatch' && github.run_attempt == 1 && inputs.live_approved == true && inputs.run_alert && '1' || '0' }}
+      RUN_ALERT: ${{ github.event_name == 'pull_request' && '0' || (inputs.run_alert && '1' || '0') }}
       RUN_LOAD: ${{ github.event_name == 'workflow_dispatch' && github.run_attempt == 1 && inputs.live_approved == true && inputs.run_load && '1' || '0' }}
       # No provider key reaches dependency installs, native tests or fixtures.
       OPENAI_API_KEY: ""
@@ -173,7 +173,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Validate live scope approval
-        if: (inputs.run_eval || inputs.run_speculative_reuse_gate || inputs.run_smoke || inputs.run_talk_recovery_gate || inputs.run_alert || inputs.run_load) && (github.event_name != 'workflow_dispatch' || github.run_attempt != 1 || inputs.live_approved != true)
+        if: (inputs.run_eval || inputs.run_speculative_reuse_gate || inputs.run_smoke || inputs.run_talk_recovery_gate || inputs.run_load) && (github.event_name != 'workflow_dispatch' || github.run_attempt != 1 || inputs.live_approved != true)
         run: |
           echo "::error::Requested paid gates require a new manually dispatched run with live_approved=true; no provider or backend was started."
           exit 1

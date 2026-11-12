@@ -12,8 +12,8 @@ const autoMerge = readFileSync(new URL("../.github/workflows/auto-merge-tier1.ym
 
 const postgresGate = readFileSync(new URL("../.github/workflows/eval-gate-postgres.yml", import.meta.url), "utf8");
 const qualityJob = qualityGate.slice(qualityGate.indexOf("\n  quality-gate:\n"));
-const liveFlags = ["RUN_EVAL", "RUN_SPECULATIVE_REUSE_GATE", "RUN_SMOKE", "RUN_TALK_RECOVERY_GATE", "RUN_ALERT", "RUN_LOAD"];
-const requests = ["run_eval", "run_speculative_reuse_gate", "run_smoke", "run_talk_recovery_gate", "run_alert", "run_load"];
+const liveFlags = ["RUN_EVAL", "RUN_SPECULATIVE_REUSE_GATE", "RUN_SMOKE", "RUN_TALK_RECOVERY_GATE", "RUN_LOAD"];
+const requests = ["run_eval", "run_speculative_reuse_gate", "run_smoke", "run_talk_recovery_gate", "run_load"];
 const fakeKey = "sk-ci-contract-not-a-provider-key";
 
 // Read the actual flat env/run blocks; fail if their shape changes. The evaluator
@@ -68,20 +68,22 @@ function stepRun(name, workflow = qualityJob) {
 function fixture() {
   const root = mkdtempSync(path.join(tmpdir(), "them-ci-provider-contract-"));
   for (const directory of ["bin", "scripts", "backend"]) mkdirSync(path.join(root, directory));
-  copyFileSync(new URL("./quality_gate.sh", import.meta.url), path.join(root, "scripts/quality_gate.sh"));
+  for (const script of ["quality_gate.sh", "ops_alert_check.sh"])
+    copyFileSync(new URL(`./${script}`, import.meta.url), path.join(root, "scripts", script));
   const capture = path.join(root, "startup.json");
   writeFileSync(path.join(root, "bin/npm"), `#!${process.execPath}\n`
     + `const fs = require('node:fs');\n`
     + `if (process.argv[2] === 'start') {\n`
-    + `fs.writeFileSync(process.env.CI_CONTRACT_CAPTURE, JSON.stringify(Object.fromEntries(${JSON.stringify(["OPENAI_API_KEY", "KNOWLEDGE_RAG_WARMUP_ON_BOOT", ...liveFlags])}.map(k => [k, process.env[k] ?? null]))));\n`
+    + `fs.writeFileSync(process.env.CI_CONTRACT_CAPTURE, JSON.stringify(Object.fromEntries(${JSON.stringify(["OPENAI_API_KEY", "KNOWLEDGE_RAG_WARMUP_ON_BOOT", "RUN_ALERT", ...liveFlags])}.map(k => [k, process.env[k] ?? null]))));\n`
     + `console.log('Backend listening on owned fixture'); setInterval(() => {}, 1000); }\n`);
   writeFileSync(path.join(root, "bin/curl"), `#!${process.execPath}\n`
     + `const fs = require('node:fs'); const args = process.argv.slice(2);\n`
     + `const index = args.indexOf('-o'); if (index >= 0 && args[index + 1] !== '/dev/null') fs.writeFileSync(args[index + 1], 'FAKE_PROVIDER_BODY_MUST_NOT_APPEAR');\n`
+    + `if (args.some(arg => arg.endsWith('/ops/metrics'))) { fs.writeFileSync(process.env.CI_CONTRACT_METRICS, JSON.stringify({ key: process.env.OPENAI_API_KEY, appToken: args.some(arg => arg.startsWith('X-APP-TOKEN: ')) })); process.stdout.write(JSON.stringify({ status: 'ok', metrics: { errorRate: 0, p95TotalMs: 1 } })); }\n`
     + `if (args.includes('-w')) process.stdout.write(process.env.CI_CONTRACT_HTTP_STATUS || '200');\n`);
   for (const name of ["npm", "curl"]) chmodSync(path.join(root, "bin", name), 0o700);
   return { root, capture, env: { ...process.env, PATH: `${path.join(root, "bin")}:${process.env.PATH}`,
-    NODE_OPTIONS: "", CI_CONTRACT_CAPTURE: capture, LOG_FILE: path.join(root, "backend.log"),
+    NODE_OPTIONS: "", CI_CONTRACT_CAPTURE: capture, CI_CONTRACT_METRICS: path.join(root, "metrics.json"), LOG_FILE: path.join(root, "backend.log"),
     GITHUB_STEP_SUMMARY: path.join(root, "summary.md"), BASE_URL: "http://127.0.0.1:1",
     RUN_PAGE_CRAFT: "0", RUN_CRAFT_COMPLETENESS_GATE: "0" } };
 }
@@ -160,6 +162,37 @@ test("[ci-merge-safety] approved scope reaches validation and canonical startup 
       assert.equal(startup.KNOWLEDGE_RAG_WARMUP_ON_BOOT, "0");
       assert.equal(startup.RUN_EVAL, approved ? "1" : "0");
     }
+  } finally { rmSync(owned.root, { recursive: true, force: true }); }
+});
+
+test("[ci-merge-safety] alert-only scope runs the canonical metrics check without paid approval or a provider key", () => {
+  const owned = fixture();
+  try {
+    const selected = mode("workflow_dispatch", false, false);
+    selected.context.inputs.run_alert = true;
+    selected.job = environment(flatEnv(qualityJob, 4), selected.context);
+    selected.context.env = selected.job;
+    const condition = step("Validate live scope approval").match(/^        if: (.+)$/m)[1];
+    assert.equal(Boolean(evaluate(`\${{ ${condition} }}`, selected.context)), false);
+    assert.equal(selected.job.RUN_ALERT, "1");
+    for (const flag of liveFlags) assert.equal(selected.job[flag], "0");
+    assert.equal(stepEnvironment("Run repo quality gate", selected).OPENAI_API_KEY, "");
+    const required = runBody(stepRun("Validate Required Secrets"), selected, "Validate Required Secrets", owned);
+    assert.equal(required.status, 0, required.stderr || required.stdout);
+    const gate = spawnSync("bash", ["scripts/quality_gate.sh"], { cwd: owned.root, encoding: "utf8", timeout: 10_000,
+      env: { ...owned.env, ...stepEnvironment("Run repo quality gate", selected) } });
+    assert.equal(gate.status, 0, gate.stderr || gate.stdout);
+    assert.match(gate.stdout, /\[ops-alert\] PASS/);
+    const startup = JSON.parse(readFileSync(owned.capture, "utf8"));
+    assert.equal(startup.OPENAI_API_KEY, "");
+    assert.equal(startup.RUN_ALERT, "1");
+    assert.deepEqual(JSON.parse(readFileSync(owned.env.CI_CONTRACT_METRICS, "utf8")), { key: "", appToken: true });
+    selected.context.secrets.APP_TOKEN = "";
+    selected.job = environment(flatEnv(qualityJob, 4), selected.context);
+    selected.context.env = selected.job;
+    const denied = runBody(stepRun("Validate Required Secrets"), selected, "Validate Required Secrets", owned);
+    assert.equal(denied.status, 1);
+    assert.match(denied.stdout + denied.stderr, /APP_TOKEN/);
   } finally { rmSync(owned.root, { recursive: true, force: true }); }
 });
 
