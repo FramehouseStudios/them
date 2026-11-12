@@ -12,9 +12,12 @@ const test = "themUITests/V1SmokeUITests/test_first_run_held_login_hydration_pre
 const destination = process.env.IOS_SIMULATOR_DESTINATION || "";
 const id = /^platform=iOS Simulator,id=([0-9a-f-]{36})$/i.exec(destination)?.[1];
 const derivedData = process.env.DERIVED_DATA_PATH;
-if (!id || !derivedData || !derivedData.startsWith("/")) {
-  throw new Error("Provide the root-owned exact simulator ID and absolute DERIVED_DATA_PATH");
+// Local proofs must name their owned build directory. CI reuses the default
+// DerivedData already warmed by the required unit/writer/recovery stages.
+if (!id || (derivedData === undefined ? process.env.CI !== "true" : !derivedData.startsWith("/"))) {
+  throw new Error("Provide the root-owned exact simulator ID and absolute DERIVED_DATA_PATH; CI may omit the build path");
 }
+const derivedDataArgs = derivedData === undefined ? [] : ["-derivedDataPath", resolve(derivedData)];
 const artifact = join(process.env.ARTIFACT_DIR || join(tmpdir(), "them-t1426"), "run-" + randomUUID());
 mkdirSync(artifact, { recursive: true, mode: 0o700 });
 const bundle = join(artifact, "onboarding-hydration.xcresult");
@@ -41,7 +44,7 @@ try {
   writeFileSync(xcconfig, "THEM_UITEST_WRITER_LOOP_BACKEND_PORT = " + server.port + "\n", { mode: 0o600 });
   let output = "";
   const child = spawn("bash", ["scripts/run_v1_ui_smoke.sh", "-quiet",
-    "-resultBundlePath", bundle, "-derivedDataPath", resolve(derivedData)], {
+    "-resultBundlePath", bundle, ...derivedDataArgs], {
     cwd: root, env: { ...nativeEnv, ONLY_TESTING: test,
       ARTIFACT_DIR: artifact, THEM_UITEST_RESTORE_XCCONFIG_PATH: xcconfig },
     stdio: ["ignore", "pipe", "pipe"],
