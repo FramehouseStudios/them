@@ -5626,7 +5626,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         switch stored {
         case .present: infoText = "Your newer edit is on the page. Save it when ready."
         case .occupied: infoText = "Another recovery copy is stored. Export this page before closing or retry Save."
-        case .unconfirmed: infoText = "This page could not be secured locally. Keep it open and export it or retry Save."
+        case .unconfirmed: infoText = ScreenplayDraftSaveRecoveryPresentationPolicy.unsecuredDraftWarning
         }
         return true
     }
@@ -7470,7 +7470,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 infoText = "Another recovery copy is stored. Export this page before closing or retry Save."
                 return
             case .unconfirmed:
-                infoText = "This page could not be secured locally. Keep it open and export it or retry Save."
+                infoText = ScreenplayDraftSaveRecoveryPresentationPolicy.unsecuredDraftWarning
                 return
             }
             guard selectedProject != nil, autosaveEnabled else { return }
@@ -8356,6 +8356,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                         dirty: hasUnsavedDraftChanges,
                         isSaveCompletion: true
                     )
+                    _ = reconcileRecoveryWarningAfterAcknowledgement()
                     return completion(serverVersion.id, confirmed: confirmed)
                 }
 
@@ -8499,6 +8500,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 persistLocalDraftRecovery(projectId: request.projectId, draft: fountainDraft,
                     baseVersionId: evidence.versionID, dirty: hasUnsavedDraftChanges,
                     isSaveCompletion: true)
+                _ = reconcileRecoveryWarningAfterAcknowledgement()
                 return completion(evidence.versionID, confirmed: evidence)
             }
             if conflictDetected, request.source == "studio_custody_selected" {
@@ -8509,8 +8511,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     custodyReviewRetryRequired = false
                     custodySupersededConfirmed = true
                     autosaveStatusText = "Local copies need review"
-                    errorText = ""
-                    infoText = "This copy was saved, then a newer server version appeared. Your local copies remain held."
+                    if !reconcileRecoveryWarningAfterAcknowledgement() {
+                        errorText = ""
+                        infoText = "This copy was saved, then a newer server version appeared. Your local copies remain held."
+                    }
                     return .superseded
                 }
                 try await draftSaveOutbox.markParked(id: request.id,
@@ -8707,7 +8711,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     errorText == "An earlier save may need review. Both copies remain held; select its original copy to check it." {
                     errorText = ""
                 }
-                infoText = "Selected copy saved. Your other local copies remain held for review."
+                if !reconcileRecoveryWarningAfterAcknowledgement() {
+                    infoText = "Selected copy saved. Your other local copies remain held for review."
+                }
                 await refreshDraftSaveOutboxStatus()
                 return completion(nextVersionId, confirmed: confirmed)
             } else if !request.supersededConflictRequests.isEmpty {
@@ -8798,10 +8804,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             )
             await recomputeRevision(for: fountainDraft, source: request.source, api: draftSaveAPI, isCurrent: ownsCompletion)
             guard ownsCompletion() else { return completion(nextVersionId, confirmed: confirmed) }
-            let recoveryWarningForUnsavedDraft = hasUnsavedDraftChanges && errorText == infoText &&
-                (errorText == "This page could not be secured locally. Keep it open and export it or retry Save." ||
-                 errorText == "Other recovery copies are stored. Export this page before closing or retry Save.")
-            if !errorText.isEmpty && !recoveryWarningForUnsavedDraft {
+            if !reconcileRecoveryWarningAfterAcknowledgement(), !errorText.isEmpty {
                 errorText = ""
             }
             return completion(nextVersionId, confirmed: confirmed)
@@ -8892,7 +8895,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             guard ownsCompletion(), fountainDraft.utf8.elementsEqual(currentDraft.utf8) else { return nil }
             guard recoveryMatches || requestIsDurable else {
                 autosaveStatusText = "Save needs attention"
-                infoText = "This page could not be secured locally. Keep it open and export it or retry Save."
+                infoText = ScreenplayDraftSaveRecoveryPresentationPolicy.unsecuredDraftWarning
                 errorText = "The latest page is not confirmed in local recovery."
                 await refreshDraftSaveOutboxStatus()
                 return nil
@@ -9473,6 +9476,23 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
     }
 
+    // A receipt for another copy cannot retire the current page's safety warning.
+    private func reconcileRecoveryWarningAfterAcknowledgement() -> Bool {
+        guard let warning = ScreenplayDraftSaveRecoveryPresentationPolicy.localRecoveryWarning(
+            hasUnsavedChanges: hasUnsavedDraftChanges, info: infoText, error: errorText) else {
+            if !hasUnsavedDraftChanges {
+                if ScreenplayDraftSaveRecoveryPresentationPolicy.isLocalRecoveryWarning(errorText) { errorText = "" }
+                if ScreenplayDraftSaveRecoveryPresentationPolicy.isLocalRecoveryWarning(infoText) { infoText = "" }
+            }
+            return false
+        }
+        infoText = warning
+        if errorText.isEmpty || ScreenplayDraftSaveRecoveryPresentationPolicy.isLocalRecoveryWarning(errorText) {
+            errorText = warning
+        }
+        return true
+    }
+
     // Only a byte-exact recovery write by this model can be advanced as typing continues.
     private var ownedOrdinaryRecovery: (owner: ScreenplayStudioAuthContext, origin: ScreenplayDraftSaveOrigin,
                                         snapshot: ScreenplayLocalDraftRecoverySnapshot)?
@@ -9519,7 +9539,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                                           draft: draft, baseVersionId: baseVersionId, savedAt: savedAt) {
                 case .secured: break
                 case .occupied, .unconfirmed:
-                    infoText = "This page could not be secured locally. Keep it open and export it or retry Save."
+                    infoText = ScreenplayDraftSaveRecoveryPresentationPolicy.unsecuredDraftWarning
                 }
             }
             if recoveryCandidate == nil,
@@ -9546,10 +9566,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 switch result {
                 case .secured: break
                 case .occupied:
-                    errorText = "Other recovery copies are stored. Export this page before closing or retry Save."
+                    errorText = ScreenplayDraftSaveRecoveryPresentationPolicy.fullRecoveryWarning
                     infoText = errorText
                 case .unconfirmed:
-                    errorText = "This page could not be secured locally. Keep it open and export it or retry Save."
+                    errorText = ScreenplayDraftSaveRecoveryPresentationPolicy.unsecuredDraftWarning
                     infoText = errorText
                 }
             }
@@ -9564,7 +9584,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                                           draft: draft, baseVersionId: baseVersionId, savedAt: savedAt) {
                 case .secured: break
                 case .occupied, .unconfirmed:
-                    errorText = "This page could not be secured locally. Keep it open and export it or retry Save."
+                    errorText = ScreenplayDraftSaveRecoveryPresentationPolicy.unsecuredDraftWarning
                 }
             }
             return
@@ -9584,7 +9604,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         guard recoveryConfirmed else {
             ownedOrdinaryRecovery = nil
             if dirty {
-                errorText = "This page could not be secured locally. Keep it open and export it or retry Save."
+                errorText = ScreenplayDraftSaveRecoveryPresentationPolicy.unsecuredDraftWarning
                 infoText = errorText
             }
             return
@@ -9651,7 +9671,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
             isPreservedConflict: false
         )
         guard recoveryCandidateIsCurrent(candidate) else {
-            infoText = "This page could not be secured locally. Keep it open and export it or retry Save."
+            infoText = ScreenplayDraftSaveRecoveryPresentationPolicy.unsecuredDraftWarning
             return nil
         }
         if surfaceCandidate {
