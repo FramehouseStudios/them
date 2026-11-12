@@ -2630,6 +2630,11 @@ final class V1SmokeUITests: XCTestCase {
             "The accepted-page obligation state disappeared after relaunch. Snapshot: \(restoredSnapshot)"
         )
         revealStudioAppliedMemory(in: app)
+        let restoredThemTab = app.buttons["studio.right-panel.them"]
+        XCTAssertTrue(
+            restoredThemTab.exists && restoredThemTab.isSelected,
+            "Studio did not retain the selected Them inspector after relaunch."
+        )
         XCTAssertTrue(
             waitForAccessibilityText(
                 identifier: "studio.story-obligation.current.result",
@@ -2969,14 +2974,23 @@ final class V1SmokeUITests: XCTestCase {
         let memory = element(identifier: "studio.story-obligation.current", in: app)
         let deadline = Date().addingTimeInterval(8)
         let rightToggle = app.buttons["studio.sidebar.right.toggle"]
-        while Date() < deadline, !memory.exists {
+        let themTab = app.buttons["studio.right-panel.them"]
+        while Date() < deadline {
+            if themTab.exists, themTab.isSelected, memory.exists {
+                return
+            }
             if rightToggle.waitForExistence(timeout: 0.5),
                rightToggle.isHittable,
                rightToggle.label.localizedCaseInsensitiveContains("Open") {
                 rightToggle.tap()
             }
-            let themTab = app.buttons["io.them"]
-            if themTab.exists, themTab.isHittable, !themTab.isSelected {
+            // Opening the drawer can reveal an already selected, restored tab.
+            // Its content proves readiness without requesting a tap activation point.
+            if themTab.exists, themTab.isSelected, memory.exists {
+                return
+            }
+            if themTab.exists, !themTab.isSelected,
+               !themTab.frame.isEmpty, themTab.isHittable {
                 themTab.tap()
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.2))
