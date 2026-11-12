@@ -36,6 +36,7 @@ final class OnboardingInputRecoveryModel: ObservableObject {
     private var mayWrite = false
     private var lease: OnboardingInputDescriptor?
     private var writing = false
+    private var capturePausedUntilEdit = false
     private var failed: Write?
     private var verifiedFields: OnboardingInputFields?
     private struct Write: Sendable {
@@ -98,13 +99,14 @@ final class OnboardingInputRecoveryModel: ObservableObject {
 
     private func edited() {
         editGeneration &+= 1
+        capturePausedUntilEdit = false
         guard access?.credentialFree == true else { status = .accountRestricted; return }
         status = mayWrite ? .saving : (failed == nil ? .existing : .unconfirmed)
         schedule()
     }
 
     private func schedule() {
-        guard !writing, inspected, mayWrite, fields.hasEdits, fields != verifiedFields,
+        guard !writing, !capturePausedUntilEdit, inspected, mayWrite, fields.hasEdits, fields != verifiedFields,
               access?.permitsAccess == true else { return }
         writing = true
         Task { @MainActor in
@@ -169,8 +171,18 @@ final class OnboardingInputRecoveryModel: ObservableObject {
     @discardableResult
     func resumed(_ checkpoint: OnboardingInputCheckpoint, expectedEdits: UInt64, expectedAccess: OnboardingInputAccess) -> Bool {
         guard canRecover(editGeneration: expectedEdits, access: expectedAccess) else { return false }
-        fields = checkpoint.fields; verifiedFields = checkpoint.fields; lease = checkpoint.descriptor; mayWrite = true
-        hasCapture = true; failed = nil; inspected = true; editGeneration &+= 1; status = .saved
+        var merged = checkpoint.fields
+        if !merged.nameWasEdited, fields.nameWasEdited {
+            merged.nameUTF8 = fields.nameUTF8; merged.nameWasEdited = true
+        }
+        if !merged.premiseWasEdited, fields.premiseWasEdited {
+            merged.premiseUTF8 = fields.premiseUTF8; merged.premiseWasEdited = true
+        }
+        fields = merged; verifiedFields = checkpoint.fields; lease = checkpoint.descriptor; mayWrite = true
+        capturePausedUntilEdit = false
+        hasCapture = true; failed = nil; inspected = true; editGeneration &+= 1
+        status = merged == checkpoint.fields ? .saved : .saving
+        schedule()
         return true
     }
 
@@ -178,7 +190,8 @@ final class OnboardingInputRecoveryModel: ObservableObject {
     func discarded(expectedEdits: UInt64, expectedAccess: OnboardingInputAccess) -> Bool {
         guard canRecover(editGeneration: expectedEdits, access: expectedAccess) else { return false }
         // Discard does not clear visible fields or immediately recapture them.
-        epoch &+= 1; fields = .init(); verifiedFields = nil; lease = nil; failed = nil
+        epoch &+= 1; verifiedFields = nil; lease = nil; failed = nil
+        capturePausedUntilEdit = true
         hasCapture = false; mayWrite = true; inspected = true; editGeneration &+= 1; status = .notSaved
         return true
     }
