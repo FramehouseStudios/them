@@ -541,8 +541,13 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertNotEqual(restoredName.value as? String, "  Ava  ")
         XCTAssertNotEqual(textInput("onboarding.scene.field", in: app).value as? String, "  A letter waits under the door.  ")
         let recovery = app.buttons["onboarding.input.recover"]
-        XCTAssertTrue(recovery.waitForExistence(timeout: 5)); recovery.tap()
-        XCTAssertTrue(app.buttons["Unlock device copies"].waitForExistence(timeout: 5))
+        XCTAssertTrue(recovery.waitForExistence(timeout: 5))
+        XCTAssertGreaterThanOrEqual(recovery.frame.height, 44, "Recovery must provide a full touch target.")
+        XCTAssertGreaterThanOrEqual(recovery.frame.width, 44)
+        recovery.tap()
+        let unlock = app.buttons["Unlock device copies"]
+        XCTAssertTrue(unlock.waitForExistence(timeout: 5))
+        XCTAssertGreaterThanOrEqual(unlock.frame.height, 44, "Protected recovery must provide a full touch target.")
         XCTAssertFalse(app.buttons["onboarding.input.resume"].exists)
         app.buttons["Done"].tap()
         // Real device authentication/Resume is deliberately not bypassed here.

@@ -280,7 +280,7 @@ struct OnboardingInputRecoveryScope<Content: View>: View {
                     UnassignedLegacyRecoveryPanel(onboarding: .init(custody: model.custody,
                         canApply: challengeIsCurrent,
                         resume: { applyFields($0, earlierCopy: false) },
-                        copyEarlier: { applyFields($0, earlierCopy: true)                        }, didDiscard: {
+                        copyEarlier: { applyFields($0, earlierCopy: true) }, didDiscard: {
                             guard let challenge, challengeIsCurrent(),
                                   model.discarded(expectedEdits: challenge.edits, expectedAccess: challenge.access) else { return }
                             showingRecovery = false; self.challenge = nil
