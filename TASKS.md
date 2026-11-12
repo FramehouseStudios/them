@@ -24,11 +24,15 @@
  16/2/0 before including canonical child scripts, then18/0/0. No hidden retry.
 - **GitHub:** #995 head5c5062cd all three hosted gates green. Original #964
   advanced normally to ca019af2 for the CI credit safeguard; fresh checks running,
-  non-author review deferred by the human. #997 descendant preparation continues.
+  non-author review deferred by the human. Original #997 advanced normally to
+  f68eb60f; fresh hosted run43244758406 is running. T1422 is private/unpublished.
   Main remains78b8c94f; no auto-merge, direct push or production change.
-- **Next:** preserve/publish this coherent backup and original #997 through
-  required checks/review; then observed physical-phone journey with identified
-  backend. Fresh paid-call approval is still required. Production hold remains.
+- **Next:** fix the first actual hosted failure; publish the prepared new backend
+  custody child only after #997 clears. Physical signing now stops at Xcode
+  “No Accounts” / missing development profile; the human must sign in there.
+  Standard Debug points to phone-local localhost; explicitly configure a reachable
+  authorized backend before installation. Fresh paid approval/production hold remain.
+  Exact clearance: `docs/physical-iphone-preparation-2026-11-12.md`.
 - **Evidence/files/limits:** `docs/onboarding-recovery-integration-2026-11-12.md`.
   Older entries below are historical checkpoints, not current completion claims.
 
