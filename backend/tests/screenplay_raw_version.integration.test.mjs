@@ -136,3 +136,37 @@ test('explicit cleared version survives authenticated restart and idempotent rep
     assert.equal(foreign.status, 404);
   } finally { await server.stop(); }
 });
+
+
+test('stale version rejection neither settles the request ID nor fences a later allowed write', { timeout: 60000 }, async () => {
+  const server = await startBackend(options);
+  try {
+    const headers = await createWriter(server);
+    const id = await createProject(server, headers);
+    const path = `/screenplay/projects/${id}/version`;
+    const send = json => apiRequest(server, path, { method: 'POST', headers, json });
+    const initial = await send({ draft: 'Initial', client_request_id: 'seed', source: 'studio_manual' });
+    assert.equal(initial.status, 201);
+    const advanced = await send({ draft: 'New server head', base_version_id: initial.json.version_id,
+      client_request_id: 'other-save', source: 'studio_manual' });
+    assert.equal(advanced.status, 201);
+    const delayed = { draft, base_version_id: initial.json.version_id, client_request_id: 'uncertain-save',
+      source: 'studio_custody_selected', conflict_strategy: 'reject_if_stale' };
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const rejected = await send(delayed);
+      assert.equal(rejected.status, 409);
+      assert.equal(rejected.json.status, 'conflict');
+      assert.equal(rejected.json.server_version_id, advanced.json.version_id);
+      assert.notEqual(rejected.json.replay_proof, 'full_request_hash_v1');
+    }
+    // An older caller or delayed request can use the existing allow strategy;
+    // the earlier stale response did not reserve this request identity.
+    const later = await send({ ...delayed, conflict_strategy: 'allow' });
+    assert.equal(later.status, 201);
+    assert.deepEqual(bytes(later.json.version.draft), bytes(draft));
+    const read = await apiRequest(server, `/screenplay/projects/${id}?include_drafts=1`, { headers });
+    assert.equal(read.status, 200);
+    assert.equal(read.json.project.active_version_id, later.json.version_id);
+    assert.equal(read.json.project.versions.filter(v => v.client_request_id === delayed.client_request_id).length, 1);
+  } finally { await server.stop(); }
+});
