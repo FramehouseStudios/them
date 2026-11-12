@@ -37,8 +37,17 @@ enum ScreenplayStudioUITestFixtures {
     }
 
     static func applyHeldDraftRecoveryIfRequested(viewModel: ScreenplayStudioViewModel) {
+        if IOThemRuntime.isRunningUITests,
+           ProcessInfo.processInfo.arguments.contains("--ui-custody-backend-fixture") {
+            applyBackendCustodyFixture(viewModel: viewModel)
+            return
+        }
         guard IOThemRuntime.isRunningUITests,
               ProcessInfo.processInfo.arguments.contains("--ui-held-draft-recovery-fixture") else { return }
+        if ProcessInfo.processInfo.arguments.contains("--ui-custody-review-fixture") {
+            applyCustodyReviewFixture(viewModel: viewModel)
+            return
+        }
         let owner = ScreenplayStudioAuthContext.current()
         let projectID = viewModel.selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !owner.userID.isEmpty, !projectID.isEmpty else {
@@ -68,6 +77,96 @@ enum ScreenplayStudioUITestFixtures {
                 viewModel.infoText = "Synthetic DEBUG-only held copy is ready for UI inspection."
             } catch {
                 viewModel.errorText = "Synthetic held-copy fixture failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    // Seeds only local recovery state for a synthetic, authenticated loopback
+    // project. The actual selection and saves use the real application path.
+    private static func applyBackendCustodyFixture(viewModel: ScreenplayStudioViewModel) {
+        let environment = ProcessInfo.processInfo.environment
+        guard let expectedOwner = environment["THEM_UITEST_USER_ID"], !expectedOwner.isEmpty,
+              let expectedProject = environment["THEM_UITEST_CUSTODY_PROJECT_ID"], !expectedProject.isEmpty,
+              environment["THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN_ENABLED"] == "1",
+              let backend = try? ScreenplayInitialProjectMetadata.origin(BackendAuthClient.resolvedBackendBaseURL()),
+              ["127.0.0.1", "localhost", "::1", "[::1]"].contains(backend.host ?? "") else { return }
+        Task { @MainActor in
+            for _ in 0..<300 {
+                let bridge = ScreenplayLiveDraftBridge.shared
+                let owner = ScreenplayStudioAuthContext.current()
+                if owner.userID == expectedOwner, viewModel.selectedProjectID == expectedProject,
+                   !viewModel.latestVersionID.isEmpty, bridge.draftOrigin.projectID == expectedProject,
+                   let documentID = bridge.draftOrigin.documentID,
+                   let project = viewModel.selectedProject, project.id == expectedProject,
+                   ScreenplayLiveDraftSyncService.shared.ownsEditor(viewModel) {
+                    let origin = ScreenplayDraftSaveOrigin(documentID: documentID, backendURL: backend)
+                    let baseVersion = viewModel.latestVersionID
+                    func row(id: String, draft: String, source: String, reason: String) -> ScreenplayDraftSaveOutboxEntry {
+                        ScreenplayDraftSaveOutboxEntry(id: id, projectId: expectedProject, ownerUserId: expectedOwner,
+                            draft: draft, title: project.title, phase: "scene_draft", notes: "", source: source,
+                            studioWriteAnchors: [], screenplayBindings: [], baseVersionId: baseVersion,
+                            createdAt: id == "ui-backend-custody-first" ? 100 : 101, updatedAt: 100,
+                            status: .parked, retries: 0, nextAttemptAt: 0, lastError: reason, deliveryOrigin: origin)
+                    }
+                    let first = row(id: "ui-backend-custody-first", draft: "INT. FIRST TEST ROOM - DAY\n\nFIRST HELD BACKEND COPY.",
+                        source: "studio_manual", reason: ScreenplayDraftSaveOutbox.conflictReason)
+                    let second = row(id: "ui-backend-custody-second", draft: "INT. SECOND TEST ROOM - NIGHT\n\nSECOND HELD BACKEND COPY.",
+                        source: "studio_conflict_custody", reason: ScreenplayDraftSaveOutbox.divergentCustodyReason)
+                    do {
+                        try await ScreenplayDraftSaveOutbox.shared.enqueue(first)
+                        try await ScreenplayDraftSaveOutbox.shared.enqueue(second)
+                        guard ScreenplayStudioAuthContext.current() == owner, viewModel.selectedProjectID == expectedProject,
+                              bridge.draftOrigin.documentID == documentID else { return }
+                        viewModel.conflictState = .init(projectId: expectedProject, baseVersionId: viewModel.latestVersionID,
+                            serverVersionId: viewModel.latestVersionID, serverDraft: viewModel.fountainDraft,
+                            serverDraftExcerpt: "", serverUpdatedAt: 0, retainedRequest: first, requiresCustodyReview: true)
+                    } catch {
+                        viewModel.errorText = "The isolated custody fixture could not be secured."
+                    }
+                    return
+                }
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+            viewModel.errorText = "The isolated custody fixture could not find its authenticated project."
+        }
+    }
+
+    private static func applyCustodyReviewFixture(viewModel: ScreenplayStudioViewModel) {
+        let owner = ScreenplayStudioAuthContext.current()
+        let projectID = viewModel.selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let bridge = ScreenplayLiveDraftBridge.shared
+        guard owner.userID == "synthetic-held-copy-writer", !projectID.isEmpty,
+              let documentID = bridge.draftOrigin.documentID,
+              let backendURL = try? ScreenplayInitialProjectMetadata.origin(BackendAuthClient.resolvedBackendBaseURL()),
+              ["127.0.0.1", "localhost", "::1", "[::1]"].contains(backendURL.host ?? "") else {
+            viewModel.errorText = "Synthetic custody fixture requires its isolated account and document."
+            return
+        }
+        let origin = ScreenplayDraftSaveOrigin(documentID: documentID, backendURL: backendURL)
+        let title = viewModel.selectedProject?.title ?? "Synthetic Project"
+        func row(id: String, draft: String, source: String, reason: String) -> ScreenplayDraftSaveOutboxEntry {
+            ScreenplayDraftSaveOutboxEntry(id: id, projectId: projectID, ownerUserId: owner.userID,
+                draft: draft, title: title, phase: "scene_draft", notes: "", source: source,
+                studioWriteAnchors: [], screenplayBindings: [], baseVersionId: "ui-original-base",
+                createdAt: id == "ui-custody-first" ? 100 : 101, updatedAt: 100, status: .parked,
+                retries: 0, nextAttemptAt: 0, lastError: reason, deliveryOrigin: origin)
+        }
+        let first = row(id: "ui-custody-first", draft: "FIRST SYNTHETIC HELD PAGE", source: "studio_manual",
+            reason: ScreenplayDraftSaveOutbox.conflictReason)
+        let second = row(id: "ui-custody-second", draft: "SECOND SYNTHETIC HELD PAGE", source: "studio_conflict_custody",
+            reason: ScreenplayDraftSaveOutbox.divergentCustodyReason)
+        Task { @MainActor in
+            do {
+                try await ScreenplayDraftSaveOutbox.shared.enqueue(first)
+                try await ScreenplayDraftSaveOutbox.shared.enqueue(second)
+                guard ScreenplayStudioAuthContext.current() == owner, viewModel.selectedProjectID == projectID,
+                      bridge.draftOrigin.documentID == documentID else { return }
+                viewModel.conflictState = .init(projectId: projectID, baseVersionId: "ui-original-base",
+                    serverVersionId: "ui-server-version", serverDraft: "SYNTHETIC SERVER PAGE",
+                    serverDraftExcerpt: "SYNTHETIC SERVER PAGE", serverUpdatedAt: 0,
+                    retainedRequest: first, requiresCustodyReview: true)
+            } catch {
+                viewModel.errorText = "Synthetic custody fixture could not be secured."
             }
         }
     }
