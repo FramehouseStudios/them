@@ -384,6 +384,7 @@ struct MagicMomentOnboardingFlow: View {
     }
 
     private func resumePendingIntentIfAuthenticated() {
+        guard pendingIntent != nil else { return }
         let session = BackendAuthClient.currentAuthSessionState()
         guard IOThemRuntime.bypassesAuthenticationForUITests
                 || (session.isAuthenticated && !session.accessExpired) else {
