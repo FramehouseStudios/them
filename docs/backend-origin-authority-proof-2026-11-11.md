@@ -42,7 +42,7 @@ The first D009 attempt lacked the actual parent remote-tracking ref and failed
 closed. Fetching and verifying the published e91f0898 established the comparison;
 no gate or source assertion was relaxed.
 
-## Current-source proof
+## Original runtime proof — 2026-11-11
 
 Xcode26.3 (17C529), erased task-owned iPhone17 Pro/iOS26.2 (23C54), simulator
 `81F0FF38-9DAD-4011-907B-357DFADD094C`; normal signing enabled for tests.
@@ -63,7 +63,8 @@ voice/header wiring and cross-device memory contracts that inspect changed Swift
 files. The full backend suite was not rerun locally. Backend module tree remains
 `2c40a5c3d1022c583462ad71014c0e173fed1ee8`; prior full Node20.20.2 proof3042/0/5
 is explicitly inherited. Fresh hosted full checks remain required. Four inherited
-skips require dedicated PostgreSQL and one live case requires fresh approval.
+skips require dedicated PostgreSQL; the fifth is the explicit talk preview-header
+skip, not a paid live-model case. The earlier description was incorrect.
 
 The writer UI uses authenticated local persistence and synthetic providers:
 zero ASR calls, one mocked chat call, zero TTS calls. It is not live speech,
@@ -112,3 +113,55 @@ values, credentials, paid provider calls, production changes or main merge here.
   `/private/tmp/them-t1383-origin-writer-summary.json`.
 - `/private/tmp/them-t1383-origin-node-contracts.log`.
 - `/private/tmp/them-t1383-origin-mac.log`.
+
+
+## Preserving parent integration — 2026-11-12
+
+VERIFIED runtime checkpoint `934f6ad56b1fd3af20415c7f48ebac3261ff37c1`
+is a preserving merge with parents original #997 `90362d4f` and locally proven
+original #995 `d1ab98e3`. The three original code-file blobs remain byte-identical
+to #997; all original heads remain ancestors. Newer parent UI assertions,
+diagnostics, frame guards and session isolation are retained. No app runtime hunk
+was rewritten during the integration.
+
+On the integrated checkpoint, normal signed Xcode26.3 tests used the exact
+canonical erased/booted/tested81F simulator above:
+
+| Current local check | Passed / failed / skipped |
+| --- | --- |
+| Full themTests, actual native summary | 1,566 / 0 / 0 |
+| Raw audio → server transcript → page → save/relaunch | 1 / 0 / 0 |
+| Authenticated writer/create/save/export/relaunch | 1 / 0 / 0 |
+| Reconnect, real auth refresh and conflict/relaunch | 3 / 0 / 0 |
+| Separate macOS scaffold build | BUILD SUCCEEDED |
+
+The raw-audio workflow counted1 mocked ASR,2 mocked chat and23 mocked TTS calls;
+the writer workflow counted0/1/0. These are local transport, authorization,
+persistence and recovery proofs, not microphone, live-model or phone proof.
+The fixture harness used host Node24.19.0. Unchanged full backend Node20 proof
+remains explicitly inherited; it was not rerun merely for this Swift merge.
+
+Canonical D009 passed against the freshly verified currently published #995
+`e91f0898`: BackendMemoryAPI -34, all other deltas0. An exact manual count against
+intended local parent `d1ab98e3` has the same deltas. The canonical comparison to
+that intended parent must be repeated after its real publication; no fake remote
+ref or relaxed gate is used. Diff and ancestry checks passed.
+
+Artifacts and hashes are retained privately in
+`_proof/T-1395-original-997-parent-20261112/proof.json`. Native summaries explicitly
+record the tested simulator,1,571 passed tests across these four cohorts,0 failed
+and0 skipped. This does not count inherited/hosted results a second time.
+
+Earlier published #997 `90362d4f` remains RED in hosted run43170334977:
+V1 37 passed / 2 failed / 36 skipped, with dedicated recovery and voice/macOS
+skipped. The stale117pt Review frame miss has causal source/native evidence and
+its parent helper correction is retained. The other held-preview failure's
+original cause remains unobserved; subsequent local callback/token/onAppear
+probe success does not prove that cause. Fresh exact-head hosted checks are
+required after publication. No unchanged retry was dispatched.
+
+Current publication is held behind the chosen parent's fresh required checks.
+No main merge, human approval, paid call or production change occurred. The
+November11 device/domain observations above are dated checkpoint evidence,
+not a fresh inventory. The real-phone/intended-backend journey remains unverified;
+production remains held, and #964 human review is still deferred.
