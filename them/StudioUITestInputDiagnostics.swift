@@ -1,29 +1,7 @@
 import SwiftUI
 
-enum StudioUITestHeldPreviewPhase: String {
-    case callback, tokenConfirmed, tokenRejected, appeared
-    case projectInvalidated, documentInvalidated, identityInvalidated, contextInvalidated
-}
-
 enum StudioUITestInspectorTabPhase: String {
     case appeared, entered, applied, observed, routed
-}
-
-enum StudioUITestPartnerPagePhase: String {
-    case buttonActivated = "button_activated"
-    case handlerEntered = "handler_entered"
-    case exchangeMissing = "exchange_missing"
-    case wrongTarget = "wrong_target"
-    case exchangeResolved = "exchange_resolved"
-    case composerReturned = "composer_returned"
-}
-
-private enum StudioUITestPromptRoutingValue: String {
-    case automatic, page, voicePin, invalid
-
-    init(_ storageValue: String) {
-        self = Self(rawValue: storageValue) ?? .invalid
-    }
 }
 
 #if DEBUG && canImport(UIKit)
@@ -37,7 +15,6 @@ enum StudioUITestInputDiagnostics {
         ProcessInfo.processInfo.environment["THEM_UITEST_TRACE_INPUT"] == "1"
     private static var installed = false
     private static var records: [[String: Any]] = []
-    private static var lastOwner: Int?
 
     static func installIfRequested() {
         guard requested, !installed,
@@ -46,26 +23,6 @@ enum StudioUITestInputDiagnostics {
         method_exchangeImplementations(original, traced)
         installed = true
         record(["kind": "installed"])
-    }
-
-    static func binding(_ original: Binding<Bool>, owner: AnyObject) -> Binding<Bool> {
-        guard requested else { return original }
-        let ownerID = ObjectIdentifier(owner).hashValue
-        if lastOwner != ownerID {
-            record(["kind": "autosave_owner", "owner": ownerID, "value": original.wrappedValue])
-            lastOwner = ownerID
-        }
-        return Binding(get: { original.wrappedValue }, set: { new in
-            let old = original.wrappedValue
-            original.wrappedValue = new
-            record(["kind": "autosave_binding", "owner": ownerID, "old": old, "new": original.wrappedValue, "requested": new])
-        })
-    }
-
-    static func heldPreview(_ phase: StudioUITestHeldPreviewPhase, owner: AnyObject) {
-        guard requested else { return }
-        record(["kind": "held_preview", "phase": phase.rawValue,
-                "owner": ObjectIdentifier(owner).hashValue])
     }
 
     static func inspectorFrame(
@@ -84,22 +41,6 @@ enum StudioUITestInputDiagnostics {
         guard requested else { return }
         record(["kind": "inspector_tab", "phase": phase.rawValue,
                 "requested": requestedTab.rawValue, "selection": selection.rawValue])
-    }
-
-    static func partnerPage(_ phase: StudioUITestPartnerPagePhase) {
-        guard requested else { return }
-        record(["kind": "partner_page", "phase": phase.rawValue])
-    }
-
-    static func promptRoutingBinding(_ original: Binding<String>) -> Binding<String> {
-        guard requested else { return original }
-        return Binding(get: { original.wrappedValue }, set: { new in
-            let old = StudioUITestPromptRoutingValue(original.wrappedValue)
-            original.wrappedValue = new
-            record(["kind": "prompt_routing", "old": old.rawValue,
-                    "requested": StudioUITestPromptRoutingValue(new).rawValue,
-                    "readback": StudioUITestPromptRoutingValue(original.wrappedValue).rawValue])
-        })
     }
 
     fileprivate static func capture(_ event: UIEvent) {
@@ -146,14 +87,6 @@ enum StudioUITestInputDiagnostics {
 
     static var snapshot: String? { serialize(records) }
 
-    static var partnerPageSnapshot: String? {
-        // This surface excludes unrelated traces that carry object-owner hashes.
-        serialize(records.filter {
-            guard let kind = $0["kind"] as? String else { return false }
-            return ["installed", "touch", "partner_page", "prompt_routing"].contains(kind)
-        })
-    }
-
     private static func serialize(_ entries: [[String: Any]]) -> String? {
         guard let data = try? JSONSerialization.data(withJSONObject: entries, options: [.sortedKeys]) else { return nil }
         return String(data: data, encoding: .utf8)
@@ -169,24 +102,17 @@ private extension UIApplication {
 }
 
 private final class StudioInputTraceView: UIView {
-    var partnerPageOnly = false
 
     override var accessibilityValue: String? {
-        get {
-            partnerPageOnly
-                ? StudioUITestInputDiagnostics.partnerPageSnapshot
-                : StudioUITestInputDiagnostics.snapshot
-        }
+        get { StudioUITestInputDiagnostics.snapshot }
         set {}
     }
 }
 
 struct StudioUITestInputDiagnosticsView: UIViewRepresentable {
     var identifier = "studio.debug.input.trace"
-    var partnerPageOnly = false
     func makeUIView(context: Context) -> UIView {
         let view = StudioInputTraceView()
-        view.partnerPageOnly = partnerPageOnly
         view.isUserInteractionEnabled = false
         view.isAccessibilityElement = StudioUITestInputDiagnostics.requested
         view.accessibilityIdentifier = identifier
@@ -199,20 +125,15 @@ struct StudioUITestInputDiagnosticsView: UIViewRepresentable {
 @MainActor
 enum StudioUITestInputDiagnostics {
     static func installIfRequested() {}
-    static func heldPreview(_ phase: StudioUITestHeldPreviewPhase, owner: AnyObject) {}
-    static func binding(_ original: Binding<Bool>, owner: AnyObject) -> Binding<Bool> { original }
     static func inspectorFrame(tab: ScreenplayStudioScreen.DirectionOneRightPanelTab, frame: CGRect) {}
     static func inspectorTab(
         _ phase: StudioUITestInspectorTabPhase,
         requestedTab: ScreenplayStudioScreen.DirectionOneRightPanelTab,
         selection: ScreenplayStudioScreen.DirectionOneRightPanelTab
     ) {}
-    static func partnerPage(_ phase: StudioUITestPartnerPagePhase) {}
-    static func promptRoutingBinding(_ original: Binding<String>) -> Binding<String> { original }
 }
 struct StudioUITestInputDiagnosticsView: View {
     var identifier = "studio.debug.input.trace"
-    var partnerPageOnly = false
     var body: some View { EmptyView() }
 }
 #endif
