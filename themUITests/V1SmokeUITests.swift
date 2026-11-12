@@ -23,7 +23,9 @@ final class V1SmokeUITests: XCTestCase {
 
     func test_studio_page_accepts_complete_direct_typing() throws {
 #if os(iOS)
-        let app = launchApp(openStudio: true)
+        let app = launchApp(openStudio: true, launchEnvironment: [
+            "THEM_STUDIO_AUTOMATION_SESSION_ID": "typing-\(UUID().uuidString)"
+        ])
         defer { app.terminate() }
 
         let editor = app.textViews["studio.draft.editor"]
@@ -3494,6 +3496,7 @@ final class V1SmokeUITests: XCTestCase {
             refreshBaseline = baseline.payload
         }
         var recoveryEnvironment = fixture.appLaunchEnvironment
+        recoveryEnvironment["THEM_STUDIO_AUTOMATION_SESSION_ID"] = "queued-recovery-\(UUID().uuidString)"
         if expireAuth { recoveryEnvironment["THEM_UITEST_USE_STORED_AUTH_SESSION"] = "1" }
         let marker = "SAVE-OUTBOX-\(UUID().uuidString.uppercased()) cafe\u{0301}"
         let expectedQueuedDraft = "\(fixture.expectedDraft)\n\n\(marker)"
