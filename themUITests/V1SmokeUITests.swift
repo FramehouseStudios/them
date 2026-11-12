@@ -1432,7 +1432,10 @@ final class V1SmokeUITests: XCTestCase {
             revealInStudioDrawer(autosave, drawer: rightDrawer, scrollingUp: true, maxSwipes: 12),
             "The writer-loop could not reach the Autosave switch."
         )
-        XCTAssertTrue(writerLoopSwitchIsOn(autosave), "Autosave was unexpectedly off before the writer-loop began.")
+        guard writerLoopSwitchState(autosave) == true else {
+            XCTFail("Autosave's initial on state was not confirmed before the writer-loop began.")
+            return
+        }
         let autosaveTurnedOff = toggleWriterLoopSwitch(autosave, toBeOn: false, timeout: writerLoopWait(4))
         let inputTrace = element(identifier: "studio.debug.input.trace", in: app)
         let traceAttachment = XCTAttachment(string: inputTrace.value as? String ?? "Native input trace unavailable")
@@ -5693,9 +5696,13 @@ final class V1SmokeUITests: XCTestCase {
         return occurrenceCount(of: marker, in: accessibleDraftText(in: app)) == 1
     }
 
-    private func writerLoopSwitchIsOn(_ element: XCUIElement) -> Bool {
-        let value = String(describing: element.value ?? "").lowercased()
-        return value == "1" || value == "true" || value == "on"
+    private func writerLoopSwitchState(_ element: XCUIElement) -> Bool? {
+        guard element.exists else { return nil }
+        switch String(describing: element.value ?? "").lowercased() {
+        case "1", "true", "on": return true
+        case "0", "false", "off": return false
+        default: return nil
+        }
     }
 
     private func waitForWriterLoopSwitch(
@@ -5705,12 +5712,12 @@ final class V1SmokeUITests: XCTestCase {
     ) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if writerLoopSwitchIsOn(element) == expected {
+            if writerLoopSwitchState(element) == expected {
                 return true
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
-        return writerLoopSwitchIsOn(element) == expected
+        return writerLoopSwitchState(element) == expected
     }
 
     // The required writer-loop gate runs alone on a GitHub macos runner where
@@ -5733,25 +5740,17 @@ final class V1SmokeUITests: XCTestCase {
         base * Self.writerLoopWaitScale
     }
 
-    /// Taps a switch and waits for its value to change. A tap issued right
-    /// after the inspector drawer settles from a swipe can be swallowed by the
-    /// scroll view, so if the value has not moved after the first quarter of
-    /// the budget the tap is repeated once — only while the value is still the
-    /// pre-tap value, so a late-arriving first tap is never undone.
+    /// Requires known native states before and after one action. Missing or
+    /// unrecognized accessibility values cannot prove that Autosave is off.
     private func toggleWriterLoopSwitch(
         _ element: XCUIElement,
         toBeOn expected: Bool,
         timeout: TimeInterval
     ) -> Bool {
-        _ = waitForHittability(of: element, timeout: max(1, timeout / 4))
+        guard waitForHittability(of: element, timeout: max(1, timeout / 4)),
+              let initial = writerLoopSwitchState(element), initial != expected else { return false }
         element.tap()
-        if waitForWriterLoopSwitch(element, toBeOn: expected, timeout: max(1, timeout / 4)) {
-            return true
-        }
-        if writerLoopSwitchIsOn(element) != expected, element.exists, element.isHittable {
-            element.tap()
-        }
-        return waitForWriterLoopSwitch(element, toBeOn: expected, timeout: max(1, timeout * 3 / 4))
+        return waitForWriterLoopSwitch(element, toBeOn: expected, timeout: timeout)
     }
 
     private func staticText(containing text: String, in app: XCUIApplication) -> XCUIElement {

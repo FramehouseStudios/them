@@ -6,9 +6,26 @@ The original hosted held-preview failure remains unresolved. These changes add
 an opt-in diagnostic and repair the separately proven stale-frame review tap.
 They do not claim to repair Autosave or the held-preview callback.
 
-Parent publication c7a4d230, run 43176422888, currently has successful backend,
-D009, signed-unit and writer steps; V1 is still running. Backend log totals:
-3,042 passed, 0 failed, 5 skipped. No unchanged hosted retry was started.
+Parent publication c7a4d230, run 43176422888, completed successfully with all
+three required checks green. Final retained log checkpoint:
+- Backend: 3,042 passed, 0 failed, 5 skipped.
+- Signed units: 1,559 executed, 0 failures; no skips reported.
+- Writer: required strict summary gate passed for 1 test, 0 failures/skips.
+- V1: 39 passed, 0 failed, 36 skipped (75 total).
+- Dedicated recovery: strict summary gate passed for 3 tests, 0 failures/skips.
+- Voice-fault: 1 test, 0 failures/skips.
+- macOS scaffold build and D009: passed.
+
+Writer/recovery counts are enforced by the successful summary contracts.
+V1 skips remain uncovered by that invocation. The writer's earlier helper
+could interpret an unknown AX value as Off, so its pass does not establish
+that native transition. The stronger follow-up below closes that proof hole.
+
+Final 4,904,522-byte job log is retained privately beside the failure evidence
+as c7-hosted-final.log, SHA256:
+7796c33d5b86a80c6cf32f9cfdf07b315385beb5e7b370546ab6ca056f98e291.
+No failure artifact was uploaded by this successful workflow. Original red
+evidence remains retained; a diagnostic-only green is not an Autosave fix.
 
 ## Exact failures preserved
 
@@ -101,6 +118,37 @@ a3b172c6. Remote #994 was verified at a45824a2 and that exact branch was
 fetched normally before the comparison. No gate was weakened.
 No unchanged full unit/backend run is claimed for this diagnostic follow-up.
 
+## Stronger Autosave transition proof
+
+Final trust review found a separate test defect: the old Bool helper mapped
+all missing/unrecognized accessibility values to false. An expected-Off wait
+could therefore pass without observing Off. Its repeated tap also could not
+prove that the writer's first action worked.
+
+The helper now returns Bool? and accepts only native 1/0, true/false or on/off.
+Unknown stays nil and cannot equal observed Off. Initial On and hittability
+are required; one tap is sent; the expected known state must then appear.
+The second tap is removed. The existing overall state-wait budget is retained
+(the prior quarter and three-quarter waits total the same supplied timeout).
+No product control state or assertion is weakened.
+
+Signed local strict writer: 1 passed, 0 failed, 0 skipped, erased root-owned
+iPhone 17 Pro/iOS 26.2, Xcode 26.3, normal signing. It completed create, native
+typing, manual save, generated page, export and relaunch. Providers were
+synthetic: ASR 0, mocked chat 1, TTS 0. Its retained 15-record trace contains
+12 touch receipts and exactly one accepted true-to-false binding write.
+
+Bundle: /private/tmp/them-t1388-known-autosave-writer.xcresult
+Trace summary: /private/tmp/them-t1388-known-autosave-metadata-summary.json
+EINSTEIN reviewed optional-state equality and unchanged timing read-only.
+This is a new focused check after a meaningful contract change; no unchanged
+broad unit/backend/macOS rerun. App source is unchanged from 07d4d3fe, whose
+macOS inert-path compile passed. Fresh hosted checks are required.
+
+This closes the false-green proof path. The original Autosave event-loss
+cause remains unexplained. Do not generalize the separately observed
+117-point stale-frame review miss to that switch.
+
 ## Ownership and hold
 
 HOWARD reconciled native frames/events; EINSTEIN reviewed callback guards
@@ -111,3 +159,5 @@ live microphone, physical-phone, integrated-main or shipping-backend claim.
 #996 remains held. Children #995/#997 and original #626 integration remain
 frozen. #964 human review is deferred. Main and production are unchanged;
 the existing App Store-credential production hold remains.
+
+Separate unfinished-input durability gap remains open as #998; no restore implementation is claimed.
