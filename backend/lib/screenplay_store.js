@@ -393,7 +393,12 @@ async function refreshScreenplayOwnerRecord(ownerKey) {
       };
     }
     const owner = normalizeStoredScreenplayOwner(value);
-    if (!owner) {
+    if (!owner || owner.ownerKey !== key) {
+      // Never let corrupt embedded identity retarget a later refresh or
+      // privileged write. The canonical database row remains untouched.
+      screenplayStoreByOwner.delete(key);
+      screenplayPersistedOwnerByKey.delete(key);
+      screenplayAdapterObservedOwnerKeys.add(key);
       return {
         ok: false,
         owner: null,
@@ -919,13 +924,19 @@ function getOrCreateScreenplayOwnerRecord(req, { create = true } = {}) {
   } = screenplayStoreDeps();
   const ownerKey = resolveScreenplayOwnerKey(req);
   let owner = screenplayStoreByOwner.get(ownerKey);
+  if (owner && owner.ownerKey !== ownerKey) {
+    screenplayStoreByOwner.delete(ownerKey);
+    screenplayPersistedOwnerByKey.delete(ownerKey);
+    screenplayAdapterObservedOwnerKeys.add(ownerKey);
+    owner = null;
+  }
   if (!owner && create) {
     owner = createEmptyScreenplayOwner(ownerKey);
     if (isScreenplayOwnerTombstone(screenplayPersistedOwnerByKey.get(ownerKey))) {
       return owner;
     }
     screenplayStoreByOwner.set(ownerKey, owner);
-    if (!screenplayPersistedOwnerByKey.has(ownerKey)) {
+    if (!screenplayPersistedOwnerByKey.has(ownerKey) && !screenplayAdapterObservedOwnerKeys.has(ownerKey)) {
       screenplayPersistedOwnerByKey.set(ownerKey, cloneJson(owner));
     }
   }

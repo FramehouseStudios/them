@@ -74,6 +74,8 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     resolveScreenplayUserId = defaultResolveScreenplayUserId,
     // Owner mutation helpers (writes)
     commitScreenplayOwnerMutation,
+    screenplayFencePersistence,
+    resolveScreenplayOwnerKey,
     markScreenplayOwnerDirty,
     refreshScreenplayOwnerRecord,
     createScreenplayId,
@@ -1513,6 +1515,70 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
       comments: payloadComments,
       project: toScreenplayProjectPayload(committedProject, { includeVersions: false, includeDrafts: false }),
     }));
+  });
+
+  // PostgreSQL-only proof: the database guard fences all future delivery for
+  // one request ID. A conflict response by itself never grants this proof.
+  app.post("/screenplay/projects/:projectId/version/fence", express.json({ limit: "2mb" }), async (req, res) => {
+    const stage = "screenplay_version_fence";
+    const owner = await getFreshAuthorizedScreenplayOwner(req, res, stage);
+    if (!owner) return;
+    res.setHeader("Cache-Control", "no-store");
+    if (screenplayFencePersistence?.kind !== "postgres" || typeof screenplayFencePersistence.query !== "function" ||
+        typeof resolveScreenplayOwnerKey !== "function") {
+      return res.status(503).json({ stage, error: "screenplay_fence_unavailable" });
+    }
+    const trustedOwnerKey = resolveScreenplayOwnerKey(req);
+    if (!trustedOwnerKey || owner.ownerKey !== trustedOwnerKey) {
+      return res.status(503).json({ stage, error: "screenplay_fence_unavailable" });
+    }
+    const projectId = normalizeSnippet(req.params?.projectId, 64);
+    const project = getScreenplayProjectRecord(owner, projectId);
+    if (!project) return res.status(404).json({ stage, error: "project_not_found" });
+    const requestId = normalizeSnippet(req.body?.client_request_id, 96);
+    const localDigest = String(req.body?.local_request_digest || "");
+    const baseVersionId = normalizeSnippet(req.body?.base_version_id, 64);
+    const draft = req.body?.draft;
+    const phase = normalizeScreenplayPhaseValue(req.body?.phase || project.lastPhase);
+    const source = normalizeSnippet(req.body?.source, 48) || "studio_autosave";
+    const notes = normalizeSnippet(req.body?.notes, 240);
+    const title = normalizeSnippet(req.body?.title, 160);
+    const anchors = normalizeStoredScreenplayWriteAnchors(req.body?.studio_write_anchors);
+    const bindings = normalizeStoredScreenplayBindings(req.body?.screenplay_bindings);
+    if (!/^[A-Za-z0-9_.:-]{1,64}$/.test(projectId) || !/^[A-Za-z0-9_.:-]{1,96}$/.test(requestId) ||
+        !/^[a-f0-9]{64}$/.test(localDigest) || typeof draft !== "string" || !baseVersionId ||
+        source !== "studio_custody_selected") {
+      return res.status(400).json({ stage, error: "screenplay_fence_invalid_request" });
+    }
+    const requestHash = buildScreenplayVersionReplayHash({ draft, phase, source, notes, title,
+      studioWriteAnchors: anchors, screenplayBindings: bindings, baseVersionId });
+    let result;
+    try {
+      result = await screenplayFencePersistence.query(
+        "SELECT public.screenplay_block_request($1,$2,$3,$4,$5) AS result",
+        [trustedOwnerKey, projectId, requestId, localDigest, requestHash]);
+    } catch {
+      return res.status(503).json({ stage, error: "screenplay_fence_unavailable" });
+    }
+    const receipt = result?.rows?.[0]?.result;
+    if (!receipt || !["blocked", "already_saved"].includes(receipt.kind) || typeof receipt.head !== "string") {
+      return res.status(503).json({ stage, error: "screenplay_fence_unavailable" });
+    }
+    if (receipt.kind === "already_saved") {
+      const saved = receipt.version, savedProject = receipt.project;
+      if (!saved || !savedProject || savedProject.id !== projectId || saved.clientRequestId !== requestId ||
+          saved.saveRequestHash !== requestHash || String(saved.draft || "") !== draft) {
+        return res.status(503).json({ stage, error: "screenplay_fence_unavailable" });
+      }
+      return res.status(200).json({ stage, status: "already_saved", proof: "full_request_hash_v1",
+        project_id: projectId, client_request_id: requestId, local_request_digest: localDigest,
+        request_hash: requestHash, head_version_id_at_fence: receipt.head,
+        version: toScreenplayVersionPayload(saved, { includeDraft: true }),
+        project: toScreenplayProjectPayload(savedProject, { includeVersions: true, includeDrafts: true, versionLimit: 24 }) });
+    }
+    return res.status(200).json({ stage, status: "future_delivery_blocked", proof: "pg_request_fence_v1",
+      project_id: projectId, client_request_id: requestId, local_request_digest: localDigest,
+      request_hash: requestHash, head_version_id_at_fence: receipt.head });
   });
 
   const activeVersionRequests = new Map();
