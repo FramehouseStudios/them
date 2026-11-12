@@ -74,15 +74,24 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
     }
 
     func testQueuedRestoreDoesNotReplaceManualEditBeforeDebounce() async throws {
+        try await verifyQueuedRestoreKeepsManualEdit(scopedRecovery: true)
+    }
+
+    func testQueuedRestoreKeepsManualEditWithoutRebindingLegacyRecovery() async throws {
+        try await verifyQueuedRestoreKeepsManualEdit(scopedRecovery: false)
+    }
+
+    private func verifyQueuedRestoreKeepsManualEdit(scopedRecovery: Bool) async throws {
         let fixture = try SaveCompletionFixture()
         defer { fixture.close() }
-        fixture.select("a", draft: fixture.a, base: "a-base")
+        fixture.select("a", draft: fixture.a, base: "a-base", scopedRecovery: scopedRecovery)
         let earlier = fixture.a + "\nEarlier queued version."
         var queued = ScreenplayDraftSaveOutboxEntry(id: UUID().uuidString, projectId: "a", ownerUserId: fixture.owner,
             draft: earlier, title: "A", phase: "draft", notes: "", source: "studio_manual",
             studioWriteAnchors: [], screenplayBindings: [], baseVersionId: "a-base", createdAt: 1, updatedAt: 1,
             status: .pending, retries: 0, nextAttemptAt: 0, lastError: "")
-        queued.deliveryOrigin = try fixture.currentOrigin()
+        let origin = try fixture.currentOrigin()
+        queued.deliveryOrigin = origin
         try await fixture.queue.enqueue(queued)
         let newer = fixture.a + "\nWriter's new exact words.  \t"
         fixture.model.fountainDraft = newer
@@ -90,10 +99,31 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         let restored = await fixture.model.restorePendingDraftSaveBeforeProjectHydration()
         XCTAssertTrue(restored)
         XCTAssertEqual(Data(fixture.model.fountainDraft.utf8), Data(newer.utf8))
-        let recovery = fixture.store.dirtyOrdinarySnapshot(ownerUserId: fixture.owner, projectId: "a")
-        XCTAssertEqual(recovery.map { Data($0.draft.utf8) }, Data(newer.utf8))
+        let assertDurableCopy: @MainActor () throws -> Void = {
+            if scopedRecovery {
+                let recovery = fixture.store.dirtyOrdinarySnapshot(ownerUserId: fixture.owner, projectId: "a")
+                XCTAssertEqual(recovery.map { Data($0.draft.utf8) }, Data(newer.utf8))
+                XCTAssertEqual(recovery?.baseVersionId, "a-base")
+            } else {
+                let legacy = fixture.store.payloads(ownerUserId: fixture.owner)["a"]
+                XCTAssertEqual((legacy?["draft"] as? String).map { Data($0.utf8) }, Data(fixture.a.utf8),
+                               "The unverified legacy copy must remain unchanged.")
+                XCTAssertNil(legacy?["ordinaryBackendOrigin"], "Typing cannot silently assign an origin to legacy work.")
+                let reopened = ScreenplayRecoveryOverflowStore(rootDirectory: fixture.overflowDirectory)
+                guard case let .present(records) = reopened.journalCopies(ownerUserID: fixture.owner, projectID: "a",
+                    backendURL: origin.backendURL) else { return XCTFail("The newer words need a real scoped journal copy.") }
+                let recovery = try XCTUnwrap(records.first { $0.draft.utf8.elementsEqual(newer.utf8) })
+                XCTAssertEqual(recovery.ownerUserID, fixture.owner)
+                XCTAssertEqual(recovery.projectID, "a")
+                XCTAssertEqual(recovery.documentID, origin.documentID)
+                XCTAssertEqual(recovery.baseVersionID, "a-base")
+                XCTAssertTrue(OfflineTalkRecoveryScope.sameBackend(try XCTUnwrap(URL(string: recovery.backendOrigin)), origin.backendURL))
+            }
+        }
+        try assertDurableCopy()
         try await Task.sleep(nanoseconds: 1_400_000_000)
         XCTAssertEqual(Data(fixture.model.fountainDraft.utf8), Data(newer.utf8))
+        try assertDurableCopy()
         let rows = try await fixture.reloadQueueEntries()
         XCTAssertTrue(rows.contains { $0.id == queued.id && $0.draft.utf8.elementsEqual(earlier.utf8) })
     }
@@ -253,7 +283,7 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
 
     private func verifyCustodyAcknowledgementWarning(currentMatchesSelection: Bool,
                                                      outcome: SaveCompletionPeer.Outcome) async throws {
-        let fixture = try SaveCompletionFixture()
+        let fixture = try SaveCompletionFixture(rejectJournalWrites: true)
         defer { fixture.peer.releaseFirst(.offline); fixture.close() }
         fixture.select("a", draft: fixture.a, base: "a-base")
         let origin = try fixture.currentOrigin()
@@ -2023,7 +2053,7 @@ private final class SaveCompletionFixture {
 
     nonisolated deinit {}
 
-    init(rejectOverflowWrites: Bool = false,
+    init(rejectOverflowWrites: Bool = false, rejectJournalWrites: Bool = false,
          supersededReceiptReader: @escaping @Sendable (URL) throws -> Data = { try Data(contentsOf: $0) }) throws {
         let bridge = ScreenplayLiveDraftBridge.shared
         let savedEnvironment = SaveCompletionEnvironmentSnapshot()
@@ -2050,9 +2080,16 @@ private final class SaveCompletionFixture {
         suite = "them.save-completion.\(UUID())"
         defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         store = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
-        let protection: ((URL) throws -> Void)? = rejectOverflowWrites ? { _ in
-            throw CocoaError(.fileWriteNoPermission)
-        } : nil
+        let protection: ((URL) throws -> Void)?
+        if rejectOverflowWrites || rejectJournalWrites {
+            protection = { url in
+                if rejectOverflowWrites || url.lastPathComponent.contains(".journal.") {
+                    throw CocoaError(.fileWriteNoPermission)
+                }
+            }
+        } else {
+            protection = nil
+        }
         overflow = ScreenplayRecoveryOverflowStore(rootDirectory: directory.appendingPathComponent("overflow"),
                                                    fileProtectionEnforcer: protection)
         queue = ScreenplayDraftSaveOutbox(storageDirectory: directory, supersededReceiptReader: supersededReceiptReader)

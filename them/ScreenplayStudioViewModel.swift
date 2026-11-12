@@ -1744,6 +1744,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 $0.utf8.elementsEqual(fountainDraft.utf8)
             } ?? false
             pendingNativeEditorDraft = nil
+            // Only contiguous edits may retire the previous journal checkpoint.
+            // Hydration or a different prior page starts an independent edit.
+            if let active = activeJournalEdit, !fountainDraft.utf8.elementsEqual(oldValue.utf8),
+               isHydratingDraft || isRestoringQueuedDraft ||
+                !active.lease.matches(draft: oldValue, baseVersionID: latestVersionID) {
+                activeJournalEdit = nil
+            }
             if !isNativeEditorPublication, !fountainDraft.utf8.elementsEqual(oldValue.utf8) {
                 editorExternalDraftMutationRevision &+= 1
             }
