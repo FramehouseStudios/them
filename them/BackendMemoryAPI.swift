@@ -1852,99 +1852,6 @@ nonisolated struct BackendAuthUser: Codable, Hashable, Sendable {
     let updatedAt: TimeInterval?
 }
 
-nonisolated enum BackendAuthDebugSessionPolicy {
-    struct AutomationSessionOverride: Equatable, Sendable {
-        let userID: String
-        let clientToken: String
-        let accessToken: String
-
-        var user: BackendAuthUser {
-            BackendAuthUser(
-                userId: userID,
-                email: "",
-                authProvider: "debug",
-                emailVerified: true,
-                emailVerifiedAt: nil,
-                createdAt: nil,
-                updatedAt: nil
-            )
-        }
-
-        var sessionState: BackendAuthSessionState {
-            BackendAuthSessionState(
-                user: user,
-                accessTokenPresent: true,
-                refreshTokenPresent: false,
-                accessExpiresAt: 0,
-                refreshExpiresAt: 0,
-                currentSessionId: "",
-                currentFamilyId: "",
-                tokenType: "Bearer",
-                pendingEmailVerification: false,
-                verificationRequired: false
-            )
-        }
-    }
-
-    static func automationSessionOverride(
-        arguments: [String],
-        environment: [String: String]
-    ) -> AutomationSessionOverride? {
-        guard IOThemRuntime.isStudioAutomationArguments(arguments),
-              environmentFlagIsEnabled(environment["THEM_UITEST_AUTH_SIGNED_IN"]),
-              environmentFlagIsEnabled(environment["THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN_ENABLED"]) else {
-            return nil
-        }
-        let accessToken = normalizedEnvironmentValue(
-            environment["THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN"]
-        )
-        let userID = normalizedEnvironmentValue(environment["THEM_UITEST_USER_ID"])
-        let clientToken = normalizedEnvironmentValue(environment["THEM_UITEST_CLIENT_TOKEN"])
-        guard !accessToken.isEmpty, !userID.isEmpty, !clientToken.isEmpty else { return nil }
-        return AutomationSessionOverride(
-            userID: userID,
-            clientToken: clientToken,
-            accessToken: accessToken
-        )
-    }
-
-    static func shouldPersistSessionBootstrapIdentity(
-        arguments: [String],
-        environment: [String: String]
-    ) -> Bool {
-        automationSessionOverride(arguments: arguments, environment: environment) == nil
-    }
-
-    static func syntheticUser(
-        signedIn: Bool,
-        accessToken: String,
-        userID: String,
-        email: String
-    ) -> BackendAuthUser? {
-        let cleanToken = accessToken.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanUserID = userID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard signedIn, !cleanToken.isEmpty, !cleanUserID.isEmpty else { return nil }
-        let cleanEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
-        return BackendAuthUser(
-            userId: cleanUserID,
-            email: cleanEmail,
-            authProvider: "debug",
-            emailVerified: true,
-            emailVerifiedAt: nil,
-            createdAt: nil,
-            updatedAt: nil
-        )
-    }
-
-    private static func normalizedEnvironmentValue(_ raw: String?) -> String {
-        (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private static func environmentFlagIsEnabled(_ raw: String?) -> Bool {
-        ["1", "true", "yes", "on"].contains(normalizedEnvironmentValue(raw).lowercased())
-    }
-}
-
 nonisolated struct BackendRememberedLoginCredentials: Codable, Equatable, Sendable {
     let email: String
     let password: String?
@@ -3750,6 +3657,10 @@ nonisolated enum BackendAuthClient {
     private static let authSessionStateQueue = DispatchQueue(
         label: "io.them.auth.session-state"
     )
+    #if DEBUG
+    private static let uiTestAuthenticationResumeFixtureActivation =
+        BackendAuthResumeFixtureActivationStore()
+    #endif
     private static let authRefreshCoordinator = BackendAuthRefreshCoordinator()
     private static let appTokenAccount = "app_token"
     private static let clientTokenAccount = "session_client_token"
@@ -4012,16 +3923,8 @@ nonisolated enum BackendAuthClient {
         persistClientToken: Bool
     ) -> Bool {
         #if DEBUG
-        let processArguments = ProcessInfo.processInfo.arguments
-        let processEnvironment = ProcessInfo.processInfo.environment
-        let automationOverride = BackendAuthDebugSessionPolicy.automationSessionOverride(
-            arguments: processArguments,
-            environment: processEnvironment
-        )
-        let shouldPersistIdentity = BackendAuthDebugSessionPolicy.shouldPersistSessionBootstrapIdentity(
-            arguments: processArguments,
-            environment: processEnvironment
-        )
+        let automationOverride = currentAutomationSessionOverride()
+        let shouldPersistIdentity = automationOverride == nil
         #endif
         return authSessionStateQueue.sync {
             guard sessionBootstrapIdentityCommitIsAllowed(
@@ -5821,10 +5724,26 @@ nonisolated enum BackendAuthClient {
     }
 
 #if DEBUG
+    @discardableResult
+    static func activateUITestAuthenticationResumeFixture() -> Bool {
+        guard IOThemRuntime.allowsUITestAuthenticationResumeFixture else {
+            uiTestAuthenticationResumeFixtureActivation.deactivate()
+            return false
+        }
+        uiTestAuthenticationResumeFixtureActivation.activate()
+        let session = currentAuthSessionState()
+        guard session.isAuthenticated, !session.accessExpired else {
+            uiTestAuthenticationResumeFixtureActivation.deactivate()
+            return false
+        }
+        return true
+    }
+
     private static func currentAutomationSessionOverride() -> BackendAuthDebugSessionPolicy.AutomationSessionOverride? {
-        BackendAuthDebugSessionPolicy.automationSessionOverride(
+        BackendAuthDebugSessionPolicy.resolvedAutomationSessionOverride(
             arguments: ProcessInfo.processInfo.arguments,
-            environment: ProcessInfo.processInfo.environment
+            environment: ProcessInfo.processInfo.environment,
+            isResumeFixtureActivated: uiTestAuthenticationResumeFixtureActivation.isActivated
         )
     }
 #endif

@@ -751,10 +751,6 @@ struct RootExperienceView: View {
     @State private var lastNonEmptyPartialTranscriptHint = ""
     @State private var recentTurnWindow: [(user: String, assistant: String)] = []
     @State private var recentTurnWindowHistoryUpdatedAt: TimeInterval = 0
-    @State private var onboardingName = ""
-    @State private var onboardingSceneSeed = ""
-    @State private var isMagicMomentSubmitting = false
-    @State private var magicMomentOnboardingError = ""
     @AppStorage("auth_signed_in") private var authSignedIn: Bool = false
     @AppStorage("auth_session_token_deletion_pending")
     private var authSessionTokenDeletionPending: Bool = false
@@ -780,8 +776,6 @@ struct RootExperienceView: View {
     @State private var studioAccountIdentityGeneration = 0
     @State private var inFlightTalkTask: Task<Void, Never>?
     @State private var didBumpSessionThisLaunch = false
-    @FocusState private var onboardingNameFocused: Bool
-    @FocusState private var onboardingSceneFocused: Bool
     #if os(macOS)
     @State private var keyMonitor: Any?
     #endif
@@ -1217,6 +1211,9 @@ struct RootExperienceView: View {
     @ViewBuilder
     private var bodyForegroundLayers: some View {
         primarySurfaceLayer
+            .opacity(evolution.needsOnboardingName ? 0 : 1)
+            .allowsHitTesting(!evolution.needsOnboardingName)
+            .accessibilityHidden(evolution.needsOnboardingName)
 
         if evolution.needsOnboardingName {
             onboardingOverlay
@@ -1244,6 +1241,11 @@ struct RootExperienceView: View {
                 .accessibilityIdentifier("realtime.network-fault.result")
                 .accessibilityLabel(uiTestRealtimeNetworkFaultResult)
                 .zIndex(100)
+        }
+
+        if IOThemRuntime.allowsUITestAuthenticationResumeFixture {
+            MagicMomentAuthResumeProofView()
+                .zIndex(101)
         }
 #endif
     }
@@ -2477,12 +2479,7 @@ struct RootExperienceView: View {
             studioWasAuthenticatedSnapshot = session.isAuthenticated && !session.accessExpired
         }
         ensureSessionBumped()
-        onboardingName = evolution.preferredName
-        if evolution.needsOnboardingName {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                onboardingNameFocused = true
-            }
-        } else {
+        if !evolution.needsOnboardingName {
             #if DEBUG
             let shouldRestorePersistedSurface = ThemWorkspaceSurfaceRestorePolicy.shouldRestorePersistedSurface(
                 isRunningUITests: IOThemRuntime.isRunningUITests,
@@ -3892,169 +3889,55 @@ struct RootExperienceView: View {
     }
 
     private var onboardingOverlay: some View {
-        ZStack {
-            Color.black.opacity(0.12)
-                .ignoresSafeArea()
-
-            VStack(spacing: 16) {
-                VStack(spacing: 6) {
-                    Text("Start your first page")
-                        .font(.system(size: 30, weight: .semibold, design: .default))
-                        .foregroundColor(.herText.opacity(0.94))
-                        .multilineTextAlignment(.center)
-
-                    Text("Tell io.them who you are and the scene you want to hear first.")
-                        .font(.system(size: 13, weight: .regular, design: .default))
-                        .foregroundColor(.herText.opacity(0.72))
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                VStack(spacing: 10) {
-                    TextField("Your name", text: $onboardingName)
-                        .font(.system(size: 17, weight: .regular, design: .default))
-                        .textFieldStyle(.roundedBorder)
-                        .focused($onboardingNameFocused)
-                        .submitLabel(.next)
-                        .onSubmit {
-                            if canSubmitOnboarding {
-                                onboardingSceneFocused = true
-                            }
-                        }
-                        .accessibilityIdentifier("onboarding.name.field")
-
-                    TextField("A detective finds a letter under a motel door...", text: $onboardingSceneSeed, axis: .vertical)
-                        .font(.system(size: 16, weight: .regular, design: .default))
-                        .textFieldStyle(.roundedBorder)
-                        .lineLimit(3...5)
-                        .focused($onboardingSceneFocused)
-                        .submitLabel(.go)
-                        .onSubmit {
-                            startMagicMomentOnboarding()
-                        }
-                        .accessibilityIdentifier("onboarding.scene.field")
-                }
-
-                HStack(spacing: 10) {
-                    Button {
-                        startMagicMomentVoiceOnboarding()
-                    } label: {
-                        Text("Voice to Scene")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 15, weight: .semibold, design: .default))
-                    .foregroundColor(.herText.opacity(canStartMagicMoment ? 0.90 : 0.45))
-                    .padding(.vertical, 11)
-                    .background(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(Color.white.opacity(canStartMagicMoment ? 0.16 : 0.08))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .stroke(Color.white.opacity(0.18), lineWidth: 1)
-                    )
-                    .disabled(!canStartMagicMoment)
-                    .accessibilityIdentifier("onboarding.voice-to-scene")
-
-                    Button {
-                        startMagicMomentOnboarding()
-                    } label: {
-                        Text(isMagicMomentSubmitting ? "Writing..." : "Start Page")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 15, weight: .semibold, design: .default))
-                    .foregroundColor(.herText.opacity(canStartMagicMoment ? 0.94 : 0.45))
-                    .padding(.vertical, 11)
-                    .background(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(Color.white.opacity(canStartMagicMoment ? 0.26 : 0.12))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .stroke(Color.white.opacity(0.24), lineWidth: 1)
-                    )
-                    .disabled(!canStartMagicMoment)
-                    .accessibilityIdentifier("onboarding.start-page")
-                }
-
-                if !magicMomentOnboardingError.isEmpty {
-                    Text(magicMomentOnboardingError)
-                        .font(.system(size: 12, weight: .regular, design: .default))
-                        .foregroundColor(.red.opacity(0.86))
-                        .multilineTextAlignment(.center)
-                        .lineLimit(3)
-                }
-            }
-            .padding(24)
-            .frame(maxWidth: 430)
-            .background(
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .fill(Color.white.opacity(0.18))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .stroke(Color.white.opacity(0.22), lineWidth: 1)
-            )
-            .padding(.horizontal, 20)
-        }
-    }
-
-    private var canSubmitOnboarding: Bool {
-        !onboardingName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    private var canStartMagicMoment: Bool {
-        canSubmitOnboarding && !isMagicMomentSubmitting
+        MagicMomentOnboardingFlow(
+            initialName: evolution.preferredName,
+            onAccountSessionChanged: handleAccountSessionChanged,
+            onStartPage: startAuthenticatedMagicMomentPage,
+            onStartVoice: startAuthenticatedMagicMomentVoice
+        )
     }
 
     @MainActor
-    private func startMagicMomentOnboarding() {
-        guard !isMagicMomentSubmitting else { return }
-        guard completeOnboarding(askForPersonality: false) else { return }
-
-        let cleanName = onboardingName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let sceneSeed = normalizedMagicMomentSceneSeed()
-        let prompt = magicMomentFirstPagePrompt(name: cleanName, sceneSeed: sceneSeed)
-        let requestID = "magic-moment-\(UUID().uuidString.lowercased())"
+    private func startAuthenticatedMagicMomentPage(name: String, sceneSeed: String) async -> String? {
+        guard currentSessionIsAuthenticated else { return "Sign in before writing your first page." }
         let startedAt = Date()
-
-        isMagicMomentSubmitting = true
-        magicMomentOnboardingError = ""
         openStudio()
+        guard currentSessionIsAuthenticated else { return "Your sign-in expired before the page could start." }
+        guard completeOnboarding(name: name, askForPersonality: false) else { return "Enter your name first." }
+
+        let prompt = magicMomentFirstPagePrompt(name: name, sceneSeed: sceneSeed)
+        let requestID = "magic-moment-\(UUID().uuidString.lowercased())"
         screenplayDraftBridge.autoInsertStatusText = "io.them is writing the first page..."
         magicMomentPerceivedResponseMs = Date().timeIntervalSince(startedAt) * 1_000
-
-        Task { @MainActor in
-            await Task.yield()
-            let error = await submitStudioPrompt(prompt, routingMode: .page, requestID: requestID)
-            magicMomentLastDurationMs = Date().timeIntervalSince(startedAt) * 1_000
-            isMagicMomentSubmitting = false
-
-            if let error = error?.trimmingCharacters(in: .whitespacesAndNewlines), !error.isEmpty {
-                magicMomentOnboardingError = error
-                lastIssueSummary = error
-                screenplayDraftBridge.autoInsertStatusText = error
-                return
-            }
-
-            onboardingSceneSeed = ""
-            magicMomentOnboardingError = ""
+        await Task.yield()
+        let error = await submitStudioPrompt(prompt, routingMode: .page, requestID: requestID)
+        magicMomentLastDurationMs = Date().timeIntervalSince(startedAt) * 1_000
+        if let error = error?.trimmingCharacters(in: .whitespacesAndNewlines), !error.isEmpty {
+            lastIssueSummary = error
+            screenplayDraftBridge.autoInsertStatusText = error
+            return error
         }
+        return nil
     }
 
     @MainActor
-    private func startMagicMomentVoiceOnboarding() {
-        guard !isMagicMomentSubmitting else { return }
-        guard completeOnboarding(askForPersonality: false) else { return }
-        magicMomentOnboardingError = ""
+    private func startAuthenticatedMagicMomentVoice(name: String) -> String? {
+        guard currentSessionIsAuthenticated else { return "Sign in before using Voice to Scene." }
         openStudio()
+        guard currentSessionIsAuthenticated else { return "Your sign-in expired before Voice to Scene could start." }
+        guard completeOnboarding(name: name, askForPersonality: false) else { return "Enter your name first." }
         startConversationLoopIfNeeded()
+        return nil
     }
 
-    private func normalizedMagicMomentSceneSeed() -> String {
-        let clean = onboardingSceneSeed.trimmingCharacters(in: .whitespacesAndNewlines)
+    private var currentSessionIsAuthenticated: Bool {
+        if IOThemRuntime.bypassesAuthenticationForUITests { return true }
+        let session = BackendAuthClient.currentAuthSessionState()
+        return session.isAuthenticated && !session.accessExpired
+    }
+
+    private func normalizedMagicMomentSceneSeed(_ sceneSeed: String) -> String {
+        let clean = sceneSeed.trimmingCharacters(in: .whitespacesAndNewlines)
         if !clean.isEmpty { return clean }
         return "someone walks into a room carrying a secret they cannot say out loud yet"
     }
@@ -4063,7 +3946,7 @@ struct RootExperienceView: View {
         let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanSeed = sceneSeed.trimmingCharacters(in: .whitespacesAndNewlines)
         let displayName = cleanName.isEmpty ? "the writer" : cleanName
-        let impulse = cleanSeed.isEmpty ? normalizedMagicMomentSceneSeed() : cleanSeed
+        let impulse = cleanSeed.isEmpty ? normalizedMagicMomentSceneSeed(sceneSeed) : cleanSeed
         return """
         Write the first page of a screenplay scene for \(displayName).
 
@@ -4942,9 +4825,7 @@ You're okay. Let's slow it down for one beat and get our footing back. Pick the 
         }
 
         if memoryDomain == .companion || memoryDomain == .mixed {
-            if let detectedName = evolution.updatePreferredNameFromUserTextIfPresent(cleanUser) {
-                onboardingName = detectedName
-            }
+            _ = evolution.updatePreferredNameFromUserTextIfPresent(cleanUser)
             _ = evolution.updatePersonaFromUserTextIfPresent(cleanUser)
             evolution.recordUserMessage(cleanUser)
         }
@@ -6080,13 +5961,10 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
     @MainActor
     @discardableResult
-    private func completeOnboarding(askForPersonality: Bool = true) -> Bool {
-        let clean = onboardingName.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func completeOnboarding(name: String, askForPersonality: Bool = true) -> Bool {
+        let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else { return false }
         evolution.setPreferredName(clean)
-        onboardingName = clean
-        onboardingNameFocused = false
-        onboardingSceneFocused = false
         if askForPersonality {
             verballyAskForPersonalityIfNeeded()
         }
@@ -7612,7 +7490,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
             if let persistedName = result.userName?.trimmingCharacters(in: .whitespacesAndNewlines),
                !persistedName.isEmpty {
                 evolution.setPreferredName(persistedName)
-                onboardingName = persistedName
             }
             await onTurnCommitted(
                 result.commit,

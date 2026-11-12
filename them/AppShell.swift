@@ -939,6 +939,12 @@ nonisolated enum ProfileAppleSignInErrorPolicy {
 
 struct ProfileAccountScreen: View {
     let onSessionChanged: () -> Void
+    let onDone: (() -> Void)?
+
+    init(onSessionChanged: @escaping () -> Void, onDone: (() -> Void)? = nil) {
+        self.onSessionChanged = onSessionChanged
+        self.onDone = onDone
+    }
 
     private static let rememberedLoginUnavailableMessage =
         "Remembered login is waiting for Apple Keychain to become available."
@@ -998,9 +1004,19 @@ struct ProfileAccountScreen: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     VStack(alignment: .leading, spacing: 10) {
-                        Text(sessionState.isAuthenticated ? "Account" : "Profile")
-                            .font(.system(size: 34, weight: .semibold))
-                            .foregroundStyle(.white)
+                        HStack(alignment: .top, spacing: 20) {
+                            Text(sessionState.isAuthenticated ? "Account" : "Sign in to io.them")
+                                .font(.system(size: 34, weight: .semibold))
+                                .foregroundStyle(.white)
+                            Spacer(minLength: 12)
+                            if let onDone {
+                                Button("Done", action: onDone)
+                                    .buttonStyle(.bordered)
+                                    .tint(.white.opacity(0.28))
+                                    .foregroundStyle(.white.opacity(0.92))
+                                    .accessibilityIdentifier("profile-account-done")
+                            }
+                        }
                         Text(
                             sessionState.isAuthenticated
                                 ? (sessionState.emailVerified ? "You’re signed in and the live backend is running on your account." : "You’re signed in. Verify your email to finish account setup.")
@@ -1152,6 +1168,24 @@ struct ProfileAccountScreen: View {
                                     }
                                 }
                             }
+
+#if DEBUG
+                            if IOThemRuntime.allowsUITestAuthenticationResumeFixture {
+                                secondaryActionButton(
+                                    title: "Complete Test Sign-In",
+                                    disabled: authInteractionDisabled
+                                ) {
+                                    guard BackendAuthClient.activateUITestAuthenticationResumeFixture() else {
+                                        errorMessage = "The automation-only sign-in fixture could not activate."
+                                        return
+                                    }
+                                    sessionState = BackendAuthClient.currentAuthSessionState()
+                                    statusMessage = "Automation sign-in completed."
+                                    onSessionChanged()
+                                }
+                                .accessibilityIdentifier("profile-auth-complete-resume-fixture")
+                            }
+#endif
 
 #if DEBUG
                             if let demoAccount = BackendAuthClient.localDemoAccount() {
