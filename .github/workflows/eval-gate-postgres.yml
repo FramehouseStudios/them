@@ -1,26 +1,22 @@
 name: eval-gate-postgres
 
-# T07-eval-gate: runs `npm run eval:gate` against a live Postgres
-# service container so the persistence-canonical foundation is exercised
-# end-to-end. Manual + branch-pushes for now; once it's been green for
-# a few runs, integrate it as a required pre-merge check.
+# Automatic paid PostgreSQL coverage is parked. This is a live-provider gate,
+# not offline PostgreSQL proof; re-enabling its remote metadata does not opt in.
+# Every run requires new manual approval, not a retry. No cron or push spending.
 
 on:
   workflow_dispatch:
     inputs:
+      live_approved:
+        description: "I authorize this one paid Postgres eval-gate run"
+        required: true
+        type: boolean
+        default: false
       keep_data:
         description: "Keep migrated data after the run (for debugging)"
         required: false
         type: boolean
         default: false
-  push:
-    branches:
-      - "codex/T07*"
-      - "codex/backend-T07*"
-  schedule:
-    # Nightly at 09:00 UTC so the gate stays green even when no PR
-    # touched persistence today.
-    - cron: "0 9 * * *"
 
 permissions:
   contents: read
@@ -30,8 +26,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  live-approval:
+    name: Explicit live approval required
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Validate live approval
+        env:
+          LIVE_APPROVED: ${{ github.event_name == 'workflow_dispatch' && github.run_attempt == 1 && inputs.live_approved == true && '1' || '0' }}
+        run: |
+          if [[ "${LIVE_APPROVED}" != "1" ]]; then
+            echo "::error::This paid Postgres gate requires explicit live_approved=true; no live coverage ran."
+            exit 1
+          fi
+
   eval-gate-postgres:
     name: eval:gate against Postgres
+    needs: live-approval
+    if: github.event_name == 'workflow_dispatch' && github.run_attempt == 1 && inputs.live_approved == true
     runs-on: ubuntu-latest
     timeout-minutes: 30
     services:
@@ -50,7 +62,8 @@ jobs:
           --health-retries 10
     env:
       DATABASE_URL: postgres://io_them:io_them_test@localhost:5432/io_them
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_API_KEY: ""
+      KNOWLEDGE_RAG_WARMUP_ON_BOOT: "0"
       APP_TOKEN: ${{ secrets.APP_TOKEN || 'them-eval-gate-app-token' }}
       JWT_SECRET: ${{ secrets.JWT_SECRET || 'them-eval-gate-jwt-secret' }}
       RUN_QUALITY_GATE: 1
@@ -60,6 +73,8 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Validate required secrets
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           missing=()
           invalid=()
@@ -135,6 +150,8 @@ jobs:
           fi
 
       - name: Run eval gate against Postgres
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: bash ./scripts/quality_gate.sh
 
       - name: Capture gate evidence

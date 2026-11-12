@@ -1,5 +1,9 @@
 name: quality-gate
 
+# PR/main checks are deterministic and receive no provider credential.
+# Paid gates require a new manual dispatch, requested scope and explicit approval.
+# Reusable workflows inherit the caller event: automatic callers cannot opt in.
+
 on:
   pull_request:
     # Drafts already run every gate. Readiness alone changes no code; do not
@@ -10,11 +14,16 @@ on:
       - main
   workflow_dispatch:
     inputs:
+      live_approved:
+        description: "I authorize the selected paid live gates for this run"
+        required: true
+        type: boolean
+        default: false
       run_eval:
         description: Run prompt regression eval
         required: false
         type: boolean
-        default: true
+        default: false
       run_canon:
         description: Run canon umbrella (npm run eval:canon)
         required: false
@@ -24,22 +33,22 @@ on:
         description: Run speculative /talk prepare-reuse smoke
         required: false
         type: boolean
-        default: true
+        default: false
       run_smoke:
         description: Run smoke.sh coverage
         required: false
         type: boolean
-        default: true
+        default: false
       run_talk_recovery_gate:
         description: Run talk recovery contract gate
         required: false
         type: boolean
-        default: true
+        default: false
       run_alert:
         description: Run ops alert checks
         required: false
         type: boolean
-        default: true
+        default: false
       run_load:
         description: Run load profile
         required: false
@@ -47,10 +56,15 @@ on:
         default: false
   workflow_call:
     inputs:
+      live_approved:
+        description: "Forward explicit approval from a manually dispatched caller only"
+        required: false
+        type: boolean
+        default: false
       run_eval:
         required: false
         type: boolean
-        default: true
+        default: false
       run_canon:
         required: false
         type: boolean
@@ -58,19 +72,19 @@ on:
       run_speculative_reuse_gate:
         required: false
         type: boolean
-        default: true
+        default: false
       run_smoke:
         required: false
         type: boolean
-        default: true
+        default: false
       run_talk_recovery_gate:
         required: false
         type: boolean
-        default: true
+        default: false
       run_alert:
         required: false
         type: boolean
-        default: true
+        default: false
       run_load:
         required: false
         type: boolean
@@ -141,20 +155,32 @@ jobs:
     timeout-minutes: 105
     env:
       RUN_SERVER: 1
-      RUN_EVAL: ${{ github.event_name == 'pull_request' && '0' || (inputs.run_eval && '1' || '0') }}
+      LIVE_PROVIDER_REQUESTED: ${{ github.event_name == 'workflow_dispatch' && github.run_attempt == 1 && inputs.live_approved == true && (inputs.run_eval || inputs.run_speculative_reuse_gate || inputs.run_smoke || inputs.run_talk_recovery_gate || inputs.run_alert || inputs.run_load) && '1' || '0' }}
+      RUN_EVAL: ${{ github.event_name == 'workflow_dispatch' && github.run_attempt == 1 && inputs.live_approved == true && inputs.run_eval && '1' || '0' }}
       RUN_CANON: ${{ github.event_name == 'pull_request' && '1' || (inputs.run_canon && '1' || '0') }}
-      RUN_SPECULATIVE_REUSE_GATE: ${{ github.event_name == 'pull_request' && '0' || (inputs.run_speculative_reuse_gate && '1' || '0') }}
-      RUN_SMOKE: ${{ github.event_name == 'pull_request' && '0' || (inputs.run_smoke && '1' || '0') }}
-      RUN_TALK_RECOVERY_GATE: ${{ github.event_name == 'pull_request' && '0' || (inputs.run_talk_recovery_gate && '1' || '0') }}
-      RUN_ALERT: ${{ github.event_name == 'pull_request' && '0' || (inputs.run_alert && '1' || '0') }}
-      RUN_LOAD: ${{ github.event_name == 'pull_request' && '0' || (inputs.run_load && '1' || '0') }}
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      RUN_SPECULATIVE_REUSE_GATE: ${{ github.event_name == 'workflow_dispatch' && github.run_attempt == 1 && inputs.live_approved == true && inputs.run_speculative_reuse_gate && '1' || '0' }}
+      RUN_SMOKE: ${{ github.event_name == 'workflow_dispatch' && github.run_attempt == 1 && inputs.live_approved == true && inputs.run_smoke && '1' || '0' }}
+      RUN_TALK_RECOVERY_GATE: ${{ github.event_name == 'workflow_dispatch' && github.run_attempt == 1 && inputs.live_approved == true && inputs.run_talk_recovery_gate && '1' || '0' }}
+      RUN_ALERT: ${{ github.event_name == 'workflow_dispatch' && github.run_attempt == 1 && inputs.live_approved == true && inputs.run_alert && '1' || '0' }}
+      RUN_LOAD: ${{ github.event_name == 'workflow_dispatch' && github.run_attempt == 1 && inputs.live_approved == true && inputs.run_load && '1' || '0' }}
+      # No provider key reaches dependency installs, native tests or fixtures.
+      OPENAI_API_KEY: ""
+      # Explicit live scope does not authorize incidental boot embeddings.
+      KNOWLEDGE_RAG_WARMUP_ON_BOOT: "0"
       APP_TOKEN: ${{ secrets.APP_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Validate live scope approval
+        if: (inputs.run_eval || inputs.run_speculative_reuse_gate || inputs.run_smoke || inputs.run_talk_recovery_gate || inputs.run_alert || inputs.run_load) && (github.event_name != 'workflow_dispatch' || github.run_attempt != 1 || inputs.live_approved != true)
+        run: |
+          echo "::error::Requested paid gates require a new manually dispatched run with live_approved=true; no provider or backend was started."
+          exit 1
+
       - name: Validate Required Secrets
+        env:
+          OPENAI_API_KEY: ${{ env.LIVE_PROVIDER_REQUESTED == '1' && secrets.OPENAI_API_KEY || '' }}
         run: |
           missing=()
           if [[ "${RUN_EVAL}" == "1" || "${RUN_TALK_RECOVERY_GATE}" == "1" ]]; then
@@ -183,19 +209,20 @@ jobs:
       # This step turns malformed-secret failures into a one-line gate
       # error instead of a cryptic 401 deep inside eval:gate.
       - name: Validate OPENAI_API_KEY format
-        if: env.OPENAI_API_KEY != ''
+        if: env.LIVE_PROVIDER_REQUESTED == '1'
+        env:
+          OPENAI_API_KEY: ${{ env.LIVE_PROVIDER_REQUESTED == '1' && secrets.OPENAI_API_KEY || '' }}
         run: |
           set -eo pipefail
           if [[ "${OPENAI_API_KEY}" =~ [[:space:]] ]]; then
             echo "::error::OPENAI_API_KEY contains whitespace; rotate per docs/ci-openai-secret-fix.md"
             exit 1
           fi
-          code=$(curl -sS -o /tmp/openai-validate.json -w "%{http_code}" \
+          code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 20 \
             https://api.openai.com/v1/models \
-            -H "Authorization: Bearer ${OPENAI_API_KEY}")
+            -H "Authorization: Bearer ${OPENAI_API_KEY}") || code=000
           if [[ "${code}" != "200" ]]; then
             echo "::error::OPENAI_API_KEY rejected by api.openai.com (HTTP ${code})"
-            head -c 400 /tmp/openai-validate.json || true
             echo
             echo "See docs/ci-openai-secret-fix.md for rotation steps."
             exit 1
@@ -209,11 +236,16 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
 
+      - name: Check CI provider approval contract
+        run: node --test scripts/ci_merge_safety.test.mjs
+
       - name: Install backend dependencies
         working-directory: backend
         run: npm ci
 
       - name: Run repo quality gate
+        env:
+          OPENAI_API_KEY: ${{ env.LIVE_PROVIDER_REQUESTED == '1' && secrets.OPENAI_API_KEY || '' }}
         run: bash ./scripts/quality_gate.sh
 
       # The unit bundle runs before the writer loop so a red unit test fails the
