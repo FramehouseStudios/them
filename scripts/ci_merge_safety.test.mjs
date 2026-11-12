@@ -263,6 +263,46 @@ test("[ci-merge-safety] readiness does not duplicate gates or create a skipped-j
   assert.match(jobs, /Run integrated iPhone writer loop \(required\)/);
   assert.match(jobs, /Run iOS V1 UI smoke tests \(required\)/);
   assert.match(jobs, /Run iPhone voice-fault smoke and macOS scaffold build \(required\)/);
+  const hydration = "Run signed iPhone held-login hydration ownership (required)";
+  const source = step(hydration);
+  assert.doesNotMatch(source, /^        if: /m, "Hydration ownership is required, not a live-provider opt-in.");
+  assert.ok(jobs.indexOf(hydration) > jobs.indexOf("Run signed iPhone offline-save recovery (required)"));
+  assert.ok(jobs.indexOf(hydration) < jobs.indexOf("Run iPhone voice-fault smoke and macOS scaffold build (required)"));
+  assert.ok(qualityGate.includes("${{ runner.temp }}/them-onboarding-hydration/**"), "Retain the hydration fixture's native and observer artifacts.");
+
+  const owned = fixture();
+  try {
+    // Execute the real workflow shell and pure destination resolver against an
+    // owned inventory. Capture the controller invocation; do not start its
+    // backend/native runner, or mistake this propagation check for UI proof.
+    const id = "12345678-1234-1234-1234-123456789ABC";
+    const inventory = { devices: { "com.apple.CoreSimulator.SimRuntime.iOS-26-2": [
+      { udid: id, name: "iPhone 17 Pro", isAvailable: true },
+    ] } };
+    writeFileSync(path.join(owned.root, "bin/xcrun"), `#!${process.execPath}\n`
+      + `require('node:assert/strict').deepEqual(process.argv.slice(2), ['simctl', 'list', 'devices', 'available', '--json']);\n`
+      + `process.stdout.write(${JSON.stringify(JSON.stringify(inventory))});\n`);
+    writeFileSync(path.join(owned.root, "bin/node"), `#!${process.execPath}\n`
+      + `const args = process.argv.slice(2);\n`
+      + `if (args[0] === 'scripts/resolve_ios_simulator.mjs') {\n`
+      + `const result = require('node:child_process').spawnSync(${JSON.stringify(process.execPath)}, args, { stdio: 'inherit' }); process.exit(result.status ?? 1); }\n`
+      + `require('node:assert/strict').deepEqual(args, ['backend/evals/run_onboarding_hydration_owner_ui_smoke.mjs']);\n`
+      + `require('node:fs').writeFileSync(process.env.CI_CONTRACT_CAPTURE, JSON.stringify(Object.fromEntries(['IOS_SIMULATOR_DESTINATION', 'DERIVED_DATA_PATH', 'ARTIFACT_DIR', 'OPENAI_API_KEY', 'CI'].map(k => [k, process.env[k] ?? null]))));\n`);
+    for (const name of ["xcrun", "node"]) chmodSync(path.join(owned.root, "bin", name), 0o700);
+    const environment = { ...owned.env, ...stepEnvironment(hydration, mode("pull_request", false, false)),
+      CI: "true", RUNNER_TEMP: owned.root };
+    delete environment.DERIVED_DATA_PATH;
+    delete environment.IOS_SIMULATOR_DESTINATION;
+    const run = spawnSync("bash", ["-c", stepRun(hydration)],
+      { cwd: owned.root, encoding: "utf8", timeout: 10_000, env: environment });
+    assert.equal(run.status, 0, run.stderr || run.stdout);
+    assert.deepEqual(JSON.parse(readFileSync(owned.capture, "utf8")), {
+      IOS_SIMULATOR_DESTINATION: `platform=iOS Simulator,id=${id}`,
+      DERIVED_DATA_PATH: null,
+      ARTIFACT_DIR: path.join(owned.root, "them-onboarding-hydration"),
+      OPENAI_API_KEY: "", CI: "true",
+    });
+  } finally { rmSync(owned.root, { recursive: true, force: true }); }
 });
 
 test("[ci-merge-safety] complete backend tests gate pull requests and main pushes without provider secrets", () => {
