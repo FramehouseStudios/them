@@ -68,6 +68,14 @@ enum StudioUITestInputDiagnostics {
                 "owner": ObjectIdentifier(owner).hashValue])
     }
 
+    static func inspectorFrame(
+        tab: ScreenplayStudioScreen.DirectionOneRightPanelTab, frame: CGRect
+    ) {
+        guard requested else { return }
+        record(["kind": "inspector_frame", "tab": tab.rawValue,
+                "x": frame.minX, "y": frame.minY, "width": frame.width, "height": frame.height])
+    }
+
     static func inspectorTab(
         _ phase: StudioUITestInspectorTabPhase,
         requestedTab: ScreenplayStudioScreen.DirectionOneRightPanelTab,
@@ -104,7 +112,8 @@ enum StudioUITestInputDiagnostics {
                 ancestors.append(current); view = current.superview
             }
             var entry: [String: Any] = ["kind": "touch", "phase": touch.phase.rawValue,
-                "x": point.x, "y": point.y, "window_key": touch.window?.isKeyWindow ?? false,
+                "x": point.x, "y": point.y, "touch_major_radius": touch.majorRadius,
+                "touch_radius_tolerance": touch.majorRadiusTolerance, "window_key": touch.window?.isKeyWindow ?? false,
                 "scene_state": touch.window?.windowScene?.activationState.rawValue ?? -1,
                 "views": ancestors.map { ["class": NSStringFromClass(type(of: $0)),
                     "interaction": $0.isUserInteractionEnabled, "hidden": $0.isHidden] as [String: Any] },
@@ -192,6 +201,7 @@ enum StudioUITestInputDiagnostics {
     static func installIfRequested() {}
     static func heldPreview(_ phase: StudioUITestHeldPreviewPhase, owner: AnyObject) {}
     static func binding(_ original: Binding<Bool>, owner: AnyObject) -> Binding<Bool> { original }
+    static func inspectorFrame(tab: ScreenplayStudioScreen.DirectionOneRightPanelTab, frame: CGRect) {}
     static func inspectorTab(
         _ phase: StudioUITestInspectorTabPhase,
         requestedTab: ScreenplayStudioScreen.DirectionOneRightPanelTab,

@@ -65,6 +65,11 @@ struct ScreenplayStudioRightPanelTabs: View {
                     }
                     .foregroundStyle(isActive ? textColor.opacity(0.96) : secondaryTextColor)
                     .frame(maxWidth: .infinity, minHeight: 48)
+                    .onGeometryChange(for: CGRect.self) { proxy in
+                        proxy.frame(in: .global)
+                    } action: { frame in
+                        StudioUITestInputDiagnostics.inspectorFrame(tab: tab, frame: frame)
+                    }
                     .contentShape(Rectangle())
                     .background(
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
