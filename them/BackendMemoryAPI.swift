@@ -3800,7 +3800,6 @@ nonisolated enum BackendAuthClient {
     ) -> Bool {
         #if DEBUG
         let automationOverride = currentAutomationSessionOverride()
-        let shouldPersistIdentity = automationOverride == nil
         #endif
         return authSessionStateQueue.sync {
             guard sessionBootstrapIdentityCommitIsAllowed(
@@ -3810,35 +3809,35 @@ nonisolated enum BackendAuthClient {
                 return false
             }
 
-            #if DEBUG
-            if !shouldPersistIdentity {
-                guard let automationOverride else { return false }
-                let normalizedUserID = normalizedStoredUserID(userID)
-                guard normalizedUserID.isEmpty || normalizedUserID == automationOverride.userID else {
+            let normalizedUserID = normalizedStoredUserID(userID)
+            let persistIdentity = {
+                if !normalizedUserID.isEmpty,
+                   !persistSharedUserIDLocked(normalizedUserID, defaults: .standard) {
                     return false
                 }
-                return true
-            }
-            #endif
-
-            let normalizedUserID = normalizedStoredUserID(userID)
-            if !normalizedUserID.isEmpty,
-               !persistSharedUserIDLocked(normalizedUserID, defaults: .standard) {
-                return false
-            }
-            if persistClientToken,
-               !persistSharedClientTokenLocked(
-                    clientToken,
-                    expiryRaw: expiryRaw,
-                    baseURLRaw: baseURLRaw,
+                if persistClientToken,
+                   !persistSharedClientTokenLocked(
+                        clientToken,
+                        expiryRaw: expiryRaw,
+                        baseURLRaw: baseURLRaw,
+                        defaults: .standard
+                   ) {
+                    return false
+                }
+                return sessionBootstrapIdentityCommitIsAllowed(
+                    expectedSessionEpoch: expectedSessionEpoch,
                     defaults: .standard
-               ) {
-                return false
+                )
             }
-            return sessionBootstrapIdentityCommitIsAllowed(
-                expectedSessionEpoch: expectedSessionEpoch,
-                defaults: .standard
+            #if DEBUG
+            return BackendAuthDebugSessionPolicy.commitSessionBootstrapIdentity(
+                automationOverride: automationOverride,
+                responseUserID: normalizedUserID,
+                persistIdentity: persistIdentity
             )
+            #else
+            return persistIdentity()
+            #endif
         }
     }
 
