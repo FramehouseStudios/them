@@ -303,3 +303,203 @@ test("turn metadata hydrates after restart and is not published before persisten
   );
   assert.equal(failing.get("turn-not-saved"), null);
 });
+
+
+for (const snapshotMethod of ["get", "list"]) {
+  for (const status of ["prepared", "completed"]) {
+    test(`expiry custody: stale ${snapshotMethod} cleanup preserves ${status} replay`, async (t) => {
+      const { root, persistence } = fixture();
+      const key = "user:writer-a|expiry-race";
+      const expired = {
+        status: status === "prepared" ? "pending" : "completed",
+        createdAt: 1,
+        expiresAt: Date.now() - 1,
+        ...(status === "completed" ? { body: Buffer.from([0, 255, 128, 19]) } : {}),
+      };
+      const accepted = {
+        ...expired,
+        status,
+        body: Buffer.from([255, 0, 128, 42, 254]),
+        expiresAt: status === "prepared" ? 0 : Date.now() + 60_000,
+      };
+      const writer = await createScaleBackplane({
+        persistence,
+        outboxFilePath: path.join(root, "writer-outbox.json"),
+        logger: { log() {} },
+      });
+      let interleave = false;
+      const reader = await createScaleBackplane({
+        persistence: {
+          ...persistence,
+          async [snapshotMethod](input) {
+            const snapshot = await persistence[snapshotMethod](input);
+            if (interleave && input.domain === "talk_idempotency") {
+              interleave = false;
+              await writer.compareAndSetIdempotency(key, expired, accepted, 60_000);
+            }
+            return snapshot;
+          },
+        },
+        outboxFilePath: path.join(root, "reader-outbox.json"),
+        logger: { log() {} },
+      });
+      t.after(async () => {
+        await Promise.all([reader.close(), writer.close()]);
+        fs.rmSync(root, { recursive: true, force: true });
+      });
+      await Promise.all([reader.init(), writer.init()]);
+      await writer.setIdempotency(key, expired, 60_000, 1);
+      interleave = true;
+
+      if (snapshotMethod === "get") {
+        assert.deepEqual(await reader.getIdempotency(key), accepted);
+      } else {
+        await assert.rejects(
+          reader.setIdempotency("user:writer-a|new-admission", {
+            status: "pending", createdAt: 2, expiresAt: Date.now() + 60_000,
+          }, 60_000, 1),
+          (error) => error?.code === "TALK_IDEMPOTENCY_CAPACITY"
+        );
+        assert.equal(await reader.getIdempotency("user:writer-a|new-admission"), null);
+      }
+      const restarted = await createScaleBackplane({
+        persistence: createJsonPersistence({ jsonRoot: path.join(root, "persistence") }),
+        outboxFilePath: path.join(root, "restarted-outbox.json"),
+        logger: { log() {} },
+      });
+      assert.deepEqual(await restarted.getIdempotency(key), accepted);
+      await restarted.close();
+    });
+  }
+}
+
+for (const operation of ["read", "admission"]) {
+  test(`expiry custody: ${operation} retains records without atomic deletion support`, async (t) => {
+    const { root, persistence } = fixture();
+    const key = "user:writer-a|legacy-expired";
+    const expired = { status: "completed", body: { encoding: "base64", data: "/wCA" },
+      createdAt: 1, expiresAt: Date.now() - 1 };
+    await persistence.put({ domain: "talk_idempotency", key, value: expired });
+    const backplane = await createScaleBackplane({
+      persistence: { ...persistence, compareAndDelete: undefined },
+      outboxFilePath: path.join(root, "outbox.json"),
+      logger: { log() {} },
+    });
+    t.after(async () => {
+      await backplane.close();
+      fs.rmSync(root, { recursive: true, force: true });
+    });
+    await backplane.init();
+    if (operation === "read") {
+      assert.equal(await backplane.getIdempotency(key), null);
+    } else {
+      await assert.rejects(
+        backplane.setIdempotency("user:writer-a|new-admission", {
+          status: "pending", createdAt: 2, expiresAt: Date.now() + 60_000,
+        }, 60_000, 1),
+        (error) => error?.code === "TALK_IDEMPOTENCY_CAPACITY"
+      );
+    }
+    assert.deepEqual(await persistence.get({ domain: "talk_idempotency", key }), expired);
+  });
+}
+
+
+function redisProtocolFixture() {
+  const values = new Map();
+  const evaluations = [];
+  let afterSnapshot = null;
+  let unconditionalDeletes = 0;
+  const client = {
+    on() {},
+    async connect() {},
+    async quit() {},
+    async get(key) {
+      const raw = values.get(key) ?? null;
+      const advance = afterSnapshot;
+      afterSnapshot = null;
+      if (advance) await advance();
+      return raw;
+    },
+    async set(key, raw, options = {}) {
+      if (options.NX && values.has(key)) return null;
+      values.set(key, raw);
+      return "OK";
+    },
+    async del(key) {
+      unconditionalDeletes += 1;
+      return Number(values.delete(key));
+    },
+    async eval(script, options) {
+      evaluations.push({ script, ...options });
+      assert.equal(options.keys.length, 1);
+      assert.equal(options.arguments.length, 1);
+      const key = options.keys[0];
+      if (values.get(key) !== options.arguments[0]) return 0;
+      return Number(values.delete(key));
+    },
+  };
+  return { client, values, evaluations,
+    afterSnapshot(advance) { afterSnapshot = advance; },
+    get unconditionalDeletes() { return unconditionalDeletes; } };
+}
+
+for (const atomicDeletion of [true, false]) {
+  test(`expiry custody: Redis stale read preserves refreshed replay with atomic deletion ${atomicDeletion}`, async (t) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "them-expiry-redis-"));
+    const redis = redisProtocolFixture();
+    if (!atomicDeletion) redis.client.eval = undefined;
+    const makeBackplane = () => createScaleBackplane({
+      redisUrl: "redis-fixture",
+      redisClientFactory: () => redis.client,
+      outboxFilePath: path.join(root, "outbox.json"),
+      logger: { log() {} },
+    });
+    const reader = await makeBackplane();
+    const writer = await makeBackplane();
+    t.after(async () => {
+      await Promise.all([reader.close(), writer.close()]);
+      fs.rmSync(root, { recursive: true, force: true });
+    });
+    await Promise.all([reader.init(), writer.init()]);
+    const key = "user:writer-a|redis-expiry";
+    const redisKey = `them:talk:idemp:${key}`;
+    const raw = '{ "body": {"encoding":"base64","data":"/wCA"}, "expiresAt": 1, "status": "completed", "createdAt": 1 }';
+    redis.values.set(redisKey, raw);
+    const accepted = { status: "completed", createdAt: 2,
+      expiresAt: Date.now() + 60_000, body: Buffer.from([255, 0, 128, 42]) };
+    redis.afterSnapshot(() => writer.setIdempotency(key, accepted, 60_000));
+
+    assert.deepEqual(await reader.getIdempotency(key), accepted);
+    assert.deepEqual(await writer.getIdempotency(key), accepted);
+    assert.equal(redis.unconditionalDeletes, 0);
+    assert.equal(redis.evaluations.length, atomicDeletion ? 1 : 0);
+    if (atomicDeletion) assert.equal(redis.evaluations[0].arguments[0], raw);
+  });
+
+  test(`expiry custody: Redis ordinary expiration with atomic deletion ${atomicDeletion}`, async (t) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "them-expiry-redis-"));
+    const redis = redisProtocolFixture();
+    if (!atomicDeletion) redis.client.eval = undefined;
+    const backplane = await createScaleBackplane({
+      redisUrl: "redis-fixture",
+      redisClientFactory: () => redis.client,
+      outboxFilePath: path.join(root, "outbox.json"),
+      logger: { log() {} },
+    });
+    t.after(async () => {
+      await backplane.close();
+      fs.rmSync(root, { recursive: true, force: true });
+    });
+    await backplane.init();
+    const key = "user:writer-a|redis-expired";
+    const redisKey = `them:talk:idemp:${key}`;
+    const raw = '{ "body": {"encoding":"base64","data":"/wCA"}, "expiresAt": 1, "status": "completed" }';
+    redis.values.set(redisKey, raw);
+    assert.equal(await backplane.getIdempotency(key), null);
+    assert.equal(redis.values.has(redisKey), !atomicDeletion);
+    assert.equal(redis.unconditionalDeletes, 0);
+    assert.equal(redis.evaluations.length, atomicDeletion ? 1 : 0);
+    if (atomicDeletion) assert.equal(redis.evaluations[0].arguments[0], raw);
+  });
+}

@@ -3,6 +3,12 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 
 const TALK_IDEMPOTENCY_DOMAIN = "talk_idempotency";
+const REDIS_COMPARE_AND_DELETE = `
+  if redis.call("GET", KEYS[1]) == ARGV[1] then
+    return redis.call("DEL", KEYS[1])
+  end
+  return 0
+`;
 
 class TalkIdempotencyCapacityError extends Error {
   constructor(capacity) {
@@ -236,6 +242,7 @@ class FileOutboxStore {
 
 export async function createScaleBackplane({
   redisUrl = "",
+  redisClientFactory = null,
   postgresUrl = "",
   outboxFilePath = "",
   persistence = null,
@@ -256,12 +263,23 @@ export async function createScaleBackplane({
     return next;
   }
 
+  async function deleteIdempotencySnapshot(key, expectedValue) {
+    if (typeof persistence?.compareAndDelete !== "function") return false;
+    return persistence.compareAndDelete({
+      domain: TALK_IDEMPOTENCY_DOMAIN,
+      key,
+      expectedValue,
+    });
+  }
+
   async function initRedis() {
     const url = String(redisUrl || "").trim();
     if (!url) return false;
     try {
-      const mod = await import("redis");
-      const client = mod?.createClient ? mod.createClient({ url }) : null;
+      const mod = redisClientFactory ? null : await import("redis");
+      const client = redisClientFactory
+        ? await redisClientFactory({ url })
+        : mod?.createClient ? mod.createClient({ url }) : null;
       if (!client) return false;
       client.on("error", (err) => {
         logger?.log?.(`[scale_backplane] redis_error=${String(err?.message || err)}`);
@@ -564,7 +582,18 @@ export async function createScaleBackplane({
         if (raw) {
           const parsed = decodeIdempotencyRecord(JSON.parse(raw));
           if (parsed && !isExpiredIdempotencyRecord(parsed)) return parsed;
-          if (parsed) await state.redis.del(redisKey);
+          if (parsed) {
+            const deleted = typeof state.redis.eval === "function"
+              && Number(await state.redis.eval(REDIS_COMPARE_AND_DELETE, {
+                keys: [redisKey],
+                arguments: [raw],
+              })) === 1;
+            if (!deleted) {
+              const refreshedRaw = await state.redis.get(redisKey);
+              const refreshed = refreshedRaw ? decodeIdempotencyRecord(JSON.parse(refreshedRaw)) : null;
+              if (refreshed && !isExpiredIdempotencyRecord(refreshed)) return refreshed;
+            }
+          }
         }
       } catch (err) {
         logger?.log?.(`[scale_backplane] idempotency_get_error key=${key} err=${String(err?.message || err)}`);
@@ -572,14 +601,19 @@ export async function createScaleBackplane({
     }
     if (persistence && typeof persistence.get === "function") {
       try {
-        const stored = decodeIdempotencyRecord(await persistence.get({
+        const storedRaw = await persistence.get({
           domain: TALK_IDEMPOTENCY_DOMAIN,
           key,
-        }));
+        });
+        let stored = decodeIdempotencyRecord(storedRaw);
         if (!stored) return null;
         if (isExpiredIdempotencyRecord(stored)) {
-          await persistence.delete({ domain: TALK_IDEMPOTENCY_DOMAIN, key });
-          return null;
+          if (await deleteIdempotencySnapshot(key, storedRaw)) return null;
+          stored = decodeIdempotencyRecord(await persistence.get({
+            domain: TALK_IDEMPOTENCY_DOMAIN,
+            key,
+          }));
+          if (!stored || isExpiredIdempotencyRecord(stored)) return null;
         }
         if (state.redisEnabled && state.redis) {
           const remainingMs = Math.max(1_000, Number(stored.expiresAt || 0) - nowMs());
@@ -622,12 +656,11 @@ export async function createScaleBackplane({
           let liveCount = 0;
           let updatesExisting = false;
           for (const row of rows) {
-            if (isExpiredIdempotencyRecord(row?.value, current)) {
-              await persistence.delete({ domain: TALK_IDEMPOTENCY_DOMAIN, key: row.key });
-            } else {
-              liveCount += 1;
-              if (row.key === key) updatesExisting = true;
-            }
+            if (isExpiredIdempotencyRecord(row?.value, current)
+              && await deleteIdempotencySnapshot(row.key, row.value)) continue;
+            // A changed or unconfirmed snapshot still occupies capacity.
+            liveCount += 1;
+            if (row.key === key) updatesExisting = true;
           }
           if (!updatesExisting && liveCount >= capacity) {
             throw new TalkIdempotencyCapacityError(capacity);
