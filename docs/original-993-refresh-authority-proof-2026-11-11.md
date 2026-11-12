@@ -67,7 +67,7 @@ remains disabled without fresh paid-call approval.
 - `/private/tmp/them-t1379-units.log` and `.xcresult`
 - `/private/tmp/them-t1379-units-summary.json`
 - `/private/tmp/them-t1379-writer.log` and `.xcresult`
-- `/private/tmp/them-t1379-conflict.log` and `-conflict-summary.json`
+- `/private/tmp/them-t1379-conflict.log` and `/private/tmp/them-t1379-conflict-summary.json`
 - `/private/tmp/them-t1379-recovery/them-save-recovery-3IZRXu/recovery-ios.xcresult`
 - `/private/tmp/them-t1379-mac.log`
 
