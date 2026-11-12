@@ -999,3 +999,46 @@ for (const [label, rawBody] of [["string", "PRIVATE_BODY"], ["unknown-encoding",
     assert.deepEqual(fs.readFileSync(path.join(persistence.root, "talk_idempotency.json")), before);
   });
 }
+
+
+test("JSON null receipt admission: existing key cannot be overwritten or continue generation", async t => {
+  __test.reset();
+  const { root, persistence } = fixture();
+  const key = "user:writer-a|null-receipt";
+  await persistence.put({ domain: "talk_idempotency", key, value: null });
+  const file = path.join(persistence.root, "talk_idempotency.json");
+  const before = fs.readFileSync(file);
+  const bp = await createScaleBackplane({ persistence, outboxFilePath: path.join(root, "outbox.json"), logger: { log() {} } });
+  await bp.init();
+  t.after(async () => { await bp.close(); fs.rmSync(root, { recursive: true, force: true }); __test.reset(); });
+  const config = { scaleBackplane: bp, talkIdempotencyEnabled: true, talkIdempotencyTtlMs: 60_000,
+    talkIdempotencyMaxEntries: 16, isSpeculativePrepareRequest: () => false,
+    normalizeIdempotencyKey: value => String(value || ""), resolveTalkSessionKey: () => "presence-session",
+    recordTalkMetric() {}, logger: { log() {}, warn() {} } };
+  const guard = createTalkIdempotencyGuard(config), helpers = createTalkIdempotencyHelpers(config);
+  const makeReq = headerKey => ({ authUser: { id: "writer-a" },
+    get: name => name.toLowerCase() === "x-idempotency-key" ? headerKey : "" });
+  const req = makeReq("null-receipt"), response = new ReceiptValidationResponse();
+  let generationContinuations = 0;
+  await guard(req, response, error => { assert.ifError(error); generationContinuations++; });
+  const after = fs.readFileSync(file), raw = JSON.parse(after);
+  t.diagnostic(JSON.stringify({ generationContinuations, status: response.code,
+    storedValue: raw[key], fileUnchanged: before.equals(after), localPublished: __test.peekIdempotencyCache().has(key) }));
+  assert.equal(generationContinuations, 0);
+  assert.equal(response.code, 409);
+  assert.equal(response.headers["retry-after"], "1");
+  assert.equal(response.body.stage, "idempotency");
+  assert.equal(response.body.error, "Duplicate turn in progress for this key.");
+  assert.equal(req.talkIdempotency, undefined);
+  assert.equal(__test.peekIdempotencyCache().has(key), false);
+  assert.equal(Object.hasOwn(raw, key), true); assert.equal(raw[key], null);
+  assert.deepEqual(after, before);
+
+  const normal = makeReq("normal-new-receipt"), body = Buffer.from([0, 255, 42]);
+  await guard(normal, new ReceiptValidationResponse(), error => { assert.ifError(error); generationContinuations++; });
+  assert.equal(generationContinuations, 1, "a genuinely absent key must still admit");
+  await helpers.commitSuccess(normal, { statusCode: 207, body });
+  const completed = await bp.getIdempotency(normal.talkIdempotency.cacheKey);
+  assert.equal(completed.status, "completed"); assert.deepEqual(completed.body, body);
+  assert.equal(JSON.parse(fs.readFileSync(file))[key], null);
+});

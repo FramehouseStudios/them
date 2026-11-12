@@ -122,6 +122,7 @@ function createJsonPersistence({ jsonRoot } = {}) {
         const all = readDomainFile(root, domain);
         const exists = Object.prototype.hasOwnProperty.call(all, key);
         const current = exists ? all[key] : null;
+        if (expectedValue === null && exists) return false;
         if (JSON.stringify(current) !== JSON.stringify(expectedValue)) return false;
         all[key] = value;
         writeDomainFile(root, domain, all);

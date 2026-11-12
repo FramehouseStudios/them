@@ -240,6 +240,23 @@ for (const impl of makeImplementations()) {
     }
   });
 
+  test(`[${impl.name}] null expectation requires an absent key rather than an existing null row`, async () => {
+    const p = impl.create();
+    try {
+      await p.put({ domain: "creative_memory", key: "existing-null", value: null });
+      assert.equal(await p.compareAndSwap({ domain: "creative_memory", key: "existing-null",
+        expectedValue: null, value: { revision: 1 } }), false);
+      assert.deepEqual(await p.list({ domain: "creative_memory" }), [{ key: "existing-null", value: null }]);
+      assert.equal(await p.compareAndSwap({ domain: "creative_memory", key: "truly-absent",
+        expectedValue: null, value: { revision: 1 } }), true);
+      assert.equal(await p.compareAndSwap({ domain: "creative_memory", key: "truly-absent",
+        expectedValue: { revision: 1 }, value: { revision: 2 } }), true);
+      assert.deepEqual(await p.get({ domain: "creative_memory", key: "truly-absent" }), { revision: 2 });
+    } finally {
+      await p.close();
+    }
+  });
+
   test(`[${impl.name}] compareAndSwap rejects stale writers without replacing the winner`, async () => {
     const p = impl.create();
     try {
