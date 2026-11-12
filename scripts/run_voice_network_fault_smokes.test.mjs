@@ -10,13 +10,22 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 const script = path.join(repoRoot, "scripts", "run_voice_network_fault_smokes.sh");
 
-test("[voice-network-fault-smokes] tests iPhone faults and builds the macOS scaffold", () => {
+function simulatorInventory(id) {
+  const inventory = {devices: {"com.apple.CoreSimulator.SimRuntime.iOS-26-2": [
+    {name: "Owned proof", udid: id, isAvailable: true},
+  ]}};
+  return `if [[ "$*" == 'simctl list devices available --json' ]]; then printf '%s\\n' '${JSON.stringify(inventory)}'; fi`;
+}
+
+test("[voice-network-fault-smokes] tests iPhone faults and builds the macOS scaffold", (t) => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-network-fault-smokes-"));
+  t.after(() => fs.rmSync(tmp, {recursive: true, force: true}));
   const log = path.join(tmp, "xcodebuild.calls");
   const fakeXcodebuild = path.join(tmp, "xcodebuild");
   const simulatorLog = path.join(tmp, "simulator.calls");
   const fakeXcrun = path.join(tmp, "xcrun");
-  fs.writeFileSync(fakeXcrun, "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >> \"$SIMULATOR_CALLS_LOG\"\n");
+  fs.writeFileSync(fakeXcrun, "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >> \"$SIMULATOR_CALLS_LOG\"\n"
+    + simulatorInventory("deterministic-network-fault-smoke") + "\n");
   fs.chmodSync(fakeXcrun, 0o755);
   fs.writeFileSync(fakeXcodebuild, [
     "#!/usr/bin/env bash",
@@ -33,10 +42,11 @@ test("[voice-network-fault-smokes] tests iPhone faults and builds the macOS scaf
     env: {
       ...process.env,
       XCODEBUILD: fakeXcodebuild,
-      XCODEBUILD_CALLS_LOG: log,
       XCRUN: fakeXcrun,
+      XCODEBUILD_CALLS_LOG: log,
       SIMULATOR_CALLS_LOG: simulatorLog,
       IOS_SIMULATOR_DESTINATION: destination,
+      ARTIFACT_DIR: tmp,
     },
     encoding: "utf8",
   });
@@ -82,4 +92,48 @@ test("[voice-network-fault-smokes] tests iPhone faults and builds the macOS scaf
 
   assert.ok(ios.includes("test"));
   assert.ok(ios.includes(`-only-testing:themUITests/V1SmokeUITests/test_realtime_network_faults_resolve_exactly_once`));
+  const before = fs.readFileSync(log, "utf8");
+  const unspecified = spawnSync("bash", [script], {cwd: repoRoot, encoding: "utf8", env: {
+    ...process.env, CI: "", IOS_SIMULATOR_DESTINATION: "", IOS_SIMULATOR_NAME: "",
+    XCODEBUILD: fakeXcodebuild, XCRUN: fakeXcrun, XCODEBUILD_CALLS_LOG: log, ARTIFACT_DIR: tmp,
+  }});
+  assert.equal(unspecified.status, 2);
+  assert.match(unspecified.stderr, /explicit.*simulator/i);
+  assert.equal(fs.readFileSync(log, "utf8"), before, "No build/test may start for an unspecified local simulator");
 });
+
+for (const failure of ["boot", "ios", "macos"]) {
+  test(`[voice-network-fault-smokes] ${failure} failure cannot report passing proof`, (t) => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-voice-failure-"));
+    t.after(() => fs.rmSync(tmp, {recursive: true, force: true}));
+    const log = path.join(tmp, "calls");
+    const fakeXcrun = path.join(tmp, "xcrun");
+    const fakeXcodebuild = path.join(tmp, "xcodebuild");
+    fs.writeFileSync(fakeXcrun, [
+      "#!/usr/bin/env bash",
+      simulatorInventory("owned-test-device"),
+      'if [[ "$*" == simctl\\ bootstatus* && "$VOICE_FAILURE" == boot ]]; then exit 1; fi',
+      "exit 0", "",
+    ].join("\n"));
+    fs.writeFileSync(fakeXcodebuild, [
+      "#!/usr/bin/env bash",
+      'printf "%s\\n" "$*" >> "$VOICE_CALLS"',
+      'if [[ "$1" == test && "$VOICE_FAILURE" == ios ]]; then exit 65; fi',
+      'if [[ "$1" == build && "$VOICE_FAILURE" == macos ]]; then exit 66; fi',
+      "exit 0", "",
+    ].join("\n"));
+    fs.chmodSync(fakeXcrun, 0o755);
+    fs.chmodSync(fakeXcodebuild, 0o755);
+    const result = spawnSync("bash", [script], {cwd: repoRoot, encoding: "utf8", env: {
+      ...process.env, CI: "", THEM_UITEST_RESTORE_XCCONFIG_PATH: "",
+      IOS_SIMULATOR_DESTINATION: "platform=iOS Simulator,id=owned-test-device",
+      XCODEBUILD: fakeXcodebuild, XCRUN: fakeXcrun,
+      ARTIFACT_DIR: tmp, VOICE_FAILURE: failure, VOICE_CALLS: log,
+    }});
+    assert.equal(result.status, {boot: 2, ios: 65, macos: 66}[failure], result.stderr);
+    assert.doesNotMatch(result.stdout, /\[OK\]/);
+    const calls = fs.existsSync(log) ? fs.readFileSync(log, "utf8").trim().split("\n") : [];
+    assert.equal(calls.length, {boot: 0, ios: 1, macos: 2}[failure]);
+    if (failure === "ios") assert.doesNotMatch(calls[0], /^build /);
+  });
+}
