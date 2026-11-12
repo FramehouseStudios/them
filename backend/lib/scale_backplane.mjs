@@ -27,6 +27,14 @@ class TalkIdempotencyConflictError extends Error {
   }
 }
 
+class TalkIdempotencyCorruptRecordError extends Error {
+  constructor() {
+    super("talk idempotency record is corrupt");
+    this.name = "TalkIdempotencyCorruptRecordError";
+    this.code = "TALK_IDEMPOTENCY_CORRUPT_RECORD";
+  }
+}
+
 function nowMs() {
   return Date.now();
 }
@@ -65,18 +73,39 @@ function encodeIdempotencyRecord(value) {
 }
 
 function decodeIdempotencyRecord(value) {
-  if (!value || typeof value !== "object") return null;
-  if (!Object.prototype.hasOwnProperty.call(value, "body")) return { ...value };
+  if (value == null) return null;
+  if (typeof value !== "object" || Array.isArray(value)) throw new TalkIdempotencyCorruptRecordError();
+  if (!Object.prototype.hasOwnProperty.call(value, "body")) {
+    if (["prepared", "completed"].includes(String(value.status || ""))) throw new TalkIdempotencyCorruptRecordError();
+    return { ...value };
+  }
   const encoded = value.body;
-  let body = Buffer.alloc(0);
+  let body;
   if (Buffer.isBuffer(encoded)) {
     body = Buffer.from(encoded);
   } else if (encoded?.encoding === "base64" && typeof encoded.data === "string") {
     body = Buffer.from(encoded.data, "base64");
+    if (body.toString("base64") !== encoded.data) throw new TalkIdempotencyCorruptRecordError();
   } else if (encoded?.type === "Buffer" && Array.isArray(encoded.data)) {
+    for (const byte of encoded.data) {
+      if (!Number.isInteger(byte) || byte < 0 || byte > 255) throw new TalkIdempotencyCorruptRecordError();
+    }
     body = Buffer.from(encoded.data);
+  } else {
+    throw new TalkIdempotencyCorruptRecordError();
   }
   return { ...value, body };
+}
+
+function decodeRedisIdempotencyRecord(raw) {
+  let value;
+  try {
+    value = JSON.parse(raw);
+  } catch (_error) {
+    throw new TalkIdempotencyCorruptRecordError();
+  }
+  if (value == null) throw new TalkIdempotencyCorruptRecordError();
+  return decodeIdempotencyRecord(value);
 }
 
 function isExpiredIdempotencyRecord(value, now = nowMs()) {
@@ -583,8 +612,8 @@ export async function createScaleBackplane({
       try {
         const redisKey = `them:talk:idemp:${key}`;
         const raw = await state.redis.get(redisKey);
-        if (raw) {
-          const parsed = decodeIdempotencyRecord(JSON.parse(raw));
+        if (raw != null) {
+          const parsed = decodeRedisIdempotencyRecord(raw);
           if (parsed && !isExpiredIdempotencyRecord(parsed)) return parsed;
           if (parsed) {
             const deleted = typeof state.redis.eval === "function"
@@ -594,13 +623,14 @@ export async function createScaleBackplane({
               })) === 1;
             if (!deleted) {
               const refreshedRaw = await state.redis.get(redisKey);
-              const refreshed = refreshedRaw ? decodeIdempotencyRecord(JSON.parse(refreshedRaw)) : null;
+              const refreshed = refreshedRaw != null ? decodeRedisIdempotencyRecord(refreshedRaw) : null;
               if (refreshed && !isExpiredIdempotencyRecord(refreshed)) return refreshed;
             }
           }
         }
       } catch (err) {
         logger?.log?.(`[scale_backplane] idempotency_get_error key=${key} err=${String(err?.message || err)}`);
+        if (err?.code === "TALK_IDEMPOTENCY_CORRUPT_RECORD") throw err;
       }
     }
     if (hasDurableIdempotency) {

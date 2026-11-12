@@ -3,10 +3,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { EventEmitter } from "node:events";
 
 import { createScaleBackplane } from "../lib/scale_backplane.mjs";
 import { createJsonPersistence } from "../lib/persistence_json.js";
 import { createTalkTurnStore } from "../lib/talk_turn_store.js";
+import { createTalkIdempotencyGuard, createTalkIdempotencyHelpers, __test } from "../lib/talk_state.js";
 
 function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "them-talk-result-"));
@@ -807,5 +809,193 @@ for (const capability of ["missing", "throws"]) {
     else await assert.rejects(backplane.retirePendingIdempotency(key, pending), /eval unavailable/);
     assert.deepEqual(await backplane.getIdempotency(key), pending);
     assert.equal(redis.unconditionalDeletes, 0);
+  });
+}
+
+
+const corruptBodies = [
+  ["missing", {}], ["null", { body: null }], ["string", { body: "private-body-sentinel" }],
+  ["unknown-encoding", { body: { encoding: "other", data: "PRIVATE_BODY" } }],
+  ["invalid-base64", { body: { encoding: "base64", data: "%%%" } }],
+  ["base64-nonstring", { body: { encoding: "base64", data: 123 } }],
+  ["base64-unpadded", { body: { encoding: "base64", data: "AA" } }],
+  ["base64-pad-bits", { body: { encoding: "base64", data: "AB==" } }],
+  ...[-1, 256, 1.5, "1", null].map(byte => [`invalid-byte-${JSON.stringify(byte)}`,
+    { body: { type: "Buffer", data: [0, byte, 255] } }]),
+];
+
+for (const store of ["durable", "redis"]) {
+  for (const status of ["prepared", "completed"]) {
+    test(`receipt body validation: ${store} ${status} rejects corruption and preserves stored bytes`, async t => {
+      const { root, persistence } = fixture();
+      const redis = redisProtocolFixture(), logs = [];
+      const bp = await createScaleBackplane({ ...(store === "durable" ? { persistence } : {
+        redisUrl: "redis-fixture", redisClientFactory: () => redis.client }),
+        outboxFilePath: path.join(root, "outbox.json"), logger: { log: line => logs.push(line) } });
+      await bp.init();
+      t.after(async () => { await bp.close(); fs.rmSync(root, { recursive: true, force: true }); });
+      for (const [label, bodyFields] of corruptBodies) {
+        const key = `user:writer-a|corrupt-${label}`, redisKey = `them:talk:idemp:${key}`;
+        const raw = { status, createdAt: Date.now(), expiresAt: 0, ...bodyFields };
+        if (store === "durable") await persistence.put({ domain: "talk_idempotency", key, value: raw });
+        else redis.values.set(redisKey, JSON.stringify(raw));
+        const before = store === "durable"
+          ? fs.readFileSync(path.join(persistence.root, "talk_idempotency.json")) : redis.values.get(redisKey);
+        await assert.rejects(bp.getIdempotency(key), error => {
+          assert.equal(error.code, "TALK_IDEMPOTENCY_CORRUPT_RECORD", label);
+          assert.equal(error.message, "talk idempotency record is corrupt", label);
+          return true;
+        }, label);
+        const after = store === "durable"
+          ? fs.readFileSync(path.join(persistence.root, "talk_idempotency.json")) : redis.values.get(redisKey);
+        assert.deepEqual(after, before, label);
+      }
+      assert.equal(logs.some(line => line.includes("private-body-sentinel") || line.includes("PRIVATE_BODY") || line.includes("%%%")), false);
+      assert.equal(redis.unconditionalDeletes, 0);
+    });
+  }
+
+  test(`receipt body validation: ${store} preserves canonical and legacy bytes including empty bodies`, async t => {
+    const { root, persistence } = fixture();
+    const redis = redisProtocolFixture();
+    const bp = await createScaleBackplane({ ...(store === "durable" ? { persistence } : {
+      redisUrl: "redis-fixture", redisClientFactory: () => redis.client }),
+      outboxFilePath: path.join(root, "outbox.json"), logger: { log() {} } });
+    await bp.init();
+    t.after(async () => { await bp.close(); fs.rmSync(root, { recursive: true, force: true }); });
+    for (const status of ["pending", "prepared", "completed"]) {
+      const cases = status === "pending" ? [["without-body", undefined, undefined]] : [
+        ["base64", { encoding: "base64", data: "AP+A" }, Buffer.from([0, 255, 128])],
+        ["empty-base64", { encoding: "base64", data: "" }, Buffer.alloc(0)],
+        ["legacy", { type: "Buffer", data: [0, 255, 128] }, Buffer.from([0, 255, 128])],
+        ["empty-legacy", { type: "Buffer", data: [] }, Buffer.alloc(0)],
+      ];
+      for (const [label, body, expected] of cases) {
+        const key = `user:writer-a|valid-${status}-${label}`;
+        const raw = { status, expiresAt: 0, ...(body === undefined ? {} : { body }) };
+        if (store === "durable") await persistence.put({ domain: "talk_idempotency", key, value: raw });
+        else redis.values.set(`them:talk:idemp:${key}`, JSON.stringify(raw));
+        const decoded = await bp.getIdempotency(key);
+        assert.equal(decoded.status, status);
+        if (expected === undefined) assert.equal(Object.hasOwn(decoded, "body"), false);
+        else { assert.equal(Buffer.isBuffer(decoded.body), true); assert.deepEqual(decoded.body, expected); }
+      }
+    }
+  });
+}
+
+test("receipt body validation: Redis malformed JSON is a safe typed corruption error", async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "them-corrupt-json-"));
+  const redis = redisProtocolFixture(), logs = [];
+  const bp = await createScaleBackplane({ redisUrl: "redis-fixture", redisClientFactory: () => redis.client,
+    outboxFilePath: path.join(root, "outbox.json"), logger: { log: line => logs.push(line) } });
+  await bp.init();
+  t.after(async () => { await bp.close(); fs.rmSync(root, { recursive: true, force: true }); });
+  const key = "user:writer-a|invalid-json", redisKey = `them:talk:idemp:${key}`;
+  assert.equal(await bp.getIdempotency(key), null, "absent key remains absent");
+  for (const raw of ["", "PRIVATE_BODY not JSON", '{"body":"PRIVATE_BODY"', "null", "[]", "42"]) {
+    redis.values.set(redisKey, raw);
+    await assert.rejects(bp.getIdempotency(key), error => error?.code === "TALK_IDEMPOTENCY_CORRUPT_RECORD"
+      && error.message === "talk idempotency record is corrupt");
+    assert.equal(redis.values.get(redisKey), raw);
+  }
+  assert.equal(logs.some(line => line.includes("PRIVATE_BODY")), false);
+  assert.equal(redis.unconditionalDeletes, 0);
+});
+
+for (const corruption of ["body", "empty-json"]) {
+  test(`receipt body validation: Redis stale refresh propagates ${corruption} corruption without deleting it`, async t => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "them-corrupt-refresh-"));
+    const redis = redisProtocolFixture();
+    const bp = await createScaleBackplane({ redisUrl: "redis-fixture", redisClientFactory: () => redis.client,
+      outboxFilePath: path.join(root, "outbox.json"), logger: { log() {} } });
+    await bp.init();
+    t.after(async () => { await bp.close(); fs.rmSync(root, { recursive: true, force: true }); });
+    const key = "user:writer-a|corrupt-refresh", redisKey = `them:talk:idemp:${key}`;
+    const expired = JSON.stringify({ status: "completed", body: { encoding: "base64", data: "AA==" }, expiresAt: 1 });
+    const current = corruption === "body"
+      ? JSON.stringify({ status: "completed", body: { encoding: "other", data: "PRIVATE_BODY" }, expiresAt: 0 }) : "";
+    redis.values.set(redisKey, expired);
+    redis.afterSnapshot(() => { redis.values.set(redisKey, current); });
+    await assert.rejects(bp.getIdempotency(key), error => error?.code === "TALK_IDEMPOTENCY_CORRUPT_RECORD");
+    assert.equal(redis.values.get(redisKey), current);
+    assert.equal(redis.evaluations.length, 1);
+    assert.equal(redis.evaluations[0].arguments[0], expired);
+    assert.equal(redis.unconditionalDeletes, 0);
+  });
+}
+
+test("receipt body validation: Redis transport failure keeps existing optional availability policy", async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "them-transport-compat-"));
+  const redis = redisProtocolFixture();
+  redis.client.get = async () => { throw new Error("synthetic Redis transport failure"); };
+  const bp = await createScaleBackplane({ redisUrl: "redis-fixture", redisClientFactory: () => redis.client,
+    outboxFilePath: path.join(root, "outbox.json"), logger: { log() {} } });
+  await bp.init();
+  t.after(async () => { await bp.close(); fs.rmSync(root, { recursive: true, force: true }); });
+  assert.equal(await bp.getIdempotency("user:writer-a|transport"), null);
+});
+
+class ReceiptValidationResponse extends EventEmitter {
+  constructor() { super(); this.headers = {}; this.code = null; this.body = null; }
+  setHeader(key, value) { this.headers[key.toLowerCase()] = value; }
+  getHeader(key) { return this.headers[key.toLowerCase()]; }
+  status(code) { this.code = code; return this; }
+  send(body) { this.body = body; return this; }
+  json(body) { this.body = body; return this; }
+}
+
+for (const [label, rawBody] of [["string", "PRIVATE_BODY"], ["unknown-encoding", { encoding: "other", data: "AAEC" }],
+  ["invalid-base64", { encoding: "base64", data: "%%%" }]]) {
+  test(`receipt body validation: real JSON ${label} corruption after CAS cannot replace local accepted bytes with empty replay`, async t => {
+    __test.reset();
+    const { root, persistence } = fixture();
+    const key = "user:writer-a|corrupt-cas", body = Buffer.from([0, 255, 42]);
+    let injected = false;
+    const adapter = { ...persistence,
+      async compareAndSwap(args) {
+        if (!injected && args.domain === "talk_idempotency" && args.value?.status === "completed") {
+          assert.equal((await persistence.get({ domain: args.domain, key })).status, "prepared");
+          injected = true;
+          assert.equal(await persistence.compareAndSwap({ ...args, value: { ...args.value, body: rawBody } }), true);
+          return false;
+        }
+        return persistence.compareAndSwap(args);
+      },
+    };
+    const bp = await createScaleBackplane({ persistence: adapter,
+      outboxFilePath: path.join(root, "outbox.json"), logger: { log() {} } });
+    await bp.init();
+    t.after(async () => { await bp.close(); fs.rmSync(root, { recursive: true, force: true }); __test.reset(); });
+    const config = { scaleBackplane: bp, talkIdempotencyEnabled: true, talkIdempotencyTtlMs: 60_000,
+      talkIdempotencyMaxEntries: 16, isSpeculativePrepareRequest: () => false,
+      normalizeIdempotencyKey: value => String(value || ""), resolveTalkSessionKey: () => "validation-session",
+      recordTalkMetric() {}, logger: { log() {}, warn() {} } };
+    const guard = createTalkIdempotencyGuard(config), helpers = createTalkIdempotencyHelpers(config);
+    const makeReq = () => ({ authUser: { id: "writer-a" }, get: name => name.toLowerCase() === "x-idempotency-key" ? "corrupt-cas" : "" });
+    const req = makeReq(); let generated = 0;
+    await guard(req, new ReceiptValidationResponse(), error => { assert.ifError(error); generated++; });
+    assert.equal(generated, 1);
+    await assert.rejects(helpers.commitSuccess(req, { body }), error => error?.code === "TALK_IDEMPOTENCY_CONFLICT");
+    const local = __test.peekIdempotencyCache().get(key);
+    const before = fs.readFileSync(path.join(persistence.root, "talk_idempotency.json"));
+    let corruptRead = null;
+    try { await bp.getIdempotency(key); } catch (error) { corruptRead = error; }
+    const sameWorker = new ReceiptValidationResponse();
+    await guard(makeReq(), sameWorker, () => { generated++; });
+    __test.reset();
+    let freshError = null;
+    const freshWorker = new ReceiptValidationResponse();
+    await guard(makeReq(), freshWorker, error => { if (error) freshError = error; else generated++; });
+    t.diagnostic(JSON.stringify({ format: label, localStatus: local?.status ?? null,
+      corruptRead: corruptRead?.code ?? null, sameWorkerStatus: sameWorker.code,
+      freshError: freshError?.code ?? null, freshStatus: freshWorker.code, generated }));
+    assert.equal(local?.status, "prepared"); assert.deepEqual(local.body, body);
+    assert.equal(corruptRead?.code, "TALK_IDEMPOTENCY_CORRUPT_RECORD");
+    assert.equal(sameWorker.code, 503); assert.equal(sameWorker.body.error, "settlement_pending");
+    assert.equal(freshError?.code, "TALK_IDEMPOTENCY_CORRUPT_RECORD");
+    assert.equal(freshWorker.code, null, "existing next(error) path must receive corruption without a new envelope");
+    assert.equal(generated, 1);
+    assert.deepEqual(fs.readFileSync(path.join(persistence.root, "talk_idempotency.json")), before);
   });
 }
