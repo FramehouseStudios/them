@@ -6,6 +6,167 @@ final class ScreenplayRecoveryOverflowStoreTests: XCTestCase {
     private let backend = URL(string: "https://api.them.test/v1")!
 
     @MainActor
+    func testJournalCopiesSurviveRecreationWithoutCrossingOwners() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ScreenplayRecoveryOverflowStore(rootDirectory: root)
+        let a = try storedSnapshot(store.appendJournalCopy(ownerUserID: "writer-a", projectID: "project",
+            backendURL: backend, documentID: "doc-a", draft: "First\r\n", baseVersionID: "", savedAt: 1))
+        let b = try storedSnapshot(store.appendJournalCopy(ownerUserID: "writer-a", projectID: "project",
+            backendURL: backend, documentID: "doc-b", draft: "Second\n", baseVersionID: "base", savedAt: 2))
+        let reopened = ScreenplayRecoveryOverflowStore(rootDirectory: root)
+        XCTAssertEqual(reopened.journalCopies(ownerUserID: "writer-a", projectID: "project", backendURL: backend), .present([a, b]))
+        XCTAssertEqual(reopened.journalCopies(ownerUserID: "writer-b", projectID: "project", backendURL: backend), .missing)
+    }
+
+    @MainActor
+    func testUnchangedJournalEditKeepsSameVerifiedCopyAndRejectsWrongScope() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ScreenplayRecoveryOverflowStore(rootDirectory: root)
+        let lease = try XCTUnwrap(store.beginJournalEdit(ownerUserID: "writer", projectID: "project",
+            backendURL: backend, documentID: "doc", draft: "Exact\r\n", baseVersionID: ""))
+        guard case let .present(firstCopies) = store.journalCopies(ownerUserID: "writer", projectID: "project", backendURL: backend),
+              let original = firstCopies.first else { return XCTFail("The initial journal copy must exist.") }
+        XCTAssertEqual(store.advanceJournalEdit(lease, ownerUserID: "writer", projectID: "project", backendURL: backend,
+            documentID: "doc", draft: "Exact\r\n", baseVersionID: ""), .present(original))
+        XCTAssertEqual(store.advanceJournalEdit(lease, ownerUserID: "writer", projectID: "project", backendURL: backend,
+            documentID: "other", draft: "Exact\r\n", baseVersionID: ""), .unconfirmed)
+        XCTAssertEqual(store.journalCopies(ownerUserID: "writer", projectID: "project", backendURL: backend), .present([original]))
+    }
+
+    @MainActor
+    func testJournalEditLeaseRequiresSameScopedWriterAndDocument() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ScreenplayRecoveryOverflowStore(rootDirectory: root)
+        let lease = try XCTUnwrap(store.beginJournalEdit(ownerUserID: "writer", projectID: "project",
+            backendURL: backend, documentID: "doc", draft: "First", baseVersionID: ""))
+        XCTAssertEqual(store.advanceJournalEdit(lease, ownerUserID: "other", projectID: "project", backendURL: backend,
+            documentID: "doc", draft: "Wrong owner", baseVersionID: ""), .unconfirmed)
+        XCTAssertEqual(store.advanceJournalEdit(lease, ownerUserID: "writer", projectID: "project", backendURL: backend,
+            documentID: "other-doc", draft: "Wrong document", baseVersionID: ""), .unconfirmed)
+        let latest = try storedSnapshot(store.advanceJournalEdit(lease, ownerUserID: "writer", projectID: "project",
+            backendURL: backend, documentID: "doc", draft: "Latest\r\n", baseVersionID: ""))
+        XCTAssertEqual(ScreenplayRecoveryOverflowStore(rootDirectory: root).journalCopies(ownerUserID: "writer",
+            projectID: "project", backendURL: backend), .present([latest]))
+    }
+
+    @MainActor
+    func testConcurrentJournalAdvancesCannotBothRetireSameCopy() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ScreenplayRecoveryOverflowStore(rootDirectory: root)
+        let url = backend
+        let old = try storedSnapshot(store.appendJournalCopy(ownerUserID: "writer", projectID: "project",
+            backendURL: url, documentID: "doc", draft: "Old", baseVersionID: "", savedAt: 1))
+        let results = JournalConcurrentResults()
+        DispatchQueue.concurrentPerform(iterations: 2) { index in
+            let contender = ScreenplayRecoveryOverflowStore(rootDirectory: root)
+            let result = contender.advanceJournalCopy(ownerUserID: "writer", projectID: "project",
+                backendURL: url, documentID: "doc", expected: old, draft: "New \(index)", baseVersionID: "", savedAt: 2)
+            results.add(result)
+        }
+        let outcomes = results.values
+        XCTAssertEqual(outcomes.count, 2)
+        XCTAssertEqual(outcomes.filter { if case .stored = $0 { return true }; return false }.count, 2)
+        guard case let .present(records) = store.journalCopies(ownerUserID: "writer", projectID: "project", backendURL: url) else {
+            return XCTFail("The winning edit must be discoverable.")
+        }
+        XCTAssertEqual(Set(records.map(\.draft)), Set(["New 0", "New 1"]))
+    }
+
+    @MainActor
+    func testJournalAdvanceKeepsBothCopiesWhenRetirementFails() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ScreenplayRecoveryOverflowStore(rootDirectory: root, fileManager: JournalRemovalFailureFileManager())
+        let old = try storedSnapshot(store.appendJournalCopy(ownerUserID: "writer", projectID: "project",
+            backendURL: backend, documentID: "doc", draft: "Old", baseVersionID: "", savedAt: 1))
+        XCTAssertEqual(store.advanceJournalCopy(ownerUserID: "writer", projectID: "project", backendURL: backend,
+            documentID: "doc", expected: old, draft: "New", baseVersionID: "", savedAt: 2), .unconfirmed)
+        guard case let .present(records) = ScreenplayRecoveryOverflowStore(rootDirectory: root).journalCopies(
+            ownerUserID: "writer", projectID: "project", backendURL: backend) else {
+            return XCTFail("Both recovery files should be discoverable after a failed retirement.")
+        }
+        XCTAssertEqual(records.map(\.draft), ["Old", "New"])
+    }
+
+    @MainActor
+    func testJournalAdvanceRequiresExactPriorAndKeepsOtherCopies() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ScreenplayRecoveryOverflowStore(rootDirectory: root)
+        let old = try storedSnapshot(store.appendJournalCopy(ownerUserID: "writer", projectID: "project",
+            backendURL: backend, documentID: "doc-a", draft: "Old", baseVersionID: "", savedAt: 1))
+        let other = try storedSnapshot(store.appendJournalCopy(ownerUserID: "writer", projectID: "project",
+            backendURL: backend, documentID: "doc-b", draft: "Other", baseVersionID: "base", savedAt: 2))
+        XCTAssertEqual(store.advanceJournalCopy(ownerUserID: "writer", projectID: "project", backendURL: backend,
+            documentID: "doc-a", expected: old, draft: "Changed base", baseVersionID: "base", savedAt: 3), .unconfirmed)
+        let next = try storedSnapshot(store.advanceJournalCopy(ownerUserID: "writer", projectID: "project",
+            backendURL: backend, documentID: "doc-a", expected: old, draft: "New\r\n", baseVersionID: "", savedAt: 3))
+        let stale = try storedSnapshot(store.advanceJournalCopy(ownerUserID: "writer", projectID: "project", backendURL: backend,
+            documentID: "doc-a", expected: old, draft: "Stale", baseVersionID: "", savedAt: 4))
+        let reopened = ScreenplayRecoveryOverflowStore(rootDirectory: root)
+        XCTAssertEqual(reopened.journalCopies(ownerUserID: "writer", projectID: "project", backendURL: backend), .present([other, next, stale]))
+        XCTAssertEqual(Data(next.draft.utf8), Data("New\r\n".utf8))
+    }
+
+    @MainActor
+    func testJournalRetirementKeepsOtherDocumentsAndChecksScope() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ScreenplayRecoveryOverflowStore(rootDirectory: root)
+        let a = try storedSnapshot(store.appendJournalCopy(ownerUserID: "writer", projectID: "project",
+            backendURL: backend, documentID: "doc-a", draft: "First", baseVersionID: "", savedAt: 1))
+        let b = try storedSnapshot(store.appendJournalCopy(ownerUserID: "writer", projectID: "project",
+            backendURL: backend, documentID: "doc-b", draft: "Second", baseVersionID: "", savedAt: 2))
+        XCTAssertEqual(store.removeJournalCopyIfMatching(ownerUserID: "writer", projectID: "project",
+            backendURL: backend, documentID: "doc-b", expected: a), .unconfirmed)
+        XCTAssertEqual(store.journalCopies(ownerUserID: "writer", projectID: "project", backendURL: backend), .present([a, b]))
+        XCTAssertEqual(store.removeJournalCopyIfMatching(ownerUserID: "writer", projectID: "project",
+            backendURL: backend, documentID: "doc-a", expected: a), .deleted)
+        XCTAssertEqual(ScreenplayRecoveryOverflowStore(rootDirectory: root).journalCopies(ownerUserID: "writer",
+            projectID: "project", backendURL: backend), .present([b]))
+    }
+
+    @MainActor
+    func testJournalDiscoveryFailsClosedWhenFileProtectionCannotBeConfirmed() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let writer = ScreenplayRecoveryOverflowStore(rootDirectory: root)
+        _ = try storedSnapshot(writer.appendJournalCopy(ownerUserID: "writer", projectID: "project",
+            backendURL: backend, documentID: "doc", draft: "Writer words", baseVersionID: ""))
+        let protectedReader = ScreenplayRecoveryOverflowStore(rootDirectory: root, fileProtectionEnforcer: { url in
+            if url.lastPathComponent.contains(".journal.") { throw CocoaError(.fileWriteNoPermission) }
+        })
+        XCTAssertEqual(protectedReader.journalCopies(ownerUserID: "writer", projectID: "project", backendURL: backend), .incomplete([]))
+        guard case let .present(records) = writer.journalCopies(ownerUserID: "writer", projectID: "project", backendURL: backend) else {
+            return XCTFail("The unreadable copy must remain available after protection recovers")
+        }
+        XCTAssertEqual(records.map(\.draft), ["Writer words"])
+    }
+
+    @MainActor
+    func testDamagedJournalFileDoesNotHideValidCopies() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ScreenplayRecoveryOverflowStore(rootDirectory: root)
+        let good = try storedSnapshot(store.appendJournalCopy(ownerUserID: "writer", projectID: "project",
+            backendURL: backend, documentID: "doc", draft: "Exact words\r\n", baseVersionID: "", savedAt: 1))
+        let enumerator = try XCTUnwrap(FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil))
+        let urls = enumerator.allObjects.compactMap { $0 as? URL }
+        let validURL = try XCTUnwrap(urls.first { $0.lastPathComponent.contains(".journal.") })
+        let corruptURL = validURL.deletingLastPathComponent().appendingPathComponent(
+            validURL.lastPathComponent.replacingOccurrences(of: good.recordID, with: UUID().uuidString.lowercased()))
+        let damaged = Data("incomplete".utf8)
+        try damaged.write(to: corruptURL)
+        let reopened = ScreenplayRecoveryOverflowStore(rootDirectory: root)
+        XCTAssertEqual(reopened.journalCopies(ownerUserID: "writer", projectID: "project", backendURL: backend), .incomplete([good]))
+        XCTAssertEqual(try Data(contentsOf: corruptURL), damaged)
+    }
+
+    @MainActor
     func testExactBytesSurviveStoreRecreation() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -440,6 +601,23 @@ final class ScreenplayRecoveryOverflowStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testTransientLocatorProtectionFailureDoesNotConfirmRecoveryCopy() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        var shouldFail = true
+        let store = ScreenplayRecoveryOverflowStore(rootDirectory: root, fileProtectionEnforcer: { url in
+            if url.lastPathComponent.contains(".locator.json"), shouldFail {
+                shouldFail = false
+                throw CocoaError(.fileWriteUnknown)
+            }
+        })
+        XCTAssertEqual(store.saveIfVacant(ownerUserID: "writer", projectID: "project", backendURL: backend,
+            documentID: "document", draft: "Writer words", baseVersionID: "base"), .unconfirmed)
+        XCTAssertEqual(try locatorJSONFiles(in: root).count, 1)
+        XCTAssertTrue(try recoveryJSONFiles(in: root).isEmpty)
+    }
+
+    @MainActor
     func testLocatorOnlyCrashIsCleanedWithoutInventingRecoveryBytes() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -701,4 +879,18 @@ final class ScreenplayRecoveryOverflowStoreTests: XCTestCase {
             lock.unlock()
         }
     }
+}
+
+private final class JournalRemovalFailureFileManager: FileManager, @unchecked Sendable {
+    override func removeItem(at URL: URL) throws {
+        if URL.lastPathComponent.contains(".journal.") { throw CocoaError(.fileWriteNoPermission) }
+        try super.removeItem(at: URL)
+    }
+}
+
+private final class JournalConcurrentResults: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [ScreenplayRecoveryOverflowWriteResult] = []
+    func add(_ result: ScreenplayRecoveryOverflowWriteResult) { lock.lock(); defer { lock.unlock() }; storage.append(result) }
+    var values: [ScreenplayRecoveryOverflowWriteResult] { lock.lock(); defer { lock.unlock() }; return storage }
 }

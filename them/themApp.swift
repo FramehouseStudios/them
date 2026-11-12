@@ -7,6 +7,7 @@ struct themApp: App {
     init() {
         #if DEBUG
         UITestLaunchConfiguration.applyIfNeeded()
+        StudioUITestInputDiagnostics.installIfRequested()
         #endif
 
         #if DEBUG

@@ -232,3 +232,34 @@ struct ScreenplayStudioElementModeBar: View {
         }
     }
 }
+
+/// The compact Studio header's project-drawer control.
+struct ScreenplayStudioSidebarToggleButton: View {
+    let isOpen: Bool
+    let text: Color
+    let selectedFill: Color
+    let panelFill: Color
+    let selectedStroke: Color
+    let stroke: Color
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "sidebar.left")
+                .font(IOThemTypography.UI.callout)
+                .foregroundStyle(text.opacity(0.90))
+                .frame(width: 28, height: 28)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(isOpen ? selectedFill : panelFill)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(isOpen ? selectedStroke : stroke.opacity(0.55), lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(isOpen ? "Close project drawer" : "Open project drawer")
+        .accessibilityIdentifier("studio.sidebar.left.toggle")
+    }
+}

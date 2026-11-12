@@ -35,6 +35,25 @@ nonisolated enum ScreenplayRecoveryOverflowLoadResult: Equatable, Sendable {
     case unconfirmed
 }
 
+/// Process-local authority for one active edit. It is never decoded from disk.
+@MainActor
+final class ScreenplayRecoveryJournalLease {
+    fileprivate var snapshot: ScreenplayRecoveryOverflowSnapshot
+    var baseVersionID: String { snapshot.baseVersionID }
+    func matches(draft: String, baseVersionID: String) -> Bool {
+        snapshot.draft.utf8.elementsEqual(draft.utf8) && snapshot.baseVersionID.utf8.elementsEqual(baseVersionID.utf8)
+    }
+    fileprivate init(snapshot: ScreenplayRecoveryOverflowSnapshot) { self.snapshot = snapshot }
+    nonisolated deinit {}
+}
+
+nonisolated enum ScreenplayRecoveryJournalReadResult: Equatable, Sendable {
+    case missing
+    case present([ScreenplayRecoveryOverflowSnapshot])
+    case incomplete([ScreenplayRecoveryOverflowSnapshot])
+    case unconfirmed
+}
+
 nonisolated enum ScreenplayRecoveryOverflowWriteResult: Equatable, Sendable {
     case present(ScreenplayRecoveryOverflowSnapshot)
     case stored(ScreenplayRecoveryOverflowSnapshot)
@@ -124,11 +143,13 @@ nonisolated enum ScreenplayRecoveryExclusiveFilePromotion {
 /// Interrupted writes remain in origin-scope-addressable pending files. Relaunch
 /// validates and promotes one logical record, while multiple distinct or
 /// unreadable records block reuse without deleting any bytes.
-@MainActor
-struct ScreenplayRecoveryOverflowStore {
+nonisolated struct ScreenplayRecoveryOverflowStore {
     static let maximumDraftBytes = 2 * 1024 * 1024
     static let maximumIdentityBytes = 64 * 1024
 
+    // POSIX record locks are process-scoped, so threads in this process also
+    // need a local lock around the same project-file transaction.
+    private static let inProcessLock = NSRecursiveLock()
     private static let digestDomain = Data("io.them.screenplay-recovery-overflow.content.v2".utf8)
     private static let ownerPathDomain = Data("io.them.screenplay-recovery-overflow.owner-path.v1".utf8)
     private static let scopePathDomain = Data("io.them.screenplay-recovery-overflow.scope-path.v2".utf8)
@@ -208,6 +229,179 @@ struct ScreenplayRecoveryOverflowStore {
         }
     }
 
+    /// Create a new checkpoint and issue a process-local editing lease.
+    @MainActor
+    func beginJournalEdit(ownerUserID: String, projectID: String, backendURL: URL,
+                          documentID: String, draft: String, baseVersionID: String) -> ScreenplayRecoveryJournalLease? {
+        guard case let .stored(snapshot) = appendJournalCopy(ownerUserID: ownerUserID, projectID: projectID,
+            backendURL: backendURL, documentID: documentID, draft: draft, baseVersionID: baseVersionID) else { return nil }
+        return ScreenplayRecoveryJournalLease(snapshot: snapshot)
+    }
+
+    /// The lease is valid only in this process and can advance only its own copy.
+    @MainActor
+    func advanceJournalEdit(_ lease: ScreenplayRecoveryJournalLease, ownerUserID: String, projectID: String,
+                            backendURL: URL, documentID: String, draft: String,
+                            baseVersionID: String) -> ScreenplayRecoveryOverflowWriteResult {
+        if lease.snapshot.draft.utf8.elementsEqual(draft.utf8),
+           lease.snapshot.baseVersionID.utf8.elementsEqual(baseVersionID.utf8) {
+            guard let scope = scope(ownerUserID: ownerUserID, projectID: projectID,
+                                    backendURL: backendURL, documentID: documentID),
+                  Self.validate(lease.snapshot, expectedScope: scope),
+                  case let .present(records) = journalCopies(ownerUserID: ownerUserID,
+                      projectID: projectID, backendURL: backendURL),
+                  records.contains(lease.snapshot) else { return .unconfirmed }
+            return .present(lease.snapshot)
+        }
+        let result = advanceJournalCopyLocked(ownerUserID: ownerUserID, projectID: projectID, backendURL: backendURL,
+            documentID: documentID, expected: lease.snapshot, draft: draft, baseVersionID: baseVersionID)
+        if case let .stored(snapshot) = result { lease.snapshot = snapshot }
+        return result
+    }
+
+    /// Append a scoped copy without replacing any previous writer record.
+    /// A caller must not treat a successful write as permission to send it.
+    func appendJournalCopy(ownerUserID: String, projectID: String, backendURL: URL,
+                           documentID: String, draft: String, baseVersionID: String,
+                           savedAt: TimeInterval = Date().timeIntervalSince1970) -> ScreenplayRecoveryOverflowWriteResult {
+        guard let scope = scope(ownerUserID: ownerUserID, projectID: projectID,
+                                backendURL: backendURL, documentID: documentID),
+              Self.validFieldSizes(ownerUserID: scope.ownerUserID, projectID: scope.projectID,
+                  backendOrigin: scope.backendOrigin, documentID: scope.documentID,
+                  draft: draft, baseVersionID: baseVersionID), savedAt.isFinite else { return .unconfirmed }
+        do {
+            try createDurableDirectoryHierarchy(at: scope.directoryURL)
+            try enforceCompleteFileProtection(at: scope.rootURL)
+            try enforceCompleteFileProtection(at: scope.directoryURL)
+        } catch { return .unconfirmed }
+        return withProjectLock(scope.projectScope) {
+            let snapshot = Self.makeSnapshot(scope: scope, draft: draft, baseVersionID: baseVersionID, savedAt: savedAt)
+            let url = scope.projectScope.directoryURL.appendingPathComponent(".\(scope.projectScope.locatorDigest).journal.\(snapshot.recordID).json")
+            do {
+                try Self.writeExclusively(Self.encode(snapshot), to: url)
+                try enforceCompleteFileProtection(at: url)
+                try Self.synchronizeDirectory(scope.directoryURL)
+                guard case let .present(_, stored) = readState(at: url, scope: scope, expectedRecordID: snapshot.recordID),
+                      Self.exactlyMatches(stored, snapshot) else { return .unconfirmed }
+                return .stored(stored)
+            } catch { return .unconfirmed }
+        } ?? .unconfirmed
+    }
+
+    /// Enumerate without discarding unreadable or differently scoped files.
+    func journalCopies(ownerUserID: String, projectID: String, backendURL: URL) -> ScreenplayRecoveryJournalReadResult {
+        guard let project = projectScope(ownerUserID: ownerUserID, projectID: projectID, backendURL: backendURL) else { return .unconfirmed }
+        switch existingScopeAvailability(project) {
+        case .missing: return .missing
+        case .unconfirmed: return .unconfirmed
+        case .available: break
+        }
+        return withProjectLock(project) {
+            guard let files = try? fileManager.contentsOfDirectory(at: project.directoryURL, includingPropertiesForKeys: nil) else { return .unconfirmed }
+            let prefix = ".\(project.locatorDigest).journal."
+            var records: [ScreenplayRecoveryOverflowSnapshot] = []
+            var hasUnreadable = false
+            for url in files where url.lastPathComponent.hasPrefix(prefix) {
+                let name = url.lastPathComponent
+                guard name.hasSuffix(".json") else { hasUnreadable = true; continue }
+                let id = String(name.dropFirst(prefix.count).dropLast(5))
+                guard let uuid = UUID(uuidString: id), id == uuid.uuidString.lowercased(),
+                      let attrs = try? fileManager.attributesOfItem(atPath: url.path),
+                      attrs[.type] as? FileAttributeType == .typeRegular,
+                      let size = attrs[.size] as? NSNumber, size.uint64Value <= 32 * 1024 * 1024,
+                      (try? enforceCompleteFileProtection(at: url)) != nil,
+                      let data = try? Data(contentsOf: url, options: .mappedIfSafe),
+                      let decoded = try? JSONDecoder().decode(ScreenplayRecoveryOverflowSnapshot.self, from: data),
+                      let recordScope = scope(projectScope: project, documentID: decoded.documentID),
+                      Self.validate(decoded, expectedScope: recordScope), Self.exactString(decoded.recordID, id)
+                else { hasUnreadable = true; continue }
+                records.append(decoded)
+            }
+            let ordered = records.sorted { $0.savedAt == $1.savedAt ? $0.recordID < $1.recordID : $0.savedAt < $1.savedAt }
+            if hasUnreadable { return .incomplete(ordered) }
+            return ordered.isEmpty ? .missing : .present(ordered)
+        } ?? .unconfirmed
+    }
+
+    /// Advance a caller-owned active-edit checkpoint without replacing another
+    /// record. An interruption before retirement leaves both copies on disk.
+    private func advanceJournalCopyLocked(ownerUserID: String, projectID: String, backendURL: URL,
+                            documentID: String, expected: ScreenplayRecoveryOverflowSnapshot,
+                            draft: String, baseVersionID: String,
+                            savedAt: TimeInterval = Date().timeIntervalSince1970) -> ScreenplayRecoveryOverflowWriteResult {
+        guard let scope = scope(ownerUserID: ownerUserID, projectID: projectID, backendURL: backendURL, documentID: documentID),
+              Self.validate(expected, expectedScope: scope),
+              expected.baseVersionID.utf8.elementsEqual(baseVersionID.utf8),
+              Self.validFieldSizes(ownerUserID: scope.ownerUserID, projectID: scope.projectID,
+                  backendOrigin: scope.backendOrigin, documentID: scope.documentID, draft: draft, baseVersionID: baseVersionID),
+              savedAt.isFinite else { return .unconfirmed }
+        guard case .available = existingScopeAvailability(scope) else { return .unconfirmed }
+        return withProjectLock(scope.projectScope) {
+            let prefix = ".\(scope.projectScope.locatorDigest).journal."
+            let oldURL = scope.directoryURL.appendingPathComponent("\(prefix)\(expected.recordID).json")
+            let oldMatches: Bool
+            if case let .present(_, old) = readState(at: oldURL, scope: scope, expectedRecordID: expected.recordID) {
+                oldMatches = Self.exactlyMatches(old, expected)
+            } else { oldMatches = false }
+            let next = Self.makeSnapshot(scope: scope, draft: draft, baseVersionID: baseVersionID, savedAt: savedAt)
+            let newURL = scope.directoryURL.appendingPathComponent("\(prefix)\(next.recordID).json")
+            do {
+                try Self.writeExclusively(Self.encode(next), to: newURL)
+                try enforceCompleteFileProtection(at: newURL)
+                try Self.synchronizeDirectory(scope.directoryURL)
+                guard case let .present(_, verified) = readState(at: newURL, scope: scope, expectedRecordID: next.recordID),
+                      Self.exactlyMatches(verified, next) else { return .unconfirmed }
+                // Failure here preserves at least the verified new copy; the
+                // old copy remains discoverable if unlink did not complete.
+                if oldMatches {
+                    do { try fileManager.removeItem(at: oldURL); try Self.synchronizeDirectory(scope.directoryURL) }
+                    catch { return .unconfirmed }
+                }
+                return .stored(verified)
+            } catch { return .unconfirmed }
+        } ?? .unconfirmed
+    }
+
+#if DEBUG
+    /// Exercises stale and concurrent interleavings without exposing the
+    /// low-level replacement operation in release builds.
+    func advanceJournalCopy(ownerUserID: String, projectID: String, backendURL: URL,
+                            documentID: String, expected: ScreenplayRecoveryOverflowSnapshot,
+                            draft: String, baseVersionID: String,
+                            savedAt: TimeInterval = Date().timeIntervalSince1970) -> ScreenplayRecoveryOverflowWriteResult {
+        advanceJournalCopyLocked(ownerUserID: ownerUserID, projectID: projectID, backendURL: backendURL,
+            documentID: documentID, expected: expected, draft: draft, baseVersionID: baseVersionID, savedAt: savedAt)
+    }
+#endif
+
+    /// Retire only the exact previously reviewed scoped journal record.
+    func removeJournalCopyIfMatching(ownerUserID: String, projectID: String, backendURL: URL,
+                                     documentID: String, expected: ScreenplayRecoveryOverflowSnapshot) -> ScreenplayRecoveryOverflowDeletionResult {
+        guard let scope = scope(ownerUserID: ownerUserID, projectID: projectID,
+                                backendURL: backendURL, documentID: documentID),
+              Self.validate(expected, expectedScope: scope) else { return .unconfirmed }
+        switch existingScopeAvailability(scope) {
+        case .missing: return .missing
+        case .unconfirmed: return .unconfirmed
+        case .available: break
+        }
+        return withProjectLock(scope.projectScope) {
+            let url = scope.directoryURL.appendingPathComponent(".\(scope.projectScope.locatorDigest).journal.\(expected.recordID).json")
+            do {
+                _ = try fileManager.attributesOfItem(atPath: url.path)
+            } catch {
+                return Self.isMissingFileError(error) ? .missing : .unconfirmed
+            }
+            guard case let .present(_, actual) = readState(at: url, scope: scope, expectedRecordID: expected.recordID) else { return .unconfirmed }
+            guard Self.exactlyMatches(actual, expected) else { return .changed }
+            do {
+                try fileManager.removeItem(at: url)
+                try Self.synchronizeDirectory(scope.directoryURL)
+                return .deleted
+            } catch { return .unconfirmed }
+        } ?? .unconfirmed
+    }
+
     func saveIfVacant(
         ownerUserID: String,
         projectID: String,
@@ -235,7 +429,7 @@ struct ScreenplayRecoveryOverflowStore {
             return .unconfirmed
         }
         do {
-            try fileManager.createDirectory(at: scope.directoryURL, withIntermediateDirectories: true)
+            try createDurableDirectoryHierarchy(at: scope.directoryURL)
             try enforceCompleteFileProtection(at: scope.rootURL)
             try enforceCompleteFileProtection(at: scope.directoryURL)
         } catch {
@@ -478,10 +672,9 @@ struct ScreenplayRecoveryOverflowStore {
             try enforceCompleteFileProtection(at: scope.projectScope.locatorURL)
             try Self.synchronizeDirectory(scope.projectScope.directoryURL)
         } catch {
-            guard case .present(let current) = locatorState(projectScope: scope.projectScope) else {
-                return false
-            }
-            return Self.exactlyMatches(current, locator)
+            // A readable file does not prove that protection or directory
+            // synchronization succeeded. Leave it for recovery and fail closed.
+            return false
         }
         guard case .present(let current) = locatorState(projectScope: scope.projectScope) else {
             return false
@@ -621,6 +814,8 @@ struct ScreenplayRecoveryOverflowStore {
     }
 
     private func withProjectLock<T>(_ scope: ProjectScope, body: () -> T) -> T? {
+        Self.inProcessLock.lock()
+        defer { Self.inProcessLock.unlock() }
         let descriptor = scope.lockURL.path.withCString { path in
             Darwin.open(path, O_RDWR | O_CREAT | O_CLOEXEC, S_IRUSR | S_IWUSR)
         }
@@ -780,6 +975,22 @@ struct ScreenplayRecoveryOverflowStore {
         }
     }
 
+    /// Persist each newly created directory entry before reporting a copy as secured.
+    private func createDurableDirectoryHierarchy(at directoryURL: URL) throws {
+        var missing: [URL] = []
+        var current = directoryURL.standardizedFileURL
+        while !fileManager.fileExists(atPath: current.path) {
+            missing.append(current)
+            let parent = current.deletingLastPathComponent()
+            guard parent.path != current.path else { throw Self.posixError(ENOENT, path: current.path) }
+            current = parent
+        }
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        for directory in missing.reversed() {
+            try Self.synchronizeDirectory(directory.deletingLastPathComponent())
+        }
+    }
+
     private static func synchronizeDirectory(_ url: URL) throws {
         let descriptor = url.path.withCString { path in
             Darwin.open(path, O_RDONLY | O_CLOEXEC)
@@ -896,7 +1107,20 @@ struct ScreenplayRecoveryOverflowStore {
     }
 
     private static func exactString(_ lhs: String, _ rhs: String) -> Bool {
-        lhs.utf8.elementsEqual(rhs.utf8)
+        let left = lhs.utf8
+        let right = rhs.utf8
+        guard left.count == right.count else { return false }
+        // Native UTF-8 storage permits a byte-for-byte comparison without
+        // walking a feature-length draft one character at a time.
+        if let compared = left.withContiguousStorageIfAvailable({ leftBytes in
+            right.withContiguousStorageIfAvailable { rightBytes in
+                guard let leftBase = leftBytes.baseAddress, let rightBase = rightBytes.baseAddress else {
+                    return leftBytes.isEmpty && rightBytes.isEmpty
+                }
+                return Darwin.memcmp(leftBase, rightBase, leftBytes.count) == 0
+            }
+        }), let compared { return compared }
+        return left.elementsEqual(right)
     }
 
     private static func encode(_ snapshot: ScreenplayRecoveryOverflowSnapshot) throws -> Data {

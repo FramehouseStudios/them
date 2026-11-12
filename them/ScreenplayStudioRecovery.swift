@@ -219,12 +219,32 @@ struct ScreenplayLocalDraftRecoveryStore {
         draft: String,
         baseVersionId: String,
         dirty: Bool,
-        savedAt: TimeInterval = Date().timeIntervalSince1970
+        savedAt: TimeInterval = Date().timeIntervalSince1970,
+        backendOrigin: URL? = nil
     ) -> Bool {
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else { return false }
         var nextPayloads = payloads(ownerUserId: ownerUserId)
         var projectPayload = nextPayloads[normalizedProjectId] ?? [:]
+        if let backendOrigin {
+            guard let canonical = try? ScreenplayInitialProjectMetadata.origin(backendOrigin) else { return false }
+            if let raw = projectPayload["ordinaryBackendOrigin"] {
+                guard let text = raw as? String, let oldOrigin = URL(string: text),
+                      OfflineTalkRecoveryScope.sameBackend(oldOrigin, canonical) else { return false }
+                let ordinary = storedRecoverySlot(.ordinary, in: projectPayload)
+                if ordinary.exists {
+                    guard projectPayload["draft"] is String, projectPayload["baseVersionId"] is String,
+                          projectPayload["dirty"] is Bool, projectPayload["savedAt"] is TimeInterval else { return false }
+                }
+            } else if storedRecoverySlot(.ordinary, in: projectPayload).exists {
+                // A legacy or partial record has no proven origin. Preserve it unchanged.
+                return false
+            }
+            projectPayload["ordinaryBackendOrigin"] = canonical.absoluteString
+        } else if projectPayload["ordinaryBackendOrigin"] != nil {
+            // An origin-bound record cannot be updated by an unbound caller.
+            return false
+        }
         projectPayload["draft"] = draft
         projectPayload["baseVersionId"] = baseVersionId
         projectPayload["dirty"] = dirty
@@ -237,21 +257,30 @@ struct ScreenplayLocalDraftRecoveryStore {
             stored["dirty"] as? Bool == dirty && stored["savedAt"] as? TimeInterval == savedAt
     }
 
+    /// Known foreign and malformed origins are never treated as the current backend.
+    func ordinaryOriginIsForeign(ownerUserId: String, projectId: String, backend: URL?) -> Bool {
+        let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let raw = payloads(ownerUserId: ownerUserId)[project]?["ordinaryBackendOrigin"] else { return false }
+        guard let text = raw as? String, let recorded = URL(string: text), let backend else { return true }
+        return !OfflineTalkRecoveryScope.sameBackend(recorded, backend)
+    }
+
     /// An initial-project receipt cannot retire another writer recovery copy.
     @MainActor
     func saveInitialProjectReceipt(ownerUserId: String, projectId: String,
-                                   draft: String, baseVersionId: String, dirty: Bool) -> Bool {
+                                   draft: String, baseVersionId: String, dirty: Bool,
+                                   backendOrigin: URL? = nil) -> Bool {
         if let existing = dirtyOrdinarySnapshot(ownerUserId: ownerUserId, projectId: projectId),
            !existing.draft.utf8.elementsEqual(draft.utf8) {
             guard dirty else { return true }
             switch saveInVacantRecoverySlot(ownerUserId: ownerUserId, projectId: projectId,
-                                             draft: draft, baseVersionId: baseVersionId) {
+                                             draft: draft, baseVersionId: baseVersionId, backendOrigin: backendOrigin) {
             case .present, .stored: return true
             case .occupied, .unconfirmed: return false
             }
         }
         return save(ownerUserId: ownerUserId, projectId: projectId, draft: draft,
-                    baseVersionId: baseVersionId, dirty: dirty)
+                    baseVersionId: baseVersionId, dirty: dirty, backendOrigin: backendOrigin)
     }
 
     /// Keeps a dirty local draft separate from the ordinary recovery slot so
@@ -344,6 +373,7 @@ struct ScreenplayLocalDraftRecoveryStore {
         projectPayload.removeValue(forKey: "baseVersionId")
         projectPayload.removeValue(forKey: "dirty")
         projectPayload.removeValue(forKey: "savedAt")
+        projectPayload.removeValue(forKey: "ordinaryBackendOrigin")
         if projectPayload.isEmpty {
             nextPayloads.removeValue(forKey: normalizedProjectId)
         } else {
@@ -352,14 +382,69 @@ struct ScreenplayLocalDraftRecoveryStore {
         _ = persistPayloads(nextPayloads, ownerUserId: ownerUserId)
     }
 
+    private func preservedOriginIsVisible(_ raw: Any?, backend: URL?, filterByBackend: Bool) -> Bool {
+        guard filterByBackend else { return true }
+        guard let raw else { return true } // Legacy copies are explicitly labeled unverified.
+        guard let text = raw as? String, let recorded = URL(string: text), let backend else { return false }
+        return OfflineTalkRecoveryScope.sameBackend(recorded, backend)
+    }
+
+    /// Locate one byte-exact visible copy without changing the stored queue.
+    func exactPreservedConflict(ownerUserId: String, projectId: String, draft: String,
+                                baseVersionId: String, backend: URL?) -> ScreenplayLocalDraftRecoverySnapshot? {
+        let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let payload = payloads(ownerUserId: ownerUserId)[project],
+              storedRecoverySlot(.preservedConflict, in: payload).candidate != nil else { return nil }
+        let matches = preservedConflicts(in: payload).filter {
+            exactRecoveryCandidate($0, draft: draft, baseVersionId: baseVersionId)
+        }
+        guard matches.count == 1, let copy = matches.first,
+              preservedOriginIsVisible(copy["backendOrigin"], backend: backend, filterByBackend: true),
+              let savedAt = copy["savedAt"] as? TimeInterval else { return nil }
+        return ScreenplayLocalDraftRecoverySnapshot(projectId: project, draft: draft,
+            baseVersionId: baseVersionId, savedAt: savedAt, isPreservedConflict: true)
+    }
+
+    func preservedSelectionIsVisible(ownerUserId: String, projectId: String, draft: String,
+                                     baseVersionId: String, savedAt: TimeInterval, backend: URL?) -> Bool {
+        guard let payload = payloads(ownerUserId: ownerUserId)[projectId] else { return false }
+        let matches = preservedConflicts(in: payload).filter {
+            exactRecoveryCandidate($0, draft: draft, baseVersionId: baseVersionId, savedAt: savedAt)
+        }
+        guard matches.count == 1 else { return false }
+        return preservedOriginIsVisible(matches[0]["backendOrigin"], backend: backend, filterByBackend: true)
+    }
+
+    func preservedSelectionHasVerifiedOrigin(ownerUserId: String, projectId: String, draft: String,
+                                             baseVersionId: String, savedAt: TimeInterval, backend: URL?) -> Bool {
+        guard let payload = payloads(ownerUserId: ownerUserId)[projectId], let backend else { return false }
+        let matches = preservedConflicts(in: payload).filter {
+            exactRecoveryCandidate($0, draft: draft, baseVersionId: baseVersionId, savedAt: savedAt)
+        }
+        guard matches.count == 1, let text = matches[0]["backendOrigin"] as? String,
+              let recorded = URL(string: text) else { return false }
+        return OfflineTalkRecoveryScope.sameBackend(recorded, backend)
+    }
+
+    func hasForeignPreservedCopies(ownerUserId: String, projectId: String, backend: URL?) -> Bool {
+        let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let payload = payloads(ownerUserId: ownerUserId)[project] else { return false }
+        return preservedConflicts(in: payload).contains {
+            !preservedOriginIsVisible($0["backendOrigin"], backend: backend, filterByBackend: true)
+        }
+    }
+
     /// Returns the active preserved decision; older copies remain queued behind it.
-    func currentPreservedConflict(ownerUserId: String, projectId: String) -> ScreenplayLocalDraftRecoverySnapshot? {
+    func currentPreservedConflict(ownerUserId: String, projectId: String,
+                                  backend: URL? = nil, filterByBackend: Bool = false) -> ScreenplayLocalDraftRecoverySnapshot? {
         let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !project.isEmpty, let payload = payloads(ownerUserId: ownerUserId)[project] else { return nil }
         let state = storedRecoverySlot(.preservedConflict, in: payload)
-        guard let fallback = state.candidate,
-              let copy = (payload["preservedConflict"] as? [String: Any] ?? fallback) as [String: Any]?,
-              copy["dirty"] as? Bool == true, let draft = copy["draft"] as? String,
+        guard let fallback = state.candidate else { return nil }
+        let active = payload["preservedConflict"] as? [String: Any] ?? fallback
+        let copy = preservedOriginIsVisible(active["backendOrigin"], backend: backend, filterByBackend: filterByBackend)
+            ? active : preservedConflicts(in: payload).first { preservedOriginIsVisible($0["backendOrigin"], backend: backend, filterByBackend: filterByBackend) }
+        guard let copy, copy["dirty"] as? Bool == true, let draft = copy["draft"] as? String,
               let base = copy["baseVersionId"] as? String, let savedAt = copy["savedAt"] as? TimeInterval else { return nil }
         return ScreenplayLocalDraftRecoverySnapshot(projectId: project, draft: draft,
             baseVersionId: base, savedAt: savedAt, isPreservedConflict: true)
@@ -407,18 +492,46 @@ struct ScreenplayLocalDraftRecoveryStore {
         )
     }
 
-    func hasMultiplePreservedConflicts(ownerUserId: String, projectId: String) -> Bool {
+    func hasMultiplePreservedConflicts(ownerUserId: String, projectId: String,
+                                       backend: URL? = nil, filterByBackend: Bool = false) -> Bool {
         let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let payload = payloads(ownerUserId: ownerUserId)[project],
               storedRecoverySlot(.preservedConflict, in: payload).candidate != nil else { return false }
-        return preservedConflicts(in: payload).count > 1
+        return preservedConflicts(in: payload).filter {
+            preservedOriginIsVisible($0["backendOrigin"], backend: backend, filterByBackend: filterByBackend)
+        }.count > 1
+    }
+
+    /// Select an eligible archived copy without deleting or rewriting its content.
+    @MainActor
+    func activatePreservedConflict(ownerUserId: String, projectId: String, draft: String,
+                                   baseVersionId: String, savedAt: TimeInterval, backend: URL?) -> Bool {
+        let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !project.isEmpty else { return false }
+        var all = payloads(ownerUserId: ownerUserId)
+        guard var payload = all[project], let fallback = storedRecoverySlot(.preservedConflict, in: payload).candidate else { return false }
+        let copies = preservedConflicts(in: payload)
+        let matches = copies.indices.filter { exactRecoveryCandidate(copies[$0], draft: draft, baseVersionId: baseVersionId, savedAt: savedAt) }
+        guard matches.count == 1, let index = matches.first,
+              preservedOriginIsVisible(copies[index]["backendOrigin"], backend: backend, filterByBackend: true) else { return false }
+        let current = payload["preservedConflict"] as? [String: Any] ?? fallback
+        if exactRecoveryCandidate(current, draft: draft, baseVersionId: baseVersionId, savedAt: savedAt) { return true }
+        let next = copies[index]
+        let remaining = copies.enumerated().filter { $0.offset != index }.map(\.element)
+        payload["preservedConflict"] = next
+        if remaining.isEmpty { payload.removeValue(forKey: "preservedConflicts") }
+        else { payload["preservedConflicts"] = remaining }
+        all[project] = payload
+        _ = persistPayloads(all, ownerUserId: ownerUserId)
+        return NSDictionary(dictionary: payloads(ownerUserId: ownerUserId)).isEqual(to: all)
     }
 
     /// Moves the current preserved copy behind the next one without deleting text.
     /// The expected identity protects against advancing an obsolete UI decision.
     @MainActor
     func advancePreservedConflict(ownerUserId: String, projectId: String, draft: String,
-                                  baseVersionId: String, savedAt: TimeInterval) -> Bool {
+                                  baseVersionId: String, savedAt: TimeInterval,
+                                  backend: URL? = nil, filterByBackend: Bool = false) -> Bool {
         let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !project.isEmpty else { return false }
         var all = payloads(ownerUserId: ownerUserId)
@@ -427,6 +540,24 @@ struct ScreenplayLocalDraftRecoveryStore {
         guard let fallback = state.candidate else { return false }
         let current = payload["preservedConflict"] as? [String: Any] ?? fallback
         let copies = preservedConflicts(in: payload)
+        if filterByBackend {
+            let matching = copies.indices.filter { exactRecoveryCandidate(copies[$0], draft: draft, baseVersionId: baseVersionId, savedAt: savedAt) }
+            let eligible = copies.indices.filter { preservedOriginIsVisible(copies[$0]["backendOrigin"], backend: backend, filterByBackend: true) }
+            guard matching.count == 1, eligible.count > 1, let selected = matching.first,
+                  let position = eligible.firstIndex(of: selected) else { return false }
+            let nextIndex = eligible[(position + 1) % eligible.count]
+            let next = copies[nextIndex]
+            guard let nextDraft = next["draft"] as? String, let nextBase = next["baseVersionId"] as? String,
+                  let nextTime = next["savedAt"] as? TimeInterval, next["dirty"] as? Bool == true,
+                  copies.filter({ exactRecoveryCandidate($0, draft: nextDraft, baseVersionId: nextBase, savedAt: nextTime) }).count == 1 else { return false }
+            payload["preservedConflict"] = next
+            let remaining = copies.enumerated().filter { $0.offset != nextIndex }.map(\.element)
+            if remaining.isEmpty { payload.removeValue(forKey: "preservedConflicts") }
+            else { payload["preservedConflicts"] = remaining }
+            all[project] = payload
+            _ = persistPayloads(all, ownerUserId: ownerUserId)
+            return NSDictionary(dictionary: payloads(ownerUserId: ownerUserId)).isEqual(to: all)
+        }
         guard copies.filter({ exactRecoveryCandidate($0, draft: draft, baseVersionId: baseVersionId, savedAt: savedAt) }).count == 1,
               exactRecoveryCandidate(current, draft: draft, baseVersionId: baseVersionId, savedAt: savedAt),
               var archived = payload["preservedConflicts"] as? [[String: Any]] else { return false }
@@ -518,7 +649,7 @@ struct ScreenplayLocalDraftRecoveryStore {
 
         switch slot {
         case .ordinary:
-            for key in ["draft", "baseVersionId", "dirty", "savedAt"] {
+            for key in ["draft", "baseVersionId", "dirty", "savedAt", "ordinaryBackendOrigin"] {
                 payload.removeValue(forKey: key)
             }
         case .preservedConflict:
@@ -566,21 +697,33 @@ struct ScreenplayLocalDraftRecoveryStore {
         draft: String,
         baseVersionId: String,
         savedAt: TimeInterval = Date().timeIntervalSince1970,
-        preferPreservedConflict: Bool = false
+        preferPreservedConflict: Bool = false,
+        backendOrigin: URL? = nil
     ) -> ScreenplayVacantRecoveryWriteResult {
         let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !project.isEmpty else { return .unconfirmed }
         var all = payloads(ownerUserId: ownerUserId)
         var payload = all[project] ?? [:]
 
+        let canonicalOrigin: URL?
+        if let backendOrigin {
+            guard let canonical = try? ScreenplayInitialProjectMetadata.origin(backendOrigin) else { return .unconfirmed }
+            canonicalOrigin = canonical
+        } else { canonicalOrigin = nil }
+        func sameOrigin(_ raw: Any?) -> Bool {
+            guard let raw else { return canonicalOrigin == nil }
+            guard let text = raw as? String, let recorded = URL(string: text), let canonicalOrigin else { return false }
+            return OfflineTalkRecoveryScope.sameBackend(recorded, canonicalOrigin)
+        }
         let ordinary = storedRecoverySlot(.ordinary, in: payload)
-        if let candidate = ordinary.candidate,
+        if !ordinary.exists, payload["ordinaryBackendOrigin"] != nil { return .unconfirmed }
+        if let candidate = ordinary.candidate, sameOrigin(payload["ordinaryBackendOrigin"]),
            exactRecoveryCandidate(candidate, draft: draft, baseVersionId: baseVersionId) {
             return .present(.ordinary)
         }
         let preserved = storedRecoverySlot(.preservedConflict, in: payload)
         if preserved.candidate != nil, preservedConflicts(in: payload).contains(where: {
-            exactRecoveryCandidate($0, draft: draft, baseVersionId: baseVersionId)
+            sameOrigin($0["backendOrigin"]) && exactRecoveryCandidate($0, draft: draft, baseVersionId: baseVersionId)
         }) {
             return .present(.preservedConflict)
         }
@@ -596,7 +739,7 @@ struct ScreenplayLocalDraftRecoveryStore {
             return .occupied
         }
 
-        let candidate: [String: Any] = [
+        var candidate: [String: Any] = [
             "draft": draft,
             "baseVersionId": baseVersionId,
             "dirty": true,
@@ -605,7 +748,9 @@ struct ScreenplayLocalDraftRecoveryStore {
         switch slot {
         case .ordinary:
             for (key, value) in candidate { payload[key] = value }
+            if let canonicalOrigin { payload["ordinaryBackendOrigin"] = canonicalOrigin.absoluteString }
         case .preservedConflict:
+            if let canonicalOrigin { candidate["backendOrigin"] = canonicalOrigin.absoluteString }
             payload["preservedConflict"] = candidate
         }
         all[project] = payload
@@ -632,21 +777,33 @@ struct ScreenplayLocalDraftRecoveryStore {
     /// Does not replace a different ordinary recovery copy or the preserved conflict.
     @MainActor
     func saveIfOrdinaryVacantOrMatching(ownerUserId: String, projectId: String,
-                                        draft: String, baseVersionId: String) -> ScreenplayConditionalRecoveryResult {
+                                        draft: String, baseVersionId: String,
+                                        backendOrigin: URL? = nil) -> ScreenplayConditionalRecoveryResult {
         let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !project.isEmpty else { return .unconfirmed }
         var all = payloads(ownerUserId: ownerUserId)
         var payload = all[project] ?? [:]
+        let canonicalOrigin: URL?
+        if let backendOrigin {
+            guard let canonical = try? ScreenplayInitialProjectMetadata.origin(backendOrigin) else { return .unconfirmed }
+            canonicalOrigin = canonical
+        } else { canonicalOrigin = nil }
+        func sameOrigin(_ raw: Any?) -> Bool {
+            guard let raw else { return canonicalOrigin == nil }
+            guard let text = raw as? String, let recorded = URL(string: text), let canonicalOrigin else { return false }
+            return OfflineTalkRecoveryScope.sameBackend(recorded, canonicalOrigin)
+        }
         func exact(_ value: [String: Any]) -> Bool {
             guard let text = value["draft"] as? String, let base = value["baseVersionId"] as? String else { return false }
             return text.utf8.elementsEqual(draft.utf8) && base.utf8.elementsEqual(baseVersionId.utf8)
         }
         if storedRecoverySlot(.preservedConflict, in: payload).candidate != nil,
-           preservedConflicts(in: payload).contains(where: { $0["dirty"] as? Bool == true && exact($0) }) { return .present }
-        if payload["draft"] != nil {
+           preservedConflicts(in: payload).contains(where: { $0["dirty"] as? Bool == true && sameOrigin($0["backendOrigin"]) && exact($0) }) { return .present }
+        if storedRecoverySlot(.ordinary, in: payload).exists {
             guard payload["draft"] is String, payload["baseVersionId"] is String else { return .unconfirmed }
-            guard exact(payload) else { return .occupied }
-        }
+            guard sameOrigin(payload["ordinaryBackendOrigin"]), exact(payload) else { return .occupied }
+        } else if payload["ordinaryBackendOrigin"] != nil { return .unconfirmed }
+        if let canonicalOrigin { payload["ordinaryBackendOrigin"] = canonicalOrigin.absoluteString }
         payload["draft"] = draft
         payload["baseVersionId"] = baseVersionId
         payload["dirty"] = true
@@ -655,6 +812,34 @@ struct ScreenplayLocalDraftRecoveryStore {
         _ = persistPayloads(all, ownerUserId: ownerUserId)
         let stored = payloads(ownerUserId: ownerUserId)[project] ?? [:]
         return exact(stored) && stored["dirty"] as? Bool == true ? .present : .unconfirmed
+    }
+
+    /// Unknown or foreign origins cannot authorize automatic retirement.
+    func canAutomaticallyRetireRecovery(ownerUserId: String, projectId: String, backend: URL?) -> Bool {
+        let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !project.isEmpty else { return false }
+        guard let payload = payloads(ownerUserId: ownerUserId)[project] else { return true }
+        let preservedSlot = storedRecoverySlot(.preservedConflict, in: payload)
+        if preservedSlot.exists && preservedSlot.candidate == nil { return false }
+        func isComplete(_ copy: [String: Any]) -> Bool {
+            copy["draft"] is String && copy["baseVersionId"] is String &&
+                copy["dirty"] is Bool && copy["savedAt"] is TimeInterval
+        }
+        let ordinary = storedRecoverySlot(.ordinary, in: payload)
+        if ordinary.exists && !isComplete(payload) { return false }
+        if preservedConflicts(in: payload).contains(where: { !isComplete($0) }) { return false }
+        if ordinaryOriginIsForeign(ownerUserId: ownerUserId, projectId: project, backend: backend) ||
+            hasForeignPreservedCopies(ownerUserId: ownerUserId, projectId: project, backend: backend) { return false }
+        if storedRecoverySlot(.ordinary, in: payload).exists && payload["ordinaryBackendOrigin"] == nil { return false }
+        return !preservedConflicts(in: payload).contains { $0["backendOrigin"] == nil }
+    }
+
+    @discardableResult
+    func clearMatchingRecoveryIfOriginSafe(ownerUserId: String, projectId: String, draft: String,
+                                           baseVersionId: String, backend: URL?) -> Bool {
+        guard canAutomaticallyRetireRecovery(ownerUserId: ownerUserId, projectId: projectId, backend: backend) else { return false }
+        clearMatchingRecovery(ownerUserId: ownerUserId, projectId: projectId, draft: draft, baseVersionId: baseVersionId)
+        return true
     }
 
     /// Retire only recovery copies that still match the writer-selected save.
@@ -670,7 +855,7 @@ struct ScreenplayLocalDraftRecoveryStore {
             return storedDraft.utf8.elementsEqual(draft.utf8) && storedBase.utf8.elementsEqual(baseVersionId.utf8)
         }
         if matches(payload) {
-            for key in ["draft", "baseVersionId", "dirty", "savedAt"] { payload.removeValue(forKey: key) }
+            for key in ["draft", "baseVersionId", "dirty", "savedAt", "ordinaryBackendOrigin"] { payload.removeValue(forKey: key) }
         }
         let copies = preservedConflicts(in: payload)
         if copies.count == 1, matches(copies[0]), storedRecoverySlot(.preservedConflict, in: payload).candidate != nil {
@@ -681,15 +866,19 @@ struct ScreenplayLocalDraftRecoveryStore {
         _ = persistPayloads(all, ownerUserId: ownerUserId)
     }
 
-    func hasExactDirtyRecovery(ownerUserId: String, projectId: String, draft: String, baseVersionId: String) -> Bool {
+    func hasExactDirtyRecovery(ownerUserId: String, projectId: String, draft: String,
+                               baseVersionId: String, backend: URL?) -> Bool {
         let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let stored = payloads(ownerUserId: ownerUserId)[project] else { return false }
-        let copies = [stored] + preservedConflicts(in: stored)
-        return copies.contains { copy in
+        guard let backend, let stored = payloads(ownerUserId: ownerUserId)[project] else { return false }
+        func matches(_ copy: [String: Any], originKey: String) -> Bool {
             guard copy["dirty"] as? Bool == true,
-                  let text = copy["draft"] as? String, let base = copy["baseVersionId"] as? String else { return false }
+                  let text = copy["draft"] as? String, let base = copy["baseVersionId"] as? String,
+                  let originText = copy[originKey] as? String, let origin = URL(string: originText),
+                  OfflineTalkRecoveryScope.sameBackend(origin, backend) else { return false }
             return text.utf8.elementsEqual(draft.utf8) && base.utf8.elementsEqual(baseVersionId.utf8)
         }
+        return matches(stored, originKey: "ordinaryBackendOrigin") ||
+            preservedConflicts(in: stored).contains { matches($0, originKey: "backendOrigin") }
     }
 
     func holdsDifferentUnsavedWork(ownerUserId: String, projectId: String, differingFrom draft: String) -> Bool {
@@ -721,7 +910,10 @@ struct ScreenplayLocalDraftRecoveryStore {
     func recoverySnapshot(
         ownerUserId: String,
         projectId: String,
-        serverDraft: String
+        serverDraft: String,
+        retainUnscopedMatching: Bool = false,
+        backend: URL? = nil,
+        filterByBackend: Bool = false
     ) -> ScreenplayLocalDraftRecoverySnapshot? {
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty,
@@ -731,19 +923,27 @@ struct ScreenplayLocalDraftRecoveryStore {
         let preservedSlot = storedRecoverySlot(.preservedConflict, in: stored)
         guard !preservedSlot.exists || preservedSlot.candidate != nil else { return nil }
         // Recovery may retire a writer copy only when its actual bytes match.
-        let allPreserved = preservedConflicts(in: stored)
+        let allCopies = preservedConflicts(in: stored)
+        let allPreserved = allCopies.filter {
+            preservedOriginIsVisible($0["backendOrigin"], backend: backend, filterByBackend: filterByBackend)
+        }
+        let hasForeignCopies = allPreserved.count != allCopies.count
         // A matching server page does not settle which of several saved copies
         // the writer wants to keep. Leave all copies for an explicit decision.
         if allPreserved.count > 1 {
-            return currentPreservedConflict(ownerUserId: ownerUserId, projectId: normalizedProjectId)
+            return currentPreservedConflict(ownerUserId: ownerUserId, projectId: normalizedProjectId,
+                backend: backend, filterByBackend: filterByBackend)
         }
-        let activePreserved = stored["preservedConflict"] as? [String: Any]
+        let activePreserved = (stored["preservedConflict"] as? [String: Any]).flatMap { copy in
+            preservedOriginIsVisible(copy["backendOrigin"], backend: backend, filterByBackend: filterByBackend) ? copy : nil
+        }
         let orderedPreserved = activePreserved.map { active in
             [active] + allPreserved.filter { !NSDictionary(dictionary: $0).isEqual(to: active) }
         } ?? allPreserved
         for preserved in orderedPreserved where preserved["dirty"] as? Bool == true {
             guard let draft = preserved["draft"] as? String else { continue }
-            if !draft.utf8.elementsEqual(serverDraft.utf8) {
+            if !draft.utf8.elementsEqual(serverDraft.utf8) || hasForeignCopies ||
+                (retainUnscopedMatching && preserved["backendOrigin"] == nil) {
                 return ScreenplayLocalDraftRecoverySnapshot(
                     projectId: normalizedProjectId,
                     draft: draft,
@@ -761,15 +961,19 @@ struct ScreenplayLocalDraftRecoveryStore {
             return recoverySnapshot(
                 ownerUserId: ownerUserId,
                 projectId: normalizedProjectId,
-                serverDraft: serverDraft
+                serverDraft: serverDraft,
+                retainUnscopedMatching: retainUnscopedMatching, backend: backend, filterByBackend: filterByBackend
             )
         }
 
+        guard !filterByBackend || !ordinaryOriginIsForeign(ownerUserId: ownerUserId,
+            projectId: normalizedProjectId, backend: backend) else { return nil }
         guard let latestStored = payloads(ownerUserId: ownerUserId)[normalizedProjectId] else { return nil }
         guard let storedDraft = latestStored["draft"] as? String,
               latestStored["dirty"] as? Bool == true else { return nil }
 
-        guard !storedDraft.utf8.elementsEqual(serverDraft.utf8) else {
+        if storedDraft.utf8.elementsEqual(serverDraft.utf8) &&
+            !(retainUnscopedMatching && latestStored["ordinaryBackendOrigin"] == nil) {
             clearOrdinaryDraft(ownerUserId: ownerUserId, projectId: normalizedProjectId)
             return nil
         }

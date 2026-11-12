@@ -431,6 +431,9 @@ struct ScreenplayStudioScreen: View {
             "conflict_project_id": vm.conflictState?.projectId ?? "",
             "conflict_server_version_id": vm.conflictState?.serverVersionId ?? "", "conflict_recovery_stage": vm.debugConflictRecoveryStage,
             "conflict_fixture_applied": didApplyUITestDraftConflictFixture,
+            "debug_journal_verified_context": vm.debugJournalHasVerifiedContext,
+            "debug_journal_slots_seeded": vm.debugJournalSlotsSeeded,
+            "debug_journal_fixture_status": vm.debugJournalFixtureStatus,
             "recovery_present": vm.recoveryCandidate != nil,
             "recovery_slot": vm.recoveryCandidate.map { $0.isPreservedConflict ? "preservedConflict" : "ordinary" } ?? "",
             "recovery_base_version_id": vm.recoveryCandidate?.baseVersionId ?? "",
@@ -2521,25 +2524,19 @@ private var directionOneCompactHeader: some View {
 }
 
 private var directionOneHeaderLeftToggle: some View {
-    Button {
+    ScreenplayStudioSidebarToggleButton(isOpen: isDirectionOneSidebarVisible,
+        text: directionOneChromeText, selectedFill: directionOneChromeSelectionFill,
+        panelFill: directionOneChromePanelSoft, selectedStroke: directionOneChromeSelectionStroke,
+        stroke: directionOneChromeStroke) {
+#if DEBUG
+        if IOThemRuntime.isRunningUITests, ProcessInfo.processInfo.arguments.contains("--ui-reset-state"),
+           ProcessInfo.processInfo.environment["THEM_UITEST_JOURNAL_FILL_SLOTS"] == "1" {
+            vm.debugSeedJournalFullSlotsForUITest()
+            return
+        }
+#endif
         toggleDirectionOneSidebarVisibility()
-    } label: {
-        Image(systemName: "sidebar.left")
-            .font(.system(size: 13, weight: .regular))
-            .foregroundStyle(directionOneChromeText.opacity(0.90))
-            .frame(width: 28, height: 28)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isDirectionOneSidebarVisible ? directionOneChromeSelectionFill : directionOneChromePanelSoft)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(isDirectionOneSidebarVisible ? directionOneChromeSelectionStroke : directionOneChromeStroke.opacity(0.55), lineWidth: 1)
-            )
     }
-    .buttonStyle(.plain)
-    .accessibilityLabel(isDirectionOneSidebarVisible ? "Close project drawer" : "Open project drawer")
-    .accessibilityIdentifier("studio.sidebar.left.toggle")
 }
 
 private var directionOneHeaderProjectBlock: some View {
@@ -5032,7 +5029,7 @@ private var projectsSidebarContent: some View {
     private var draftToolsCard: some View {
         ScreenplayStudioDraftToolsCard(
             selectedSection: $selectedDraftToolsSection,
-            autosaveEnabled: $vm.autosaveEnabled,
+            autosaveEnabled: StudioUITestInputDiagnostics.binding($vm.autosaveEnabled, owner: vm),
             linesPerPage: $vm.linesPerPage,
             revisionColor: $vm.revisionColor,
             snapshotLabel: $vm.snapshotLabel,
@@ -9078,8 +9075,8 @@ Current draft version:
 
         return draftAlertBanner(
             title: recoveryAlreadyOnPage ? "Recovery copy matches page" : "Unsaved local draft found",
-            message: recoveryAlreadyOnPage
-                ? "This recovery copy matches the current page. Keep it or discard the copy."
+            message: vm.recoveryOriginIsUnverified(recovery) ? "This older copy has no verified server. Review its words before recovering or discarding it."
+                : recoveryAlreadyOnPage ? "This recovery copy matches the current page. Keep it or discard the copy."
                 : recovery.overflowSnapshot != nil
                     ? "A newer page was kept separately. Recover it or discard this copy and keep the current page."
                     : "Saved \(savedText). Recover it or discard this copy and keep the current page.",
