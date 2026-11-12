@@ -7331,6 +7331,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return
         }
 
+        if !allowOverwriteDirtyLocalDraft,
+           normalizedProjectID == loadedDraftProjectID,
+           ScreenplayRemoteDraftConflictPolicy.shouldPreserveDraftDuringRefresh(
+               localDraft: fountainDraft, serverDraft: draft,
+               localVersionId: latestVersionID, serverVersionId: normalizedServerVersionID) {
+            // A background observation needs version authority to replace this page.
+            return
+        }
+
         isHydratingDraft = true
         fountainDraft = draft
         latestVersionID = versionId.trimmingCharacters(in: .whitespacesAndNewlines)
