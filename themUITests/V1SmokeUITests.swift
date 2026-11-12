@@ -1368,6 +1368,7 @@ final class V1SmokeUITests: XCTestCase {
         let expectedMarkdownFilename = "Writer-Loop-\(uniqueSuffix).md"
         var writerEnvironment = fixture.appLaunchEnvironment
         writerEnvironment["THEM_STUDIO_AUTOMATION_SESSION_ID"] = "writer-loop-\(uniqueSuffix)"
+        writerEnvironment["THEM_UITEST_TRACE_INPUT"] = "1"
 
         var app = launchApp(
             openStudio: true,
@@ -1432,10 +1433,16 @@ final class V1SmokeUITests: XCTestCase {
             "The writer-loop could not reach the Autosave switch."
         )
         XCTAssertTrue(writerLoopSwitchIsOn(autosave), "Autosave was unexpectedly off before the writer-loop began.")
-        XCTAssertTrue(
-            toggleWriterLoopSwitch(autosave, toBeOn: false, timeout: writerLoopWait(4)),
-            "Autosave did not turn off, so Save Now would not be the sole version-producing action."
-        )
+        let autosaveTurnedOff = toggleWriterLoopSwitch(autosave, toBeOn: false, timeout: writerLoopWait(4))
+        let inputTrace = element(identifier: "studio.debug.input.trace", in: app)
+        let traceAttachment = XCTAttachment(string: inputTrace.value as? String ?? "Native input trace unavailable")
+        traceAttachment.name = "Autosave native input delivery"
+        traceAttachment.lifetime = .keepAlways
+        add(traceAttachment)
+        guard autosaveTurnedOff else {
+            XCTFail("Autosave did not turn off, so Save Now would not be the sole version-producing action.")
+            return
+        }
 
         XCTAssertTrue(waitForHittability(of: rightDrawerToggle, timeout: writerLoopWait(5)))
         rightDrawerToggle.tap()
