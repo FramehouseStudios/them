@@ -1743,6 +1743,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 $0.utf8.elementsEqual(fountainDraft.utf8)
             } ?? false
             pendingNativeEditorDraft = nil
+            // Restoring another page cannot reuse permission to advance an older copy.
+            if let owned = ownedOrdinaryRecovery, !fountainDraft.utf8.elementsEqual(oldValue.utf8),
+               isHydratingDraft || isRestoringQueuedDraft ||
+                !owned.snapshot.draft.utf8.elementsEqual(oldValue.utf8) ||
+                !owned.snapshot.baseVersionId.utf8.elementsEqual(latestVersionID.utf8) {
+                ownedOrdinaryRecovery = nil
+            }
             if !isNativeEditorPublication, !fountainDraft.utf8.elementsEqual(oldValue.utf8) {
                 editorExternalDraftMutationRevision &+= 1
             }
