@@ -5219,6 +5219,121 @@ final class V1SmokeUITests: XCTestCase {
     }
 
     @MainActor
+    func test_stale_custody_block_allows_fresh_save_after_relaunch() async throws {
+        let baseURL = try XCTUnwrap(URL(string: "http://127.0.0.1:31337"))
+        guard await backendRestoreContractIsAvailable(baseURL: baseURL) else {
+            throw XCTSkip("Isolated authenticated backend unavailable")
+        }
+        let fixture = try await seedBackendRestoreContractFixture(baseURL: baseURL)
+        var environment = fixture.appLaunchEnvironment
+        environment["THEM_UITEST_CUSTODY_PROJECT_ID"] = fixture.projectID
+        let headers = ["X-APP-TOKEN": environment["THEM_UITEST_APP_TOKEN"] ?? "them-dev",
+                       "X-Client-Token": environment["THEM_UITEST_CLIENT_TOKEN"] ?? "",
+                       "Authorization": "Bearer \(environment["THEM_UITEST_AUTH_DEBUG_ACCESS_TOKEN"] ?? "")"]
+        var app = launchApp(openStudio: true, custodyBackendFixture: true,
+            restoreProjectID: fixture.projectID, restoreVersionID: fixture.versionID,
+            restoreLoadToken: fixture.loadToken, launchEnvironment: environment)
+        defer { app.terminate() }
+        func reviewAndSelect() {
+            let review = app.buttons["studio.conflict.review-local-copies"]
+            XCTAssertTrue(review.waitForExistence(timeout: 45)); review.tap()
+            XCTAssertTrue(app.buttons["Preview local copy 1"].waitForExistence(timeout: 10))
+            XCTAssertTrue(app.buttons["Preview local copy 2"].exists)
+            app.buttons["Preview local copy 1"].tap()
+            XCTAssertTrue(app.buttons["Select Copy"].waitForExistence(timeout: 5))
+            app.buttons["Select Copy"].tap()
+        }
+        reviewAndSelect()
+        XCTAssertTrue(app.buttons["Save Copy"].waitForExistence(timeout: 5))
+        app.buttons["Save Copy"].tap()
+        let unconfirmed = app.alerts["Action not confirmed"]
+        XCTAssertTrue(unconfirmed.waitForExistence(timeout: 30))
+        unconfirmed.buttons["OK"].tap()
+        let captured = try await requestJSON(baseURL: baseURL, path: "/__test/custody-dropped",
+            method: "GET", headers: headers, body: nil)
+        try assertHTTP(captured, context: "captured original synthetic custody request")
+        XCTAssertEqual(stringValue(captured.payload["project_id"]), fixture.projectID)
+        var originalRequest = try XCTUnwrap(captured.payload["request"] as? [String: Any])
+        let originalRequestID = stringValue(originalRequest["client_request_id"])
+        XCTAssertFalse(originalRequestID.isEmpty)
+        app.terminate()
+        let competing = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects/\(fixture.projectID)/version",
+            method: "POST", headers: headers, body: ["draft": "INT. NEW HEAD - DAY\n\nAnother writer.",
+                "phase": "scene_draft", "source": "ui_test_competing", "base_version_id": fixture.versionID,
+                "conflict_strategy": "reject_if_stale", "client_request_id": "competing-\(UUID().uuidString.lowercased())"])
+        try assertHTTP(competing, context: "advance server head")
+        let competingID = stringValue(competing.payload["version_id"])
+        XCTAssertFalse(competingID.isEmpty)
+        for _ in 0..<2 {
+            app = launchApp(openStudio: true, resetState: false, launchEnvironment: environment)
+            reviewAndSelect()
+            let retry = app.buttons["Retry Original Save"]
+            XCTAssertTrue(retry.waitForExistence(timeout: 5)); retry.tap()
+            let stillUnconfirmed = app.alerts["Action not confirmed"]
+            XCTAssertTrue(stillUnconfirmed.waitForExistence(timeout: 30), "A stale original request remains unconfirmed.")
+            stillUnconfirmed.buttons["OK"].tap()
+            app.terminate()
+        }
+        let read = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects/\(fixture.projectID)",
+            method: "GET", headers: headers, body: nil,
+            queryItems: [URLQueryItem(name: "include_drafts", value: "1"), URLQueryItem(name: "version_limit", value: "24")])
+        try assertHTTP(read, context: "read after stale retries")
+        let envelope = read.payload["payload"] as? [String: Any] ?? read.payload
+        let project = envelope["project"] as? [String: Any] ?? envelope
+        XCTAssertEqual(stringValue(project["active_version_id"]), competingID)
+        let versions = project["versions"] as? [[String: Any]] ?? []
+        XCTAssertFalse(versions.contains { stringValue($0["draft"]).contains("FIRST HELD BACKEND COPY") })
+        app = launchApp(openStudio: true, resetState: false, launchEnvironment: environment)
+        reviewAndSelect()
+        let block = app.buttons["studio.custody.block-original-request"]
+        XCTAssertTrue(block.waitForExistence(timeout: 10)); block.tap()
+        let confirmation = app.buttons["Block Original Request"].firstMatch
+        XCTAssertTrue(confirmation.waitForExistence(timeout: 5)); confirmation.tap()
+        let blocked = app.alerts["Original request blocked"]
+        XCTAssertTrue(blocked.waitForExistence(timeout: 30), "A real PostgreSQL receipt is required; an unavailable route is not proof.")
+        blocked.buttons["Review Copy"].tap()
+        let freshSave = app.buttons["Save Copy"]
+        XCTAssertTrue(freshSave.waitForExistence(timeout: 5)); freshSave.tap()
+        XCTAssertTrue(freshSave.waitForNonExistence(timeout: 30), "The fresh explicit save was not acknowledged.")
+        let savedRead = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects/\(fixture.projectID)",
+            method: "GET", headers: headers, body: nil,
+            queryItems: [URLQueryItem(name: "include_drafts", value: "1"), URLQueryItem(name: "version_limit", value: "24")])
+        try assertHTTP(savedRead, context: "fresh same-project save after database fence")
+        let savedEnvelope = savedRead.payload["payload"] as? [String: Any] ?? savedRead.payload
+        let savedProject = savedEnvelope["project"] as? [String: Any] ?? savedEnvelope
+        XCTAssertEqual(stringValue(savedProject["id"]), fixture.projectID)
+        let savedVersions = savedProject["versions"] as? [[String: Any]] ?? []
+        let exact = "INT. FIRST TEST ROOM - DAY\n\nFIRST HELD BACKEND COPY."
+        let saved = try XCTUnwrap(savedVersions.first { stringValue($0["draft"]) == exact })
+        let freshID = stringValue(saved["client_request_id"])
+        XCTAssertFalse(freshID.isEmpty); XCTAssertNotEqual(freshID, originalRequestID)
+        XCTAssertEqual(Data(stringValue(saved["draft"]).utf8), Data(exact.utf8))
+        XCTAssertEqual(stringValue(savedProject["active_version_id"]), stringValue(saved["id"]))
+        XCTAssertEqual(savedVersions.filter { stringValue($0["draft"]) == exact }.count, 1)
+        originalRequest["conflict_strategy"] = "allow"
+        let late = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects/\(fixture.projectID)/version",
+            method: "POST", headers: headers, body: originalRequest)
+        XCTAssertTrue((400...599).contains(late.status), "A legacy allow retry of the fenced request must not arrive later.")
+        app.terminate()
+        app = launchApp(openStudio: true, resetState: false, launchEnvironment: environment)
+        let review = app.buttons["studio.conflict.review-local-copies"]
+        XCTAssertTrue(review.waitForExistence(timeout: 45)); review.tap()
+        XCTAssertTrue(app.buttons["Preview local copy 1"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["Preview local copy 2"].exists, "Both source rows must survive block, save and relaunch.")
+        let finalRead = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects/\(fixture.projectID)",
+            method: "GET", headers: headers, body: nil,
+            queryItems: [URLQueryItem(name: "include_drafts", value: "1"), URLQueryItem(name: "version_limit", value: "24")])
+        try assertHTTP(finalRead, context: "no late original or automatic duplicate after relaunch")
+        let finalEnvelope = finalRead.payload["payload"] as? [String: Any] ?? finalRead.payload
+        let finalProject = finalEnvelope["project"] as? [String: Any] ?? finalEnvelope
+        let finalVersions = finalProject["versions"] as? [[String: Any]] ?? []
+        XCTAssertEqual(finalVersions.count, savedVersions.count)
+        XCTAssertEqual(finalVersions.filter { stringValue($0["draft"]) == exact }.count, 1)
+        XCTAssertFalse(finalVersions.contains { stringValue($0["client_request_id"]) == originalRequestID })
+        XCTAssertEqual(stringValue(finalProject["active_version_id"]), stringValue(saved["id"]))
+    }
+
+    @MainActor
     func test_superseded_custody_save_keeps_copies_and_allows_fresh_choice() async throws {
         let port = Int(ProcessInfo.processInfo.environment["THEM_UITEST_SCREENPLAY_SAVE_BACKEND_PORT"] ?? "") ?? 31337
         let baseURL = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)"))
