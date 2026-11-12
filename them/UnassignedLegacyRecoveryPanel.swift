@@ -17,6 +17,7 @@ struct UnassignedLegacyRecoveryPanel: View {
     @State private var attempt: UnassignedRecoveryExportAttempt?
     @State private var isExporting = false
     @State private var onboardingDescriptor: OnboardingInputDescriptor?
+    @State private var earlierOnboardingDescriptor: OnboardingInputDescriptor?
     @State private var confirmingOnboardingDiscard = false
 
     var body: some View {
@@ -28,15 +29,20 @@ struct UnassignedLegacyRecoveryPanel: View {
                  : "Resume restores only the fields you edited. It does not finish setup, sign in, start writing or send anything. The protected copy remains until you discard it.")
                 .font(.subheadline)
             if !unlocked {
-                Button(isUnlocking ? "Unlocking…" : "Unlock device copies") { unlock() }
+                Button { unlock() } label: { protectedActionLabel(isUnlocking ? "Unlocking…" : "Unlock device copies") }
                     .disabled(isUnlocking)
                     .accessibilityHint("Requires device authentication and a signed-out THEM account.")
             } else if onboarding != nil {
                 if onboardingDescriptor != nil {
-                    Button("Resume saved setup") { prepareOnboardingAction(discard: false) }
+                    Button { prepareOnboardingAction(discard: false) } label: { protectedActionLabel("Resume saved setup") }
                         .accessibilityIdentifier("onboarding.input.resume")
-                    Button("Discard saved setup", role: .destructive) { confirmingOnboardingDiscard = true }
+                    Button(role: .destructive) { confirmingOnboardingDiscard = true } label: { protectedActionLabel("Discard saved setup") }
                         .accessibilityIdentifier("onboarding.input.discard")
+                } else if earlierOnboardingDescriptor != nil {
+                    Text("Earlier verified fields may omit the latest words. This is read-only recovery, not a verified newest setup.")
+                        .font(.footnote)
+                    Button { prepareEarlierOnboardingCopy() } label: { protectedActionLabel("Copy earlier fields") }
+                        .accessibilityIdentifier("onboarding.input.copy-earlier")
                 } else {
                     Text("No verified unfinished setup is available. Current fields remain untouched.")
                 }
@@ -99,6 +105,12 @@ struct UnassignedLegacyRecoveryPanel: View {
         }
     }
 
+    private func protectedActionLabel(_ title: String) -> some View {
+        Text(title).fixedSize(horizontal: false, vertical: true)
+            .frame(minWidth: 44, maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
+    }
+
     private func deviceOnlyAccessAllowed() -> Bool {
         let session = BackendAuthClient.currentAuthSessionState()
         return !BackendAuthClient.authSessionTokenDeletionIsPending() &&
@@ -151,9 +163,15 @@ struct UnassignedLegacyRecoveryPanel: View {
                     guard generation == accessGeneration, scenePhase == .active, deviceOnlyAccessAllowed(),
                           authIntent == BackendAuthClient.currentAuthSessionIntentGeneration(), onboarding.canApply() else { lock(); return }
                     switch inventory {
-                    case .missing: onboardingDescriptor = nil; unlocked = true
-                    case .present(let descriptor): onboardingDescriptor = descriptor; unlocked = true
-                    case .unconfirmed: message = "Setup storage could not be confirmed. Its evidence and current fields remain untouched."
+                    case .missing: onboardingDescriptor = nil; earlierOnboardingDescriptor = nil; unlocked = true
+                    case .present(let descriptor): onboardingDescriptor = descriptor; earlierOnboardingDescriptor = nil; unlocked = true
+                    case .unconfirmed:
+                        let earlier = await Task.detached(priority: .utility) { custody.earlierCopyDescriptor() }.value
+                        guard generation == accessGeneration, scenePhase == .active, deviceOnlyAccessAllowed(),
+                              authIntent == BackendAuthClient.currentAuthSessionIntentGeneration(), onboarding.canApply() else { lock(); return }
+                        onboardingDescriptor = nil; earlierOnboardingDescriptor = earlier
+                        unlocked = earlier != nil
+                        message = "Latest setup storage could not be confirmed. Both original files remain untouched."
                     }
                     if unlocked { unlockedAuthIntent = authIntent }
                     return
@@ -262,6 +280,24 @@ struct UnassignedLegacyRecoveryPanel: View {
         }
     }
 
+    private func prepareEarlierOnboardingCopy() {
+        guard let onboarding, let descriptor = earlierOnboardingDescriptor, onboarding.canApply() else { lock(); return }
+        authenticateProtectedAction(reason: "Authenticate to copy earlier setup fields that may omit your latest words.") {
+            let generation = accessGeneration, intent = unlockedAuthIntent, custody = onboarding.custody
+            Task { @MainActor in
+                guard generation == accessGeneration, scenePhase == .active, deviceOnlyAccessAllowed(),
+                      intent == BackendAuthClient.currentAuthSessionIntentGeneration(), onboarding.canApply() else { lock(); return }
+                let checkpoint = await Task.detached(priority: .utility) { custody.revealEarlierCopy(expected: descriptor) }.value
+                guard generation == accessGeneration, scenePhase == .active, deviceOnlyAccessAllowed(),
+                      intent == BackendAuthClient.currentAuthSessionIntentGeneration(), onboarding.canApply() else { lock(); return }
+                guard let checkpoint, onboarding.copyEarlier(checkpoint) else {
+                    message = "The earlier copy or recovery state changed. Close recovery and unlock again. Both originals remain untouched."
+                    return
+                }
+            }
+        }
+    }
+
     private func prepareOnboardingAction(discard: Bool) {
         guard let onboarding, let descriptor = onboardingDescriptor, onboarding.canApply() else { lock(); return }
         authenticateProtectedAction(reason: discard ? "Authenticate to discard this unfinished setup." : "Authenticate to resume this unfinished setup.") {
@@ -351,6 +387,7 @@ struct UnassignedLegacyRecoveryPanel: View {
         unlockedAuthIntent = nil
         records = []
         onboardingDescriptor = nil
+        earlierOnboardingDescriptor = nil
         confirmingOnboardingDiscard = false
         attempt = nil
         isExporting = false

@@ -74,8 +74,60 @@ final class OnboardingInputRecoveryTests: XCTestCase {
         XCTAssertEqual(store.inventory(), .unconfirmed)
         XCTAssertEqual(store.checkpoint(fields("later"), expected: old, revisionID: UUID().uuidString), .unconfirmed)
         XCTAssertFalse(store.discard(expected: old))
+        XCTAssertEqual(store.earlierCopyDescriptor(), old)
+        XCTAssertEqual(store.revealEarlierCopy(expected: old)?.fields, fields("preserve me"))
         XCTAssertEqual(try Data(contentsOf: candidate), corrupt)
         XCTAssertEqual(try Data(contentsOf: url), before)
+    }
+
+    func testEarlierCopyRejectsStaleCurrentAndANewValidPendingCheckpoint() throws {
+        let directory = root(); defer { try? FileManager.default.removeItem(at: directory) }
+        let store = UnassignedLegacyRecoveryVault.onboardingInputs(rootDirectory: directory)
+        let first = try verified(store.checkpoint(fields("earlier"), expected: nil, revisionID: UUID().uuidString))
+        let pending = directory.appendingPathComponent("pending.json"), current = directory.appendingPathComponent("current.json")
+        let malformed = Data("{\"schemaVersion\":".utf8)
+        try malformed.write(to: pending)
+        XCTAssertEqual(store.earlierCopyDescriptor(), first)
+
+        // Fixture repair followed by a real canonical advance makes the old selection stale.
+        try FileManager.default.removeItem(at: pending)
+        let second = try verified(store.checkpoint(fields("new current"), expected: first, revisionID: UUID().uuidString))
+        try malformed.write(to: pending)
+        let currentBytes = try Data(contentsOf: current)
+        XCTAssertNil(store.revealEarlierCopy(expected: first))
+        XCTAssertEqual(store.earlierCopyDescriptor(), second)
+        XCTAssertEqual(try Data(contentsOf: current), currentBytes)
+        XCTAssertEqual(try Data(contentsOf: pending), malformed)
+
+        // A fully written pending checkpoint is healthy even when its original ACK failed.
+        try FileManager.default.removeItem(at: pending)
+        let interrupted = UnassignedLegacyRecoveryVault.onboardingInputs(rootDirectory: directory, fileProtectionEnforcer: { url in
+            if url.lastPathComponent == "pending.json" { throw CocoaError(.fileWriteNoPermission) }
+        })
+        XCTAssertEqual(interrupted.checkpoint(fields("newest pending"), expected: second, revisionID: UUID().uuidString), .unconfirmed)
+        let pendingBytes = try Data(contentsOf: pending)
+        guard case .present(let newest) = store.inventory() else { return XCTFail("Valid pending checkpoint should be discoverable") }
+        XCTAssertNil(store.earlierCopyDescriptor())
+        XCTAssertNil(store.revealEarlierCopy(expected: second))
+        XCTAssertEqual(store.reveal(expected: newest)?.fields, fields("newest pending"))
+        XCTAssertEqual(try Data(contentsOf: current), currentBytes)
+        XCTAssertEqual(try Data(contentsOf: pending), pendingBytes)
+    }
+
+    func testEarlierCopyRequiresIndependentCurrentProtection() throws {
+        let directory = root(); defer { try? FileManager.default.removeItem(at: directory) }
+        let store = UnassignedLegacyRecoveryVault.onboardingInputs(rootDirectory: directory)
+        let descriptor = try verified(store.checkpoint(fields("protected earlier"), expected: nil, revisionID: UUID().uuidString))
+        let current = directory.appendingPathComponent("current.json"), pending = directory.appendingPathComponent("pending.json")
+        let currentBytes = try Data(contentsOf: current), malformed = Data("truncated".utf8)
+        try malformed.write(to: pending)
+        let unavailable = UnassignedLegacyRecoveryVault.onboardingInputs(rootDirectory: directory, fileProtectionEnforcer: { url in
+            if url.lastPathComponent == "current.json" { throw CocoaError(.fileReadNoPermission) }
+        })
+        XCTAssertNil(unavailable.earlierCopyDescriptor())
+        XCTAssertNil(unavailable.revealEarlierCopy(expected: descriptor))
+        XCTAssertEqual(try Data(contentsOf: current), currentBytes)
+        XCTAssertEqual(try Data(contentsOf: pending), malformed)
     }
 
     func testDiscardIsExactAndDoesNotAuthorizeAStaleWriter() throws {

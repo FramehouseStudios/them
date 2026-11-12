@@ -914,6 +914,25 @@ nonisolated struct OnboardingInputCustody: Sendable {
         } ?? nil
     }
 
+    /// An earlier current file is evidence only while the complete domain is
+    /// uncertain. It grants no edit lease and never promotes/retires either file.
+    func earlierCopyDescriptor() -> OnboardingInputDescriptor? {
+        transaction(create: false) { directory in
+            guard load(directory) == .unconfirmed,
+                  case let .present(current) = read(directory.appendingPathComponent("current.json")) else { return nil }
+            return current.descriptor
+        } ?? nil
+    }
+
+    func revealEarlierCopy(expected: OnboardingInputDescriptor) -> OnboardingInputCheckpoint? {
+        transaction(create: false) { directory in
+            guard load(directory) == .unconfirmed,
+                  case let .present(current) = read(directory.appendingPathComponent("current.json")),
+                  current.descriptor == expected else { return nil }
+            return current
+        } ?? nil
+    }
+
     func checkpoint(_ fields: OnboardingInputFields, expected: OnboardingInputDescriptor?,
                     revisionID: String) -> OnboardingInputWriteResult {
         guard fields.valid, UUID(uuidString: revisionID) != nil, revisionID != expected?.revisionID else { return .unconfirmed }

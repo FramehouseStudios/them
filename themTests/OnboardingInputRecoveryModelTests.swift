@@ -178,4 +178,80 @@ final class OnboardingInputRecoveryModelTests: XCTestCase {
         XCTAssertTrue(next.fields.premiseWasEdited)
     }
 
+
+    func testEarlierFieldsStayReadOnlyAcrossEditsInspectionAndRetry() async throws {
+        let (root, custody, model) = fixture(); defer { try? FileManager.default.removeItem(at: root) }
+        let original = "\r\nEarlier cafe\u{301} words. 👩🏽‍🚀 \t\r\n"
+        await model.inspect(signedOut); model.editPremise(original, access: signedOut)
+        try await waitForSave(model)
+        let current = root.appendingPathComponent("current.json"), pending = root.appendingPathComponent("pending.json")
+        let currentBytes = try Data(contentsOf: current), malformed = Data("{\"fields\":".utf8)
+        try malformed.write(to: pending)
+        let next = OnboardingInputRecoveryModel(custody: custody); await next.inspect(signedOut)
+        XCTAssertEqual(next.status, .unconfirmed)
+        let descriptor = await Task.detached { custody.earlierCopyDescriptor() }.value
+        guard let descriptor,
+              let copy = await Task.detached(operation: { custody.revealEarlierCopy(expected: descriptor) }).value else {
+            return XCTFail("Missing independently verified earlier copy")
+        }
+        let stale = next.editGeneration
+        next.editName("  E\u{301}va \t", access: signedOut)
+        XCTAssertFalse(next.copiedEarlierFields(copy, expectedEdits: stale, expectedAccess: signedOut))
+        XCTAssertTrue(next.copiedEarlierFields(copy, expectedEdits: next.editGeneration, expectedAccess: signedOut))
+        XCTAssertEqual(next.status, .readOnly)
+        XCTAssertEqual(next.fields.nameUTF8, Data("  E\u{301}va \t".utf8))
+        XCTAssertEqual(next.fields.premiseUTF8, Data(original.utf8))
+        next.editPremise("new unsaved words", access: signedOut)
+        await next.inspect(signedOut); await next.retry(signedOut)
+        for _ in 0..<40 { await Task.yield() }
+        XCTAssertEqual(next.status, .readOnly)
+        XCTAssertEqual(next.fields.premiseUTF8, Data("new unsaved words".utf8))
+        XCTAssertEqual(try Data(contentsOf: current), currentBytes)
+        XCTAssertEqual(try Data(contentsOf: pending), malformed)
+        let edits = next.editGeneration
+        next.updateAccess(.init(active: true, credentialFree: false, authIntent: 11))
+        XCTAssertFalse(next.fields.hasEdits)
+        XCTAssertFalse(next.copiedEarlierFields(copy, expectedEdits: edits, expectedAccess: signedOut))
+        XCTAssertEqual(next.status, .accountRestricted)
+    }
+
+    func testHealthyRepairDoesNotExitReadOnlyWithoutExplicitNormalRecovery() async throws {
+        let (root, custody, model) = fixture(); defer { try? FileManager.default.removeItem(at: root) }
+        await model.inspect(signedOut); model.editPremise("original fields", access: signedOut)
+        try await waitForSave(model)
+        let current = root.appendingPathComponent("current.json"), pending = root.appendingPathComponent("pending.json")
+        let before = try Data(contentsOf: current)
+        try Data("truncated".utf8).write(to: pending)
+        let next = OnboardingInputRecoveryModel(custody: custody); await next.inspect(signedOut)
+        let descriptor = await Task.detached { custody.earlierCopyDescriptor() }.value
+        guard let descriptor,
+              let earlier = await Task.detached(operation: { custody.revealEarlierCopy(expected: descriptor) }).value else { return XCTFail("Missing earlier fields") }
+        XCTAssertTrue(next.copiedEarlierFields(earlier, expectedEdits: next.editGeneration, expectedAccess: signedOut))
+
+        // Fixture repair is not permission to silently start writing again.
+        try FileManager.default.removeItem(at: pending)
+        await next.inspect(signedOut); await next.retry(signedOut)
+        XCTAssertEqual(next.status, .readOnly)
+        XCTAssertEqual(try Data(contentsOf: current), before)
+        guard let healthy = await Task.detached(operation: { custody.reveal(expected: descriptor) }).value else { return XCTFail("Missing healthy normal selection") }
+        XCTAssertTrue(next.resumed(healthy, expectedEdits: next.editGeneration, expectedAccess: signedOut))
+        XCTAssertEqual(next.status, .saved)
+        XCTAssertEqual(try Data(contentsOf: current), before)
+
+        // A separate protected normal Discard can also end read-only recovery after repair.
+        try Data("truncated again".utf8).write(to: pending)
+        guard let secondEarlier = await Task.detached(operation: { custody.revealEarlierCopy(expected: descriptor) }).value else { return XCTFail("Missing second earlier selection") }
+        XCTAssertTrue(next.copiedEarlierFields(secondEarlier, expectedEdits: next.editGeneration, expectedAccess: signedOut))
+        try FileManager.default.removeItem(at: pending)
+        let discarded = await Task.detached { custody.discard(expected: descriptor) }.value
+        XCTAssertTrue(discarded)
+        XCTAssertTrue(next.discarded(expectedEdits: next.editGeneration, expectedAccess: signedOut))
+        await next.inspect(signedOut)
+        XCTAssertEqual(next.status, .notSaved)
+        let afterDiscard = await Task.detached { custody.inventory() }.value
+        XCTAssertEqual(afterDiscard, .missing)
+        next.editPremise("explicit new edit", access: signedOut)
+        try await waitForSave(next)
+    }
+
 }

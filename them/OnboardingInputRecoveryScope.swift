@@ -11,7 +11,7 @@ nonisolated struct OnboardingInputAccess: Equatable, Sendable {
 @MainActor
 final class OnboardingInputRecoveryModel: ObservableObject {
     enum Status: Equatable {
-        case checking, notSaved, saving, saved, existing, tooLarge, unconfirmed, accountRestricted
+        case checking, notSaved, saving, saved, existing, tooLarge, unconfirmed, readOnly, accountRestricted
         var message: String {
             switch self {
             case .checking: "Checking protected setup storage…"
@@ -21,6 +21,7 @@ final class OnboardingInputRecoveryModel: ObservableObject {
             case .existing: "A protected unfinished setup is on this device. Resume or discard it before saving new input."
             case .tooLarge: "This input is too large for protected setup storage. Shorten it or copy it before closing."
             case .unconfirmed: "Setup storage could not be confirmed. Keep this screen open or copy your text before closing, then retry."
+            case .readOnly: "Earlier fields may omit your latest words. Recovery is read-only; current edits are not saved. Both original files remain on this device."
             case .accountRestricted: "These fields are only in this screen. Protected device-only setup capture requires signing out completely."
             }
         }
@@ -37,6 +38,7 @@ final class OnboardingInputRecoveryModel: ObservableObject {
     private var lease: OnboardingInputDescriptor?
     private var writing = false
     private var capturePausedUntilEdit = false
+    private var readOnlyRecovery = false
     private var failed: Write?
     private var verifiedFields: OnboardingInputFields?
     private struct Write: Sendable {
@@ -55,6 +57,7 @@ final class OnboardingInputRecoveryModel: ObservableObject {
             mayWrite = false
             failed = nil
             verifiedFields = nil
+            readOnlyRecovery = false
             fields = .init()
             editGeneration &+= 1
             inspected = false
@@ -66,6 +69,7 @@ final class OnboardingInputRecoveryModel: ObservableObject {
 
     func inspect(_ next: OnboardingInputAccess) async {
         updateAccess(next)
+        guard !readOnlyRecovery else { status = .readOnly; return }
         guard !inspected else { schedule(); return }
         let expectedEpoch = epoch, custody = custody
         let result = await Task.detached(priority: .utility) { custody.inventory() }.value
@@ -100,13 +104,14 @@ final class OnboardingInputRecoveryModel: ObservableObject {
     private func edited() {
         editGeneration &+= 1
         capturePausedUntilEdit = false
+        guard !readOnlyRecovery else { status = .readOnly; return }
         guard access?.credentialFree == true else { status = .accountRestricted; return }
         status = mayWrite ? .saving : (failed == nil ? .existing : .unconfirmed)
         schedule()
     }
 
     private func schedule() {
-        guard !writing, !capturePausedUntilEdit, inspected, mayWrite, fields.hasEdits, fields != verifiedFields,
+        guard !writing, !readOnlyRecovery, !capturePausedUntilEdit, inspected, mayWrite, fields.hasEdits, fields != verifiedFields,
               access?.permitsAccess == true else { return }
         writing = true
         Task { @MainActor in
@@ -148,6 +153,7 @@ final class OnboardingInputRecoveryModel: ObservableObject {
 
     func retry(_ next: OnboardingInputAccess) async {
         updateAccess(next)
+        guard !readOnlyRecovery else { status = .readOnly; return }
         guard !writing, next.permitsAccess else { return }
         if let work = failed, work.epoch == epoch {
             writing = true; status = .saving
@@ -171,13 +177,9 @@ final class OnboardingInputRecoveryModel: ObservableObject {
     @discardableResult
     func resumed(_ checkpoint: OnboardingInputCheckpoint, expectedEdits: UInt64, expectedAccess: OnboardingInputAccess) -> Bool {
         guard canRecover(editGeneration: expectedEdits, access: expectedAccess) else { return false }
-        var merged = checkpoint.fields
-        if !merged.nameWasEdited, fields.nameWasEdited {
-            merged.nameUTF8 = fields.nameUTF8; merged.nameWasEdited = true
-        }
-        if !merged.premiseWasEdited, fields.premiseWasEdited {
-            merged.premiseUTF8 = fields.premiseUTF8; merged.premiseWasEdited = true
-        }
+        let merged = mergingCurrentEditsAbsent(from: checkpoint.fields)
+        // Only the protected normal callback supplies a fully healthy, exact read.
+        readOnlyRecovery = false
         fields = merged; verifiedFields = checkpoint.fields; lease = checkpoint.descriptor; mayWrite = true
         capturePausedUntilEdit = false
         hasCapture = true; failed = nil; inspected = true; editGeneration &+= 1
@@ -186,12 +188,34 @@ final class OnboardingInputRecoveryModel: ObservableObject {
         return true
     }
 
+    private func mergingCurrentEditsAbsent(from saved: OnboardingInputFields) -> OnboardingInputFields {
+        var merged = saved
+        if !merged.nameWasEdited, fields.nameWasEdited {
+            merged.nameUTF8 = fields.nameUTF8; merged.nameWasEdited = true
+        }
+        if !merged.premiseWasEdited, fields.premiseWasEdited {
+            merged.premiseUTF8 = fields.premiseUTF8; merged.premiseWasEdited = true
+        }
+        return merged
+    }
+
+    @discardableResult
+    func copiedEarlierFields(_ checkpoint: OnboardingInputCheckpoint, expectedEdits: UInt64, expectedAccess: OnboardingInputAccess) -> Bool {
+        guard canRecover(editGeneration: expectedEdits, access: expectedAccess) else { return false }
+        fields = mergingCurrentEditsAbsent(from: checkpoint.fields)
+        // This older file is not authority for the complete, uncertain domain.
+        lease = nil; verifiedFields = nil; failed = nil; mayWrite = false
+        readOnlyRecovery = true; capturePausedUntilEdit = true
+        hasCapture = true; inspected = true; editGeneration &+= 1; status = .readOnly
+        return true
+    }
+
     @discardableResult
     func discarded(expectedEdits: UInt64, expectedAccess: OnboardingInputAccess) -> Bool {
         guard canRecover(editGeneration: expectedEdits, access: expectedAccess) else { return false }
         // Discard does not clear visible fields or immediately recapture them.
         epoch &+= 1; verifiedFields = nil; lease = nil; failed = nil
-        capturePausedUntilEdit = true
+        readOnlyRecovery = false; capturePausedUntilEdit = true
         hasCapture = false; mayWrite = true; inspected = true; editGeneration &+= 1; status = .notSaved
         return true
     }
@@ -201,6 +225,7 @@ struct OnboardingInputRecoveryActions {
     let custody: OnboardingInputCustody
     let canApply: () -> Bool
     let resume: (OnboardingInputCheckpoint) -> Bool
+    let copyEarlier: (OnboardingInputCheckpoint) -> Bool
     let didDiscard: () -> Void
 }
 
@@ -234,19 +259,9 @@ struct OnboardingInputRecoveryScope<Content: View>: View {
             Text(custodyMessage)
                 .font(.footnote).foregroundStyle(.secondary)
                 .accessibilityIdentifier("onboarding.input.custody.status")
-            HStack {
-                if model.hasCapture {
-                    Button("Recover unfinished setup") {
-                        challenge = .init(edits: model.editGeneration, access: currentAccess,
-                                          name: Data(name.utf8), premise: Data(premise.utf8))
-                        showingRecovery = true
-                    }
-                    .disabled(model.status == .saving || model.status == .checking)
-                    .accessibilityIdentifier("onboarding.input.recover")
-                }
-                if model.status == .unconfirmed {
-                    Button("Retry saving") { Task { await model.retry(currentAccess) } }
-                }
+            ViewThatFits(in: .horizontal) {
+                HStack { recoveryButtons }.fixedSize(horizontal: true, vertical: false)
+                VStack(alignment: .leading) { recoveryButtons }
             }.font(.footnote)
         }
         .task { await model.inspect(currentAccess) }
@@ -264,16 +279,8 @@ struct OnboardingInputRecoveryScope<Content: View>: View {
                 ScrollView {
                     UnassignedLegacyRecoveryPanel(onboarding: .init(custody: model.custody,
                         canApply: challengeIsCurrent,
-                        resume: { checkpoint in
-                            guard let challenge, challengeIsCurrent(),
-                                  let restoredName = String(data: checkpoint.fields.nameUTF8, encoding: .utf8),
-                                  let restoredPremise = String(data: checkpoint.fields.premiseUTF8, encoding: .utf8) else { return false }
-                            guard model.resumed(checkpoint, expectedEdits: challenge.edits, expectedAccess: challenge.access) else { return false }
-                            if checkpoint.fields.nameWasEdited { name = restoredName }
-                            if checkpoint.fields.premiseWasEdited { premise = restoredPremise }
-                            showingRecovery = false; self.challenge = nil
-                            return true
-                        }, didDiscard: {
+                        resume: { applyFields($0, earlierCopy: false) },
+                        copyEarlier: { applyFields($0, earlierCopy: true)                        }, didDiscard: {
                             guard let challenge, challengeIsCurrent(),
                                   model.discarded(expectedEdits: challenge.edits, expectedAccess: challenge.access) else { return }
                             showingRecovery = false; self.challenge = nil
@@ -281,9 +288,47 @@ struct OnboardingInputRecoveryScope<Content: View>: View {
                         .padding(24)
                 }
                 .navigationTitle("Unfinished setup")
-                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showingRecovery = false } } }
+                .toolbar { ToolbarItem(placement: .confirmationAction) {
+                    Button { showingRecovery = false } label: {
+                        Text("Done").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                    }
+                } }
             }
         }
+    }
+
+    @ViewBuilder private var recoveryButtons: some View {
+        if model.hasCapture {
+            Button {
+                challenge = .init(edits: model.editGeneration, access: currentAccess,
+                                  name: Data(name.utf8), premise: Data(premise.utf8))
+                showingRecovery = true
+            } label: { recoveryLabel("Recover unfinished setup") }
+            .disabled(model.status == .saving || model.status == .checking)
+            .accessibilityIdentifier("onboarding.input.recover")
+        }
+        if model.status == .unconfirmed {
+            Button { Task { await model.retry(currentAccess) } } label: { recoveryLabel("Retry saving") }
+        }
+    }
+
+    private func recoveryLabel(_ title: String) -> some View {
+        Text(title).fixedSize(horizontal: false, vertical: true)
+            .frame(minWidth: 44, minHeight: 44, alignment: .leading).contentShape(Rectangle())
+    }
+
+    private func applyFields(_ checkpoint: OnboardingInputCheckpoint, earlierCopy: Bool) -> Bool {
+        guard let challenge, challengeIsCurrent(),
+              let restoredName = String(data: checkpoint.fields.nameUTF8, encoding: .utf8),
+              let restoredPremise = String(data: checkpoint.fields.premiseUTF8, encoding: .utf8) else { return false }
+        let applied = earlierCopy
+            ? model.copiedEarlierFields(checkpoint, expectedEdits: challenge.edits, expectedAccess: challenge.access)
+            : model.resumed(checkpoint, expectedEdits: challenge.edits, expectedAccess: challenge.access)
+        guard applied else { return false }
+        if checkpoint.fields.nameWasEdited { name = restoredName }
+        if checkpoint.fields.premiseWasEdited { premise = restoredPremise }
+        showingRecovery = false; self.challenge = nil
+        return true
     }
 
     private var custodyMessage: String {
