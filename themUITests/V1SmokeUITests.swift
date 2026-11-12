@@ -5313,7 +5313,10 @@ final class V1SmokeUITests: XCTestCase {
         originalRequest["conflict_strategy"] = "allow"
         let late = try await requestJSON(baseURL: baseURL, path: "/screenplay/projects/\(fixture.projectID)/version",
             method: "POST", headers: headers, body: originalRequest)
-        XCTAssertTrue((400...599).contains(late.status), "A legacy allow retry of the fenced request must not arrive later.")
+        XCTAssertEqual(late.status, 503, "A legacy allow retry must reach authenticated version persistence and be refused.")
+        XCTAssertEqual(stringValue(late.payload["stage"]), "screenplay_version")
+        XCTAssertEqual(stringValue(late.payload["error"]), "screenplay_persistence_failed")
+        XCTAssertEqual(stringValue(late.payload["persistence"]), "postgres")
         app.terminate()
         app = launchApp(openStudio: true, resetState: false, launchEnvironment: environment)
         let review = app.buttons["studio.conflict.review-local-copies"]
