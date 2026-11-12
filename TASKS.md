@@ -5,38 +5,39 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
-### Current checkpoint — T-1419 / T-1427 / T-1430 (2026-11-12)
+### Current checkpoint — T-1419 / T-1432 / T-1433 (2026-11-12)
 
-- **Owner:** Codex (Jarvis); actual bounded source review/regression by Zora,
-  CI preparation/hosted-log investigation by Luna, frontier/evidence review by
-  Einstein. None is a human reviewer. **Status:** in-progress; not on main.
-- **Branch:** `codex/T-1419-onboarding-action-owner`; fix1a96f142 and preserving
-  CI merge71693e0a. Original regression/CI heads and prior custody96360f93 remain
-  ancestors. Unrelated cache link remains untracked and preserved.
-- **Fixed:** late old-login account hydration could hide a newer edited name/
-  premise. Weak stable form ownership now defers only remote preferred name;
-  other profile hydration and explicit writer completion remain connected.
-  Earlier stored-auth/action custody and external-export work remains preserved.
-- **Proof:** causal held-login UI0/1/0→1/0/0, unchanged test body; signed units
-  initial1599/4/0 teardown crashes→1603/0/0 after existing compatibility pattern;
-  Mac scaffold build0; CI contracts18/0/0; D009 all five0 vs actual96360f93.
-  Three setup failures retained. No repeated source/native/backend suites for
-  CI-only merge; backend3121/0/5 is inherited only for unchanged core components.
-- **GitHub:** #964ca019af2 backend/D009/units/writer/V1 pass; final voice stage
-  exited70 before execution because Xcode could not find the erased/booted
-  exact simulator. Voice0 tests, Mac not reached; no#979advance while red.
-  #997f68eb60f reached voice/Mac after earlier required steps passed; last
-  observed still running. Main remains78b8c94f; human#964review deferred.
-- **Next:** diagnose native host availability without retries/bypasses, and
-  original#987's unproven To Page callback/route failure. Preserve original
-  fronts;1267/8ef has568commits beyond main and no matching PR. Publication of
-  private1422/1424 waits for the earlier red/missing path AND fresh997gates.
-  T1425 is private and frozen. No replacement PR or wholesale retarget.
-- **Limits:** no paid calls; production hold preserved. Human Xcode account
-  sign-in pending; physical phone/intended backend/live journey unproven.
-  This specific fix does not establish all post-auth unsaved-form durability.
-- **Evidence/exact files:** `docs/onboarding-name-hydration-proof-2026-11-12.md`;
-  graph: `docs/integration-frontier-2026-11-12.md`; human device steps:
+- **Owner:** Codex (Jarvis); actual bounded work by Zora (capture fix), Einstein
+  (failure diagnostics), Luna (hosted artifact investigation). Not human review.
+- **Branch:** `codex/T-1419-onboarding-action-owner`; hydration fix1a96f142 is
+  published on existing custody backup73ed8393, all original histories retained.
+  CI preserving merge0d5ef227 leaves every product tree exact. Private6d4ba7be
+  adds compileable custody regressions/session-epoch input; not a capture fix.
+- **Fixed/proven:** late named-account hydration no longer hides unfinished B.
+  Signed full units1603/0/0, causal held-login0/1/0→1/0/0, Mac build0, D009five0.
+  Earlier four teardown crashes/three setup failures remain documented. These
+  source results predate the new1433 characterization and are not a new full run.
+- **Next root bug:** intent-only login reservation revokes anonymous capture;
+  actual auth while A is in-flight can discard pending B. Zora is preparing a
+  sealed pre-auth drain with auth-epoch/descriptor isolation. Six real-FS cases
+  ran on erased owned81F:10 passed/4 failed/0 skipped, actual exit65. No
+  known-account migration, automatic restore or paid/model/backend call.
+- **GitHub:** original997f68eb60f ALL3green(run43244758406): backend3042/0/5,
+  units1566executed/0fail(no aggregate skip clause), V140/0/36, writer/recovery
+  controllers pass, voice1executed/0fail, Mac pass. This does not clear earlier
+  original987's To Page red or the missing1267 original landing path.
+  Original964 normally advancedca→831de836 with exit70-only metadata collection;
+  fresh run43260656345 running. Exact original+combined fake contracts47/0/0;
+  no native rerun for diagnostics. Original host cause unknown; keep979held.
+- **Publication:** strongest proven backup is73ed; private1433 baseline/fix must
+  be proven before advancement. Private1422/1424 still await earlier red/missing
+  path, not997alone. Main78b8c94f/review protections unchanged; no replacement,
+  squash, forced history, auto-merge, main/deployment or secret change.
+- **Human-only:** Xcode account sign-in pending; physical phone/intended backend
+  and live journey unproven. No fresh paid authorization; production hold stays.
+- **Evidence/files/retained failures:**
+  `docs/onboarding-name-hydration-proof-2026-11-12.md`; graph
+  `docs/integration-frontier-2026-11-12.md`; human device steps
   `docs/physical-iphone-preparation-2026-11-12.md`. Older entries are history.
 
 ### T-1202 — Restore pending manual saves and exact queued recovery
