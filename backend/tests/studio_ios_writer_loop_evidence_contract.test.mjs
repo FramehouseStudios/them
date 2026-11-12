@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
 const runner = path.join(root, "backend/evals/run_studio_ios_writer_loop_contract_smoke.mjs");
@@ -18,6 +18,27 @@ function fixture() {
   const callsFile = path.join(directory, "calls.txt");
   const xcodebuild = path.join(bin, "xcodebuild");
   const xcrun = path.join(bin, "xcrun");
+  const pressureHook = path.join(directory, "pipe-pressure-hook.mjs");
+  fs.writeFileSync(pressureHook, `import http from "node:http";
+import { once } from "node:events";
+if (process.argv[1]?.endsWith("/index.js")) {
+ const original = http.Server.prototype.emit;
+ http.Server.prototype.emit = function(event, ...args) {
+  if (event === "request" && args[0]?.url === "/__writer_evidence_pipe_pressure") {
+   void (async () => {
+    const block = "P".repeat(64 * 1024);
+    for (let i = 0; i < 32; i++) {
+     if (!process.stdout.write(block)) await once(process.stdout, "drain");
+     if (!process.stderr.write(block)) await once(process.stderr, "drain");
+    }
+    args[1].writeHead(200, {"content-type":"text/plain"}); args[1].end("pressure-drained");
+   })();
+   return true;
+  }
+  return original.call(this, event, ...args);
+ };
+}
+`);
   fs.writeFileSync(xcodebuild, `#!/usr/bin/env node
 const fs = require("node:fs"), path = require("node:path");
 const args = process.argv.slice(2);
@@ -26,7 +47,21 @@ const bundle = args[args.indexOf("-resultBundlePath") + 1];
 fs.mkdirSync(bundle, {recursive:true});
 fs.writeFileSync(path.join(bundle, "diagnostic.txt"), "writer evidence");
 console.log("complete writer stdout"); console.error("complete writer stderr");
-process.exit(process.env.TEST_WRITER_MODE === "failure" ? 65 : 0);
+if (process.env.TEST_WRITER_MODE === "pipe-pressure") {
+ const http = require("node:http");
+ const config = fs.readFileSync(args[args.indexOf("-xcconfig") + 1], "utf8");
+ const port = Number(config.match(/THEM_UITEST_WRITER_LOOP_BACKEND_PORT = (\\d+)/)?.[1]);
+ if (!port) throw new Error("missing dynamic backend port");
+ const request = http.get({host:"127.0.0.1",port,path:"/__writer_evidence_pipe_pressure"}, response => {
+  let body=""; response.on("data", chunk => body += chunk);
+  response.on("end", () => {
+   if (response.statusCode !== 200 || body !== "pressure-drained") process.exit(76);
+   console.log("backend pipe pressure drained"); process.exit(0);
+  });
+ });
+ request.setTimeout(3000, () => request.destroy(new Error("backend pipe pressure timed out")));
+ request.on("error", error => { console.error(error.message); process.exit(76); });
+} else process.exit(process.env.TEST_WRITER_MODE === "failure" ? 65 : 0);
 `);
   fs.writeFileSync(xcrun, `#!/usr/bin/env node
 const fs = require("node:fs");
@@ -61,7 +96,8 @@ if(args.includes("tests")) {
           RUNNER_TEMP: runnerTemp, ARTIFACT_DIR: path.join(runnerTemp, "them-studio-ios-writer-loop"), XCODEBUILD: xcodebuild, XCRUN: xcrun,
           IOS_SIMULATOR_DESTINATION: "platform=iOS Simulator,id=owned-evidence-fixture",
           THEM_UITEST_WRITER_LOOP_BACKEND_PORT: "", THEM_UITEST_CREATION_REPLY_FAULT: "0", DATABASE_URL: "",
-          TEST_WRITER_MODE: mode, TEST_ARGS_FILE: argsFile, TEST_CALLS_FILE: callsFile},
+          TEST_WRITER_MODE: mode, TEST_ARGS_FILE: argsFile, TEST_CALLS_FILE: callsFile,
+          ...(mode === "pipe-pressure" ? { NODE_OPTIONS: `--import=${pathToFileURL(pressureHook).href}` } : {})},
       });
       assert.equal(result.error, undefined);
       assert.ok(fs.existsSync(argsFile),
@@ -98,6 +134,16 @@ for (const mode of ["failure", "pass", "zero", "bad-summary"]) {
     } finally { f.cleanup(); }
   });
 }
+
+test("[writer-evidence] backend drains both output pipes while native workflow waits", () => {
+  const f = fixture();
+  try {
+    const {result, bundle} = f.run("pipe-pressure");
+    assert.equal(result.status, 0, `native request could not complete: ${result.stderr.slice(-3000)}`);
+    assert.match(result.stdout, /backend pipe pressure drained/);
+    assert.equal(fs.existsSync(bundle), true);
+  } finally { f.cleanup(); }
+});
 
 test("[writer-evidence] repeated runs cannot overwrite earlier evidence", () => {
   const f = fixture();

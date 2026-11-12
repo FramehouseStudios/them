@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -44,14 +44,13 @@ try {
     { encoding: "utf8", mode: 0o600 }
   );
 
-  const child = spawnSync("bash", [
+  const child = spawn("bash", [
     "scripts/run_v1_ui_smoke.sh",
     "-quiet",
     "-resultBundlePath", RESULT_BUNDLE_PATH,
   ], {
     cwd: ROOT_DIR,
-    encoding: "utf8",
-    maxBuffer: 128 * 1024 * 1024,
+    stdio: ["ignore", "pipe", "pipe"],
     env: {
       ...process.env,
       ONLY_TESTING: WRITER_LOOP_TEST,
@@ -59,10 +58,23 @@ try {
       THEM_UITEST_RESTORE_XCCONFIG_PATH: XCCONFIG_PATH,
     },
   });
-  // Emit diagnostics before count/JSON checks too; a malformed or empty result
-  // must not hide the output that explains why it is not valid proof.
-  process.stdout.write(child.status === 0 ? child.stdout || "" : failureOutputTail(child.stdout));
-  process.stderr.write(child.status === 0 ? child.stderr || "" : failureOutputTail(child.stderr));
+  let stdout = "", stderr = "";
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", chunk => {
+    process.stdout.write(chunk);
+    stdout = failureOutputTail(stdout + chunk);
+  });
+  child.stderr.on("data", chunk => {
+    process.stderr.write(chunk);
+    stderr = failureOutputTail(stderr + chunk);
+  });
+  // Keep the event loop free to drain both backend and native output while
+  // Xcode waits for backend requests; retain bounded tails for failure reports.
+  const status = await new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", resolve);
+  });
   const resultTests = existsSync(RESULT_BUNDLE_PATH)
     ? spawnSync("xcrun", [
       "xcresulttool", "get", "test-results", "tests", "--path", RESULT_BUNDLE_PATH,
@@ -83,13 +95,13 @@ try {
     resultFailureDetails = "Could not read xcresult test details.\n"
       + failureOutputTail(resultTests.stderr || resultTests.stdout);
   }
-  if (child.status !== 0) {
+  if (status !== 0) {
     throw new Error(
       "Integrated iPhone writer-loop UI test failed.\n"
-      + `status=${child.status}\n`
+      + `status=${status}\n`
       + `xcresult failures:\n${failureOutputTail(resultFailureDetails)}\n`
-      + `stdout tail:\n${failureOutputTail(child.stdout)}\n`
-      + `stderr tail:\n${failureOutputTail(child.stderr)}\n`
+      + `stdout tail:\n${stdout}\n`
+      + `stderr tail:\n${stderr}\n`
       + `backend stdout tail:\n${failureOutputTail(server.stdout.join(""))}\n`
       + `backend stderr tail:\n${failureOutputTail(server.stderr.join(""))}`
     );
