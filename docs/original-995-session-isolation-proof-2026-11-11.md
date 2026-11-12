@@ -44,7 +44,8 @@ and lockfile hashes. It is not committed; no registry request was made.
 - `/private/tmp/them-t1382-original-995-preserved-tdzc0920` — pre-merge file and hash.
 - `/private/tmp/them-t1382-direct-typing.log` and `.xcresult`.
 - `/private/tmp/them-t1382-direct-typing-summary.json`.
-- `/private/tmp/them-t1382-queued-recovery.log` and `-summary.json`.
+- `/private/tmp/them-t1382-queued-recovery.log` and
+  `/private/tmp/them-t1382-queued-recovery-summary.json`.
 - `/private/tmp/them-t1382-queued-recovery/them-save-recovery-LAdlDY/recovery-ios.xcresult`.
 
 Authenticated recovery uses synthetic providers. No live-microphone, model-quality,
