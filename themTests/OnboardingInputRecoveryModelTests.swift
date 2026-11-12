@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import XCTest
 @testable import them
 
@@ -368,6 +369,85 @@ final class OnboardingInputRecoveryModelTests: XCTestCase {
         let saved = await checkpoint(custody)
         XCTAssertEqual(saved?.fields.premiseUTF8, Data("A valid pending evidence".utf8))
         XCTAssertFalse(model.canRecover(editGeneration: model.editGeneration, access: known))
+    }
+
+    func testTooLargeAContinuesSmallerQueuedBOnOriginalLineageWithoutSavingKnownC() async throws {
+        let (root, custody, hold) = heldFixture()
+        defer { hold.release(); try? FileManager.default.removeItem(at: root) }
+        let model = OnboardingInputRecoveryModel(custody: custody)
+        await model.inspect(signedOut)
+        model.editName("Prior", access: signedOut); model.editPremise("P verified", access: signedOut)
+        try await waitForSave(model)
+        guard let prior = await checkpoint(custody) else { return XCTFail("Missing original CAS lineage") }
+        let name = "  B E\u{301}va \t", premise = "\r\nSmaller B keeps 👩🏽‍🚀. \t\r\n"
+        var capacityResults = 0
+        // Observe the real production store result, then enqueue the user edit
+        // before run() decides whether the still-active drain may continue.
+        let observation = model.$status.sink { state in
+            MainActor.assumeIsolated {
+                guard state == .tooLarge else { return }
+                capacityResults += 1
+                guard capacityResults == 1 else { return }
+                model.editName(name, access: self.signedOut)
+                model.editPremise(premise, access: self.signedOut)
+            }
+        }
+        defer { observation.cancel() }
+        hold.arm()
+        model.editPremise(String(repeating: "A", count: OnboardingInputCustody.maximumCheckpointBytes + 1), access: signedOut)
+        var reachedB = false
+        for _ in 0..<500 {
+            if hold.isWaiting { reachedB = true; break }
+            if !model.isCapturing { break }
+            try await Task.sleep(for: .milliseconds(2))
+        }
+        XCTAssertEqual(capacityResults, 1, "A must really fail before I/O; neither coalescing A away nor retrying it proves this edge.")
+        XCTAssertTrue(reachedB, "A distinct smaller queued B must reach the real checkpoint after A's pre-I/O rejection.")
+        guard reachedB else {
+            let retained = await checkpoint(custody)
+            XCTAssertEqual(retained?.fields.nameUTF8, Data(name.utf8))
+            XCTAssertEqual(retained?.fields.premiseUTF8, Data(premise.utf8))
+            return
+        }
+        let pending = try Data(contentsOf: root.appendingPathComponent("pending.json"))
+        let known = OnboardingInputAccess(active: true, credentialFree: false, authIntent: 11, sessionEpoch: 1)
+        model.updateAccess(known); model.editName("known-account C", access: known)
+        hold.release(); try await waitForIdle(model)
+        let saved = await checkpoint(custody)
+        XCTAssertEqual(saved?.fields.nameUTF8, Data(name.utf8))
+        XCTAssertEqual(saved?.fields.premiseUTF8, Data(premise.utf8))
+        XCTAssertEqual(saved?.previousRevisionID, prior.descriptor.revisionID)
+        XCTAssertEqual(saved?.previousContentDigest, prior.descriptor.contentDigest)
+        XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent("current.json")), pending)
+        XCTAssertEqual(model.fields.nameUTF8, Data("known-account C".utf8))
+        XCTAssertFalse(model.fields.premiseWasEdited)
+        XCTAssertEqual(model.status, .accountRestricted)
+        XCTAssertFalse(model.canRecover(editGeneration: model.editGeneration, access: known))
+    }
+
+    func testTooLargeADoesNotRetryIdenticalOrLargerQueuedInput() async throws {
+        let oversized = String(repeating: "A", count: OnboardingInputCustody.maximumCheckpointBytes + 1)
+        for queued in [oversized, oversized + "B"] {
+            let (root, _, model) = fixture(); defer { try? FileManager.default.removeItem(at: root) }
+            await model.inspect(signedOut); model.editPremise("P stays intact", access: signedOut)
+            try await waitForSave(model)
+            let original = try Data(contentsOf: root.appendingPathComponent("current.json"))
+            var capacityResults = 0
+            let observation = model.$status.sink { state in
+                MainActor.assumeIsolated {
+                    guard state == .tooLarge else { return }
+                    capacityResults += 1
+                    if capacityResults == 1 { model.editPremise(queued, access: self.signedOut) }
+                }
+            }
+            defer { observation.cancel() }
+            model.editPremise(oversized, access: signedOut)
+            try await waitForIdle(model)
+            XCTAssertEqual(capacityResults, 1)
+            XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent("current.json")), original)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("pending.json").path))
+            XCTAssertEqual(model.status, .tooLarge)
+        }
     }
 
     func testTooLargeSealedCandidatePreservesVerifiedAWithoutSavingKnownC() async throws {
