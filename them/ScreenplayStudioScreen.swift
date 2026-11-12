@@ -469,6 +469,7 @@ struct ScreenplayStudioScreen: View {
             "is_saving": vm.isSaving,
             "queued_draft_save_count": vm.queuedDraftSaveCount,
             "parked_draft_save_count": vm.parkedDraftSaveCount,
+            "parked_save_relationships": vm.debugParkedSaveRelationships,
             "manual_save_trigger_count": uiTestManualSaveTriggerCount,
             "debug_automation_session": IOThemRuntime.isStudioAutomationSession,
             "debug_project_client_owner": liveDraftBridge.usesDebugClientTokenOwner(
@@ -9103,34 +9104,18 @@ Current draft version:
                   let serverDate = dateFromTimestamp(conflict.serverUpdatedAt) else { return nil }
             return relativeTimestamp(serverDate)
         }()
-
         return draftAlertBanner(
-            title: "Server draft changed",
-            message: relativeUpdateText.map { "A newer draft was saved \($0). Choose which version should stay on the page." }
+            title: conflict.requiresCustodyReview ? "Local copies need review" : "Server draft changed",
+            message: conflict.requiresCustodyReview ? "Your local copies remain held on this device. Review them before saving." : relativeUpdateText.map { "A newer draft was saved \($0). Choose which version should stay on the page." }
                 ?? "A newer draft was saved on the server. Choose which version should stay on the page.",
-            hint: "Press 1 to load the server draft or 2 to keep your local draft.",
+            hint: conflict.requiresCustodyReview ? "Review the held local copies before choosing what to keep." : "Press 1 to load the server draft or 2 to keep your local draft.",
             tint: Color.red.opacity(0.88),
             excerpt: conflict.serverDraftExcerpt
         ) {
-            Button {
-                Task { await vm.applyServerVersionFromConflict() }
-            } label: {
-                Text("1 Load Server")
-            }
-            .buttonStyle(.bordered)
-            .tint(Color.white.opacity(0.24))
-            .keyboardShortcut("1", modifiers: [])
-            .accessibilityIdentifier("studio.conflict.load-server").disabled(vm.isPreparingConflictResolution)
-
-            Button {
-                Task { await vm.keepLocalDraftAfterConflict() }
-            } label: {
-                Text("2 Keep Mine")
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(Color.white.opacity(0.24))
-            .keyboardShortcut("2", modifiers: [])
-            .accessibilityIdentifier("studio.conflict.keep-mine").disabled(vm.isPreparingConflictResolution)
+            ScreenplayConflictActionButtons(
+                viewModel: vm,
+                requiresCustodyReview: conflict.requiresCustodyReview
+            )
         }
     }
 

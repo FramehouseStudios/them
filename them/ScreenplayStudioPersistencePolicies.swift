@@ -289,7 +289,10 @@ struct ScreenplayDraftSaveIntentPolicy {
 /// observers must follow exact writer bytes, without normalizing or hashing.
 nonisolated struct ScreenplayDraftTextObservation: Equatable, Sendable {
     let text: String
-    static func == (lhs: Self, rhs: Self) -> Bool { lhs.text.utf8.elementsEqual(rhs.text.utf8) }
+    var restoringQueue: Bool = false
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.restoringQueue == rhs.restoringQueue && lhs.text.utf8.elementsEqual(rhs.text.utf8)
+    }
 }
 
 struct ScreenplayDraftSaveCompletionPolicy {

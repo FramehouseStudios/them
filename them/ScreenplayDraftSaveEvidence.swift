@@ -36,6 +36,50 @@ nonisolated struct ScreenplayDraftSaveOrigin: Codable, Equatable, Sendable {
     }
 }
 
+/// A superseded save is proven only by an authenticated full-request replay.
+/// This evidence does not authorize rebasing the current editor or removing a copy.
+nonisolated struct ScreenplayConfirmedSupersededCustodySave: Sendable {
+    let saved: ScreenplayConfirmedDraftSave
+    let serverHeadID: String
+
+    private init(saved: ScreenplayConfirmedDraftSave, serverHeadID: String) {
+        self.saved = saved
+        self.serverHeadID = serverHeadID
+    }
+
+    static func verify(entry: ScreenplayDraftSaveOutboxEntry,
+                       result: BackendReadResult<BackendScreenplayVersionMutationResponse>,
+                       owner: ScreenplayStudioAuthContext,
+                       currentOwner: ScreenplayStudioAuthContext) -> Self? {
+        let response = result.payload
+        guard entry.source == "studio_custody_selected", entry.hasExplicitBaseSelection,
+              ScreenplayConfirmedDraftSave.validID(entry.baseVersionId), result.httpStatusCode == 409,
+              response.stage == "screenplay_version", response.status == "replayed_superseded",
+              response.conflict == true, response.replayed == true, response.replayProof == "full_request_hash_v1",
+              response.baseVersionId?.utf8.elementsEqual(entry.baseVersionId.utf8) == true,
+              entry.ownerUserId.utf8.elementsEqual(owner.userID.utf8),
+              owner.userID.utf8.elementsEqual(currentOwner.userID.utf8),
+              response.projectId?.utf8.elementsEqual(entry.projectId.utf8) == true,
+              let version = response.version, let head = response.serverVersionId,
+              ScreenplayConfirmedDraftSave.validID(head), !head.utf8.elementsEqual(version.id.utf8),
+              response.versionId?.utf8.elementsEqual(version.id.utf8) == true,
+              version.projectId?.utf8.elementsEqual(entry.projectId.utf8) == true,
+              version.clientRequestId?.utf8.elementsEqual(entry.id.utf8) == true,
+              response.project?.id.utf8.elementsEqual(entry.projectId.utf8) == true,
+              response.project?.activeVersionId?.utf8.elementsEqual(head.utf8) == true,
+              version.phase?.utf8.elementsEqual(entry.phase.utf8) == true,
+              version.source?.utf8.elementsEqual(entry.source.utf8) == true,
+              version.notes?.utf8.elementsEqual(entry.notes.utf8) == true,
+              ScreenplayDraftSaveMetadataPolicy.matchesServerEcho(
+                requestedAnchors: entry.studioWriteAnchors, confirmedAnchors: version.studioWriteAnchors,
+                requestedBindings: entry.screenplayBindings, confirmedBindings: version.screenplayBindings),
+              let saved = ScreenplayConfirmedDraftSave.ordinary(entry: entry, version: version,
+                versionID: response.versionId, projectID: response.projectId, responseURL: result.responseURL,
+                owner: owner, currentOwner: currentOwner) else { return nil }
+        return .init(saved: saved, serverHeadID: head)
+    }
+}
+
 /// Proof of the immutable draft that the server actually acknowledged. This
 /// value does not assert playback, publication, or permission to change a UI.
 nonisolated struct ScreenplayConfirmedDraftSave: Sendable {

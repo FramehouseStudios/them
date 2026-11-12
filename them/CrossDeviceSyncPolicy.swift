@@ -77,11 +77,25 @@ nonisolated enum CrossDeviceStateVersionPolicy {
 }
 
 nonisolated enum ScreenplayRemoteDraftConflictPolicy {
-    static func isWhitespaceOnlyDifference(localDraft: String, serverDraft: String) -> Bool {
-        let local = localDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !localDraft.utf8.elementsEqual(serverDraft.utf8)
-            && !local.isEmpty
-            && local == serverDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+    static func shouldPreserveDraftDuringRefresh(
+        localDraft: String,
+        serverDraft: String,
+        localVersionId: String,
+        serverVersionId: String
+    ) -> Bool {
+        let localVersion = localVersionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let serverVersion = serverVersionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        // An unversioned observation cannot replace a known saved page or
+        // acknowledge the writer's unsaved words, even when the bytes match.
+        if !localVersion.isEmpty && serverVersion.isEmpty { return true }
+        return (serverVersion.isEmpty || localVersion.isEmpty || localVersion == serverVersion)
+            && isWhitespaceOnlyDifference(localDraft: localDraft, serverDraft: serverDraft)
+    }
+
+    private static func isWhitespaceOnlyDifference(localDraft: String, serverDraft: String) -> Bool {
+        !localDraft.utf8.elementsEqual(serverDraft.utf8)
+            && localDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                == serverDraft.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     static func shouldProtectLocalDraft(
