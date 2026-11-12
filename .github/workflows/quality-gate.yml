@@ -326,4 +326,6 @@ jobs:
             ${{ runner.temp }}/them-screenplay-save-network-fault-smokes/*.xcresult
             ${{ runner.temp }}/them-save-recovery-*/*.xcresult
             ${{ runner.temp }}/them-onboarding-hydration/**
+            ${{ runner.temp }}/them-v1-ui-smoke/v1-destination-failure-*.json
             ${{ runner.temp }}/them-voice-network-fault-smokes/*.xcresult
+            ${{ runner.temp }}/them-voice-network-fault-smokes/v1-destination-failure-*.json
