@@ -161,3 +161,38 @@ frozen. #964 human review is deferred. Main and production are unchanged;
 the existing App Store-credential production hold remains.
 
 Separate unfinished-input durability gap remains open as #998; no restore implementation is claimed.
+
+## Offscreen drawer activation precondition
+
+A separate retained failure on original #422 at69af6fab established an unsafe
+test precondition shared by the later centralized helper: querying native
+hittability before determining whether a fully-visible target is offscreen.
+XCTest aborted at Co-writer (y1144–1188) outside the allowed drawer108–850.
+Archive SHA256:
+feaaa52883e27b63379bdb7cadc4aa998594fbaf0d10714f3e90382495a0944f.
+Exact failure and correction:
+https://github.com/FramehouseStudios/them/blob/6a5010eeede3d5edb482287d548f66fd0a9da366/docs/onboarding-drawer-visibility-proof-2026-11-12.md
+
+This local follow-up starts at54175841 and moves only the centralized
+fullyVisible frame check before optional hittability. It preserves the actual
+studioDrawerContentViewport owner, target-relative pans, frame-only callers,
+margins, swipe bounds, selection/reuse/page/cleanup assertions, strict Autosave
+helper and diagnostics. Default partial-visibility behavior is unchanged.
+No old branch's helper is copied wholesale into the newer integration.
+
+VERIFIED: signed focused Creative Partner workflow1 passed/0 failed/0 skipped,
+on exact erased81F0FF38-9DAD-4011-907B-357DFADD094C,
+iPhone17 Pro/iOS26.2(23C54), Xcode26.3, normal signing.
+Bundle: /private/tmp/them-t1392-creative-partner.xcresult.
+Actual native summary: /private/tmp/them-t1392-creative-partner-summary.json.
+All three mode selections/summaries and Reuse/To Page/cleanup assertions pass.
+Swift parse, diff and D009 versus actual994a45824a2 pass; Studio-3/others0
+is inherited runtime credit, not a new extraction.
+No unchanged local broad backend/unit/macOS run is repeated for this UI-only
+correction.
+
+This demonstrates the changed helper's positive workflow, not a reproduced
+failure on54175841 or an explanation of the original Autosave/held-preview
+event miss. The old541 hosted run is left intact until terminal; any new
+publication must preserve it and require fresh exact-head gates.
+No paid model, physical phone, production or integrated-main proof is claimed.

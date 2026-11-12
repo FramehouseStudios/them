@@ -5886,12 +5886,15 @@ final class V1SmokeUITests: XCTestCase {
     ) -> Bool {
         func isVisible() -> Bool {
             guard target.exists else { return false }
-            if requiresHittability, !target.isHittable { return false }
-            guard fullyVisible else { return true }
-            let frame = target.frame
-            let viewport = studioDrawerContentViewport(drawer)
-            return !frame.isEmpty && frame.minY >= viewport.minY + 8
-                && frame.maxY <= viewport.maxY - 24
+            if fullyVisible {
+                let frame = target.frame
+                let viewport = studioDrawerContentViewport(drawer)
+                // Reveal offscreen lazy controls before resolving their
+                // activation point; that native query can fail outright.
+                guard !frame.isEmpty, frame.minY >= viewport.minY + 8,
+                      frame.maxY <= viewport.maxY - 24 else { return false }
+            }
+            return !requiresHittability || target.isHittable
         }
         if isVisible() { return true }
         for _ in 0..<maxSwipes {
