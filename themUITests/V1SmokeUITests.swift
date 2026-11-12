@@ -2980,8 +2980,8 @@ final class V1SmokeUITests: XCTestCase {
                 return
             }
             if rightToggle.waitForExistence(timeout: 0.5),
-               rightToggle.isHittable,
-               rightToggle.label.localizedCaseInsensitiveContains("Open") {
+               rightToggle.label.localizedCaseInsensitiveContains("Open"),
+               rightToggle.isHittable {
                 rightToggle.tap()
             }
             // Opening the drawer can reveal an already selected, restored tab.

@@ -47,7 +47,8 @@ DECIDED for this scoped task: identify Them by `studio.right-panel.them`.
 Before and after opening the drawer, return when semantic selection and the
 requested memory card establish the target state. For actual necessary
 navigation, check that the tab is not selected and has a non-empty frame before
-asking native hittability and using the existing tap. Keep the existing
+asking native hittability and using the existing tap. Check the drawer label
+for an actual Open action before asking its hittability too. Keep the existing
 eight-second total deadline, loop cadence and outcome assertions. No coordinate
 bypass, extra tap/retry, timeout increase, provider call or runtime change.
 
@@ -82,14 +83,21 @@ preserved as the parent. All five D009-monitored files are byte-identical to
 package, backend, unit-test, script, workflow and Xcode-project trees are exact
 `0f594829`; only the scoped UI-test file and this document differ.
 
-PENDING: Jarvis owns the exact signed, erased task-owned iPhone workflow below;
-no native/backend/container test is run by this preparation:
+VERIFIED root changed-source proof: the exact story-obligation/relaunch workflow
+passed **1 / 0 / 0** with normal signing, canonical erased81F iPhone17 Pro,
+iOS26.2(23C54), Xcode26.3. The UI-test source SHA-256 is
+`2ed567b7a80b2c45c33dddbb336f7f8c10fd852c85cb7edfb7f8ebde9c9d518e`.
+Root additionally ordered the drawer Open-label condition before native hit
+resolution; no action or deadline changed. Native summary and hash manifest:
+`_proof/T-1402-security-restore-proof-20261112/proof.json`.
 
-```text
-themUITests/V1SmokeUITests/test_story_obligation_evidence_survives_studio_relaunch
-```
+Canonical D009 passed against actual published #964 eaa94d0b: five zero deltas.
+No unchanged local full backend/unit/macOS rerun. Those current0f hosted backend
+and unit results above remain explicit component evidence; voice/macOS were
+skipped in the failed run, not relabeled as fresh passes.
 
-No unchanged retry, main merge, PR mutation or publication is authorized by
-this checkpoint. #964's human review remains deferred; production is held.
-This proves neither live-model quality nor physical-phone behavior, external
-export opening or integrated-main readiness.
+Root may normally advance the original #979, preserving every commit and base;
+fresh exact-head required checks and genuine human review are still required.
+No replacement PR, force push, main merge or deployment. #964's human review
+remains deferred; production is held. This proves neither live-model quality
+nor physical-phone behavior, external export opening or integrated-main readiness.
