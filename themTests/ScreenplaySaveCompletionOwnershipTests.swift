@@ -1357,6 +1357,46 @@ final class ScreenplaySaveCompletionOwnershipTests: XCTestCase {
         XCTAssertEqual(recovery?["baseVersionId"] as? String, "a-base")
     }
 
+    func testReviewedOrdinaryCopySurvivesAnotherRestoreAndTyping() throws {
+        let fixture = try SaveCompletionFixture()
+        defer { fixture.close() }
+        fixture.select("a", draft: fixture.a, base: "a-base", scopedRecovery: true)
+        let origin = try fixture.currentOrigin()
+        let original = fixture.a + "\nThe writer's reviewed exact words.\r\n"
+        fixture.model.publishNativeEditorDraft(original)
+        fixture.model.noteManualDraftEdit()
+        let stored = try XCTUnwrap(fixture.store.dirtyOrdinarySnapshot(ownerUserId: fixture.owner, projectId: "a"))
+        XCTAssertEqual(Data(stored.draft.utf8), Data(original.utf8))
+        let selected = fixture.a + "\nAnother independent recovery page."
+        _ = fixture.store.saveInVacantRecoverySlot(ownerUserId: fixture.owner, projectId: "a", draft: selected,
+            baseVersionId: "a-base", preferPreservedConflict: true, backendOrigin: origin.backendURL)
+        fixture.model.recoveryCandidate = .init(owner: .current(), projectId: "a", draft: stored.draft,
+            baseVersionId: stored.baseVersionId, savedAt: stored.savedAt, isPreservedConflict: false)
+        fixture.model.restoreDraftFromRecovery()
+        XCTAssertEqual(fixture.model.recoveryCandidate?.draft, selected)
+        fixture.model.restoreDraftFromRecovery()
+        XCTAssertEqual(Data(fixture.model.fountainDraft.utf8), Data(selected.utf8))
+        XCTAssertEqual(fixture.model.latestVersionID, "a-base")
+        XCTAssertNil(fixture.model.recoveryCandidate, "Both copies have been reviewed, without discarding either.")
+        let continued = selected + "\nNew exact words after recovery. \t"
+        fixture.model.publishNativeEditorDraft(continued)
+        fixture.model.noteManualDraftEdit()
+        let reopened = ScreenplayLocalDraftRecoveryStore(defaults: fixture.store.defaults, key: fixture.store.key)
+        XCTAssertEqual(reopened.dirtyOrdinarySnapshot(ownerUserId: fixture.owner, projectId: "a")
+            .map { Data($0.draft.utf8) }, Data(original.utf8),
+            "Reviewing a copy does not authorize replacing it while editing another restored page.")
+        XCTAssertEqual(reopened.currentPreservedConflict(ownerUserId: fixture.owner, projectId: "a")?.draft, selected)
+        let overflow = ScreenplayRecoveryOverflowStore(rootDirectory: fixture.overflowDirectory)
+        guard case let .present(latest) = overflow.load(ownerUserID: fixture.owner, projectID: "a",
+            backendURL: origin.backendURL, documentID: origin.documentID) else {
+            return XCTFail("The new page must also have its own durable exact copy.")
+        }
+        XCTAssertEqual(Data(latest.draft.utf8), Data(continued.utf8))
+        XCTAssertEqual(latest.baseVersionID, "a-base")
+        XCTAssertEqual(Data(fixture.model.fountainDraft.utf8), Data(continued.utf8))
+        XCTAssertTrue(fixture.model.hasUnsavedDraftChanges)
+    }
+
     func testManualTypingProtectsDifferentUnsurfacedRecoveryCopy() throws {
         let fixture = try SaveCompletionFixture()
         defer { fixture.close() }
