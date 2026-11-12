@@ -323,6 +323,57 @@ final class ScreenplayDraftSaveEvidenceTests: XCTestCase {
         XCTAssertTrue(ScreenplayLiveDraftSyncService.shared.ownsEditor(replacement))
     }
 
+    func testSupersededCustodyProofRequiresFullAuthenticatedResponse() throws {
+        var selected = entry(source: "studio_custody_selected")
+        selected.hasExplicitBaseSelection = true
+        let saved: [String: Any] = ["id": "saved-version", "projectId": selected.projectId,
+            "clientRequestId": selected.id, "draft": selected.draft, "phase": selected.phase,
+            "source": selected.source, "notes": selected.notes, "studioWriteAnchors": [], "screenplayBindings": []]
+        let payload: [String: Any] = ["stage": "screenplay_version", "status": "replayed_superseded",
+            "conflict": true, "replayed": true, "replayProof": "full_request_hash_v1",
+            "projectId": selected.projectId, "baseVersionId": selected.baseVersionId,
+            "versionId": "saved-version", "serverVersionId": "newer-version", "version": saved,
+            "project": ["id": selected.projectId, "title": "A newer title", "activeVersionId": "newer-version"]]
+        func proof(_ patch: [String: Any] = [:], versionPatch: [String: Any] = [:],
+                   status: Int? = 409, url: URL? = nil,
+                   current: ScreenplayStudioAuthContext? = nil) throws -> ScreenplayConfirmedSupersededCustodySave? {
+            var body = payload
+            var version = saved
+            version.merge(versionPatch) { _, new in new }
+            body["version"] = version
+            body.merge(patch) { _, new in new }
+            let response = try JSONDecoder().decode(BackendScreenplayVersionMutationResponse.self,
+                from: JSONSerialization.data(withJSONObject: body))
+            return ScreenplayConfirmedSupersededCustodySave.verify(entry: selected,
+                result: BackendReadResult(payload: response, sync: .empty, notModified: false,
+                    responseURL: url ?? backend, httpStatusCode: status),
+                owner: owner, currentOwner: current ?? owner)
+        }
+        let confirmed = try XCTUnwrap(proof())
+        XCTAssertEqual(confirmed.saved.requestID, selected.id)
+        XCTAssertEqual(confirmed.saved.versionID, "saved-version")
+        XCTAssertEqual(confirmed.serverHeadID, "newer-version")
+        for patch in [
+            ["stage": "other"], ["status": "conflict"], ["conflict": false], ["replayed": false],
+            ["replayProof": "legacy_partial"], ["replayProof": NSNull()],
+            ["baseVersionId": "another-base"], ["projectId": "another-project"],
+            ["versionId": "another-version"], ["serverVersionId": "saved-version"],
+            ["project": ["id": selected.projectId, "title": "A", "activeVersionId": "another-head"]]
+        ] as [[String: Any]] {
+            XCTAssertNil(try proof(patch), "A contradictory server response must not authorize recovery.")
+        }
+        for patch in [
+            ["clientRequestId": "another-request"], ["draft": raw + " "], ["phase": "rewrite"],
+            ["source": "studio_manual"], ["notes": "another note"], ["studioWriteAnchors": NSNull()]
+        ] as [[String: Any]] {
+            XCTAssertNil(try proof(versionPatch: patch), "A changed saved projection must not authorize recovery.")
+        }
+        XCTAssertNil(try proof(status: nil))
+        XCTAssertNil(try proof(status: 200))
+        XCTAssertNil(try proof(url: URL(string: "https://other-backend.test")!))
+        XCTAssertNil(try proof(current: .init(userID: "other-owner", sessionIntentGeneration: 7)))
+    }
+
     func testPassiveReadbackRequiresCurrentExactTargetAndPreservesExplicitIntent() throws {
         let passive = entry(source: "studio_autosave")
         let response = try passiveResponse(passive)

@@ -36,6 +36,30 @@ nonisolated struct ScreenplayDraftConflictRequestReference: Codable, Equatable, 
     let requestDigest: String
 }
 
+/// A writer's review selection; references retain exact full-row digests.
+/// This records a choice only and does not authorize a save or retirement.
+nonisolated struct ScreenplayDraftCustodyChoice: Codable, Equatable, Sendable {
+    let selected: ScreenplayDraftConflictRequestReference
+    let unchosen: [ScreenplayDraftConflictRequestReference]
+}
+
+/// A completed selected save. The parked marker also retains its exact
+/// selected and unchosen choice references and document/backend scope.
+nonisolated struct ScreenplayDraftCustodyReceipt: Codable, Equatable, Sendable {
+    let submissionRequestID: String
+    let serverVersionID: String
+}
+
+/// Durable proof that this exact submission was saved, then superseded.
+/// The original request and all held source rows remain in the queue.
+nonisolated struct ScreenplayDraftCustodySupersededReceipt: Codable, Equatable, Sendable {
+    let requestDigest: String
+    let savedVersionID: String
+    let serverHeadID: String
+    let proof: String
+    let httpStatusCode: Int
+}
+
 /// Stored inside a parked compatibility marker. Previous array-only builds
 /// ignore this new field, but still see the same request ID as parked and
 /// therefore cannot deliver that retired request after an app downgrade.
@@ -74,6 +98,9 @@ nonisolated struct ScreenplayDraftSaveOutboxEntry: Identifiable, Codable, Equata
     var deliveryOrigin: ScreenplayDraftSaveOrigin? = nil
     var requestAuthority: ScreenplayDraftSaveRequestAuthority? = nil
     var loadServerRetirement: ScreenplayDraftLoadServerRetirement? = nil
+    var custodyChoice: ScreenplayDraftCustodyChoice? = nil
+    var custodyReceipt: ScreenplayDraftCustodyReceipt? = nil
+    var custodySupersededReceipt: ScreenplayDraftCustodySupersededReceipt? = nil
     /// Additive metadata only. Older clients drop this field when rewriting the
     /// manifest, so release rollback remains unsafe until they are fenced out.
     var supersededConflictRequests: [ScreenplayDraftConflictRequestReference] = []
@@ -129,6 +156,9 @@ nonisolated struct ScreenplayDraftSaveOutboxEntry: Identifiable, Codable, Equata
             Self.exactEncoded(initialization, other.initialization) &&
             Self.exactEncoded(supersededConflictRequests, other.supersededConflictRequests) &&
             Self.exactEncoded(deferredConflictRequests, other.deferredConflictRequests) &&
+            Self.exactEncoded(custodyChoice, other.custodyChoice) &&
+            Self.exactEncoded(custodyReceipt, other.custodyReceipt) &&
+            Self.exactEncoded(custodySupersededReceipt, other.custodySupersededReceipt) &&
             saveOrderingVersion == other.saveOrderingVersion &&
             Self.exactEncoded(savePredecessor, other.savePredecessor) &&
             hasExplicitBaseSelection == other.hasExplicitBaseSelection &&
@@ -166,6 +196,9 @@ nonisolated extension ScreenplayDraftSaveOutboxEntry {
         case deliveryOrigin
         case requestAuthority
         case loadServerRetirement
+        case custodyChoice
+        case custodyReceipt
+        case custodySupersededReceipt
         case supersededConflictRequests
         case deferredConflictRequests
         case saveOrderingVersion
@@ -202,6 +235,9 @@ nonisolated extension ScreenplayDraftSaveOutboxEntry {
             forKey: .requestAuthority)
         loadServerRetirement = try container.decodeIfPresent(ScreenplayDraftLoadServerRetirement.self,
             forKey: .loadServerRetirement)
+        custodyChoice = try container.decodeIfPresent(ScreenplayDraftCustodyChoice.self, forKey: .custodyChoice)
+        custodyReceipt = try container.decodeIfPresent(ScreenplayDraftCustodyReceipt.self, forKey: .custodyReceipt)
+        custodySupersededReceipt = try container.decodeIfPresent(ScreenplayDraftCustodySupersededReceipt.self, forKey: .custodySupersededReceipt)
         if container.contains(.supersededConflictRequests) {
             supersededConflictRequests = try container.decode(
                 [ScreenplayDraftConflictRequestReference].self,
@@ -248,6 +284,9 @@ nonisolated extension ScreenplayDraftSaveOutboxEntry {
         try container.encodeIfPresent(deliveryOrigin, forKey: .deliveryOrigin)
         try container.encodeIfPresent(requestAuthority, forKey: .requestAuthority)
         try container.encodeIfPresent(loadServerRetirement, forKey: .loadServerRetirement)
+        try container.encodeIfPresent(custodyChoice, forKey: .custodyChoice)
+        try container.encodeIfPresent(custodyReceipt, forKey: .custodyReceipt)
+        try container.encodeIfPresent(custodySupersededReceipt, forKey: .custodySupersededReceipt)
         try container.encode(supersededConflictRequests, forKey: .supersededConflictRequests)
         try container.encode(deferredConflictRequests, forKey: .deferredConflictRequests)
         try container.encodeIfPresent(saveOrderingVersion, forKey: .saveOrderingVersion)
@@ -346,9 +385,17 @@ actor ScreenplayDraftSaveOutbox {
     private static let lineageManifestSchemaVersion = 2
     private static let deferredManifestSchemaVersion = 3
     private static let orderedManifestSchemaVersion = 4
+    private static let custodyChoiceManifestSchemaVersion = 5
+    private static let custodyReceiptManifestSchemaVersion = 6
+    private static let custodySupersededManifestSchemaVersion = 7
     private static let maxDraftBytes = 2 * 1024 * 1024
     private static let backoffSeconds: [TimeInterval] = [2, 5, 15, 60, 300]
     static let conflictReason = "Server draft changed. Choose Keep Mine or Load Server."
+    static let divergentCustodyReason = "A different current page is held for separate review."
+    static let custodyChoiceRecordedReason = "Review choice recorded; copies remain held."
+    static let custodyChoiceCompletedReason = "Selected copy saved; other copies remain held."
+    static let custodySubmissionInterruptedReason = "Selected save outcome needs review; copies remain held."
+    static let custodySupersededReason = "Selected copy was saved before a newer server version."
     static let unconfirmedReceiptReason = "The server response did not prove this exact screenplay save."
     static let loadServerDeferredReason = "Newer local words are held for an explicit recovery choice."
     static let unprovenPredecessorReason = "The earlier save outcome could not be proven. Review this exact local save before sending it."
@@ -363,6 +410,7 @@ actor ScreenplayDraftSaveOutbox {
     private let manifestURL: URL
     private let fileManager: FileManager
     private let manifestWriter: @Sendable (Data, URL) throws -> Void
+    private let supersededReceiptReader: @Sendable (URL) throws -> Data
     private var didLoad = false
     private var entries: [ScreenplayDraftSaveOutboxEntry] = []
     private var retirementMarkers: [ScreenplayDraftSaveOutboxEntry] = []
@@ -374,12 +422,14 @@ actor ScreenplayDraftSaveOutbox {
         fileManager: FileManager = .default,
         manifestWriter: @escaping @Sendable (Data, URL) throws -> Void = { data, url in
             try data.write(to: url, options: .atomic)
-        }
+        },
+        supersededReceiptReader: @escaping @Sendable (URL) throws -> Data = { try Data(contentsOf: $0) }
     ) {
         self.storageDirectory = storageDirectory
         self.manifestURL = storageDirectory.appendingPathComponent("queue.json")
         self.fileManager = fileManager
         self.manifestWriter = manifestWriter
+        self.supersededReceiptReader = supersededReceiptReader
     }
 
     func startNetworkMonitoring() {
@@ -408,6 +458,27 @@ actor ScreenplayDraftSaveOutbox {
         networkMonitor?.cancel()
         networkMonitor = nil
     }
+
+#if DEBUG
+    // Test-only relationships, with no screenplay text, identifiers, or hashes.
+    func debugParkedRelationships(ownerUserId: String, projectId: String) -> [String] {
+        guard (try? loadIfNeeded()) != nil else { return ["storage_unreadable"] }
+        let rows = entries.filter { $0.ownerUserId == ownerUserId &&
+            ($0.status == .parked || ($0.initialization == nil && !hasValidDeliveryScope($0))) }
+        guard let first = rows.first else { return [] }
+        return rows.map { row in
+            [row.projectId == projectId ? "current_project" : "other_project",
+             row.status == .parked ? "parked" : "invalid_scope",
+             hasValidDeliveryScope(row) ? "valid_scope" : "invalid_scope",
+             row.isPassiveAutosave ? "passive" : "nonpassive",
+             row.draft.utf8.elementsEqual(first.draft.utf8) ? "same_draft" : "different_draft",
+             row.baseVersionId == first.baseVersionId ? "same_base" : "different_base",
+             row.deliveryOrigin == first.deliveryOrigin ? "same_origin" : "different_origin",
+             row.savePredecessor == nil ? "no_predecessor" : "has_predecessor",
+             row.hasSameTargetIgnoringBindingUpdateTime(as: first) ? "same_target" : "different_target"].joined(separator: ",")
+        }
+    }
+#endif
 
     func snapshot(ownerUserId: String? = nil) -> ScreenplayDraftSaveOutboxSnapshot {
         do {
@@ -639,6 +710,7 @@ actor ScreenplayDraftSaveOutbox {
     /// Canonical identity and inflight admission share one actor transaction.
     func beginDelivery(_ entry: ScreenplayDraftSaveOutboxEntry,
         continuingInflightID: String? = nil) throws -> ScreenplayDraftSaveDelivery {
+        guard entry.source != "studio_custody_selected" else { throw BackendMemoryAPIError.invalidResponse }
         let retained = try enqueueForDelivery(entry)
         guard deferredConflictRequestsAreCurrent(for: retained) else {
             throw BackendMemoryAPIError.invalidResponse
@@ -669,6 +741,394 @@ actor ScreenplayDraftSaveOutbox {
         try markInflight(id: retained.id)
         guard let inflight = entries.first(where: { $0.id == retained.id }) else { throw BackendMemoryAPIError.invalidResponse }
         return .deliver(inflight)
+    }
+
+    /// Keep the current full projection in the same durable manifest as the
+    /// exact parked conflict. Neither row authorizes retirement of the other.
+    func holdDivergentConflictPage(_ candidate: ScreenplayDraftSaveOutboxEntry,
+                                   alongside retained: ScreenplayDraftSaveOutboxEntry) throws {
+        try loadIfNeeded()
+        guard let origin = retained.deliveryOrigin, candidate.deliveryOrigin == origin,
+              candidate.ownerUserId == retained.ownerUserId, candidate.projectId == retained.projectId,
+              candidate.status == .parked, candidate.lastError == Self.divergentCustodyReason,
+              candidate.id != retained.id, hasValidDeliveryScope(candidate),
+              let stored = entries.first(where: { $0.id == retained.id }),
+              stored.status == .parked, isWriterDecisionParked(stored),
+              sameImmutableRequest(stored, retained) else { throw BackendMemoryAPIError.invalidResponse }
+        _ = try enqueueForDelivery(candidate)
+        let readback = try Self.decodeStoredEntries(Data(contentsOf: manifestURL))
+        guard readback.contains(where: { $0.id == candidate.id && $0.status == .parked &&
+                  $0.lastError == Self.divergentCustodyReason && sameImmutableRequest($0, candidate) }),
+              readback.contains(where: { $0.id == retained.id && $0.status == .parked &&
+                  sameImmutableRequest($0, retained) }) else { throw BackendMemoryAPIError.invalidResponse }
+    }
+
+    func hasDivergentConflictCustody(projectId: String, ownerUserId: String,
+                                     deliveryOrigin: ScreenplayDraftSaveOrigin) throws -> Bool {
+        try loadIfNeeded()
+        return entries.contains { $0.status == .parked && $0.lastError == Self.divergentCustodyReason &&
+            exactScope($0, projectId: projectId, ownerUserId: ownerUserId, deliveryOrigin: deliveryOrigin) }
+    }
+
+    /// Record a review selection without changing either held copy. The v5
+    /// manifest prevents older readers from dropping this exact-row authority.
+    func recordCustodyChoice(selectedID: String, projectID: String, ownerUserID: String,
+                             deliveryOrigin: ScreenplayDraftSaveOrigin) throws -> ScreenplayDraftCustodyChoice {
+        try loadIfNeeded()
+        try validateScope(projectId: projectID, ownerUserId: ownerUserID, deliveryOrigin: deliveryOrigin)
+        let durable = try Self.decodeStoredEntries(Data(contentsOf: manifestURL))
+        guard try verifiedSupersededRowsAreCurrent(durable) else { throw BackendMemoryAPIError.invalidResponse }
+        let scoped = durable.filter { $0.status == .parked && isWriterDecisionParked($0) &&
+            exactScope($0, projectId: projectID, ownerUserId: ownerUserID, deliveryOrigin: deliveryOrigin) }
+        let active = durable.filter { ($0.status == .pending || $0.status == .inflight ||
+            ($0.source == "studio_custody_selected" && $0.custodySupersededReceipt == nil)) &&
+            exactScope($0, projectId: projectID, ownerUserId: ownerUserID, deliveryOrigin: deliveryOrigin) }
+        let actorScoped = entries.filter { $0.status == .parked && isWriterDecisionParked($0) &&
+            exactScope($0, projectId: projectID, ownerUserId: ownerUserID, deliveryOrigin: deliveryOrigin) }
+        guard active.isEmpty, Set(actorScoped.map(\.id)) == Set(scoped.map(\.id)), scoped.count >= 2,
+              scoped.contains(where: { $0.lastError == Self.divergentCustodyReason }),
+              let selected = scoped.first(where: { $0.id == selectedID }),
+              scoped.allSatisfy({ disk in entries.contains(where: { $0.id == disk.id && $0.status == .parked &&
+                  $0.lastError == disk.lastError && sameImmutableRequest($0, disk) }) }) else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        let references = try scoped.filter { $0.id != selectedID }.map(makeConflictReference).sorted { $0.requestID < $1.requestID }
+        let choice = ScreenplayDraftCustodyChoice(selected: try makeConflictReference(selected), unchosen: references)
+        let diskMarkers = durable.filter { $0.source == "studio_custody_review_choice" &&
+            exactScope($0, projectId: projectID, ownerUserId: ownerUserID, deliveryOrigin: deliveryOrigin) }
+        let actorMarkers = entries.filter { $0.source == "studio_custody_review_choice" &&
+            exactScope($0, projectId: projectID, ownerUserId: ownerUserID, deliveryOrigin: deliveryOrigin) }
+        guard Set(diskMarkers.map(\.id)) == Set(actorMarkers.map(\.id)), diskMarkers.allSatisfy({ disk in
+            disk.status == .parked &&
+                (disk.lastError == Self.custodyChoiceRecordedReason || disk.lastError == Self.custodyChoiceCompletedReason) &&
+                actorMarkers.contains { $0.id == disk.id && $0.status == disk.status && $0.lastError == disk.lastError &&
+                    sameImmutableRequest($0, disk) }
+        }) else { throw BackendMemoryAPIError.invalidResponse }
+        let completedMarkers = durable.filter { $0.source == "studio_custody_review_choice" && $0.status == .parked &&
+            $0.lastError == Self.custodyChoiceCompletedReason &&
+            exactScope($0, projectId: projectID, ownerUserId: ownerUserID, deliveryOrigin: deliveryOrigin) }
+        guard completedMarkers.allSatisfy({ marker in
+            guard let prior = marker.custodyChoice, let receipt = marker.custodyReceipt else { return false }
+            return validIdentifier(receipt.submissionRequestID) && validIdentifier(receipt.serverVersionID) &&
+                prior.selected.projectId == projectID && prior.selected.ownerUserId == ownerUserID &&
+                prior.selected.deliveryOrigin == deliveryOrigin
+        }) else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        let existingMarkers = durable.filter { $0.source == "studio_custody_review_choice" && $0.status == .parked &&
+            $0.lastError == Self.custodyChoiceRecordedReason &&
+            exactScope($0, projectId: projectID, ownerUserId: ownerUserID, deliveryOrigin: deliveryOrigin) }
+        guard existingMarkers.count <= 1 else { throw BackendMemoryAPIError.invalidResponse }
+        if let existing = existingMarkers.first {
+            guard let index = entries.firstIndex(where: { $0.id == existing.id && $0.status == .parked &&
+                $0.custodyChoice == existing.custodyChoice && sameImmutableRequest($0, existing) }),
+                existing.custodyChoice != nil, existing.lastError == Self.custodyChoiceRecordedReason else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+            let previous = entries
+            entries[index].custodyChoice = choice
+            do { try persist() } catch { entries = previous; throw error }
+            guard try custodyChoice(projectID: projectID, ownerUserID: ownerUserID, deliveryOrigin: deliveryOrigin) == choice else {
+                throw BackendMemoryAPIError.invalidResponse
+            }
+            publishSnapshot()
+            return choice
+        }
+        let now = Date().timeIntervalSince1970
+        var marker = ScreenplayDraftSaveOutboxEntry(id: UUID().uuidString.lowercased(), projectId: projectID,
+            ownerUserId: ownerUserID, draft: selected.draft, title: selected.title, phase: selected.phase,
+            notes: "Review choice recorded; no save was sent", source: "studio_custody_review_choice",
+            studioWriteAnchors: selected.studioWriteAnchors, screenplayBindings: selected.screenplayBindings,
+            baseVersionId: selected.baseVersionId, createdAt: now, updatedAt: now, status: .parked,
+            retries: 0, nextAttemptAt: 0, lastError: Self.custodyChoiceRecordedReason)
+        marker.deliveryOrigin = deliveryOrigin
+        marker.saveOrderingVersion = 1
+        marker.custodyChoice = choice
+        let previous = entries
+        entries.append(marker)
+        do { try persist() } catch { entries = previous; throw error }
+        guard try custodyChoice(projectID: projectID, ownerUserID: ownerUserID, deliveryOrigin: deliveryOrigin) == choice else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        publishSnapshot()
+        return choice
+    }
+
+    /// Re-read and verify every referenced full row; a missing or changed row
+    /// cannot authorize a future action merely because its text still matches.
+    func custodyChoice(projectID: String, ownerUserID: String,
+                       deliveryOrigin: ScreenplayDraftSaveOrigin) throws -> ScreenplayDraftCustodyChoice? {
+        try validateScope(projectId: projectID, ownerUserId: ownerUserID, deliveryOrigin: deliveryOrigin)
+        guard fileManager.fileExists(atPath: manifestURL.path) else { return nil }
+        let durable = try Self.decodeStoredEntries(Data(contentsOf: manifestURL))
+        let markers = durable.filter { $0.source == "studio_custody_review_choice" && $0.status == .parked &&
+            $0.lastError == Self.custodyChoiceRecordedReason &&
+            exactScope($0, projectId: projectID, ownerUserId: ownerUserID, deliveryOrigin: deliveryOrigin) }
+        guard markers.count <= 1 else { throw BackendMemoryAPIError.invalidResponse }
+        guard let marker = markers.first, let choice = marker.custodyChoice else {
+            if !markers.isEmpty { throw BackendMemoryAPIError.invalidResponse }
+            return nil
+        }
+        let refs = [choice.selected] + choice.unchosen
+        let scoped = durable.filter { $0.status == .parked && isWriterDecisionParked($0) &&
+            exactScope($0, projectId: projectID, ownerUserId: ownerUserID, deliveryOrigin: deliveryOrigin) }
+        guard !choice.unchosen.isEmpty, Set(refs.map(\.requestID)).count == refs.count,
+              Set(scoped.map(\.id)) == Set(refs.map(\.requestID)),
+              refs.allSatisfy({ reference in
+                  reference.projectId == projectID && reference.ownerUserId == ownerUserID &&
+                  reference.deliveryOrigin == deliveryOrigin && durable.contains(where: { row in
+                      row.status == .parked && isWriterDecisionParked(row) && conflictReference(reference, matches: row)
+                  })
+              }) else { throw BackendMemoryAPIError.invalidResponse }
+        return choice
+    }
+
+    /// One explicit selected-copy submission may pass the held-row fence.
+    /// The server base must come from a fresh authenticated project read.
+    func beginCustodyChoiceDelivery(_ submitted: ScreenplayDraftSaveOutboxEntry) throws -> ScreenplayDraftSaveDelivery {
+        try loadIfNeeded()
+        let durableBefore = try Self.decodeStoredEntries(Data(contentsOf: manifestURL))
+        guard try verifiedSupersededRowsAreCurrent(durableBefore),
+              submitted.source == "studio_custody_selected", submitted.status == .pending,
+              submitted.custodySupersededReceipt == nil,
+              submitted.hasExplicitBaseSelection, !submitted.baseVersionId.isEmpty,
+              submitted.supersededConflictRequests.isEmpty, submitted.deferredConflictRequests.isEmpty,
+              submitted.savePredecessor == nil, submitted.requestAuthority != nil,
+              let origin = submitted.deliveryOrigin, let choice = submitted.custodyChoice,
+              try custodyChoice(projectID: submitted.projectId, ownerUserID: submitted.ownerUserId,
+                  deliveryOrigin: origin) == choice,
+              let marker = entries.first(where: { $0.source == "studio_custody_review_choice" &&
+                  $0.custodyChoice == choice && $0.lastError == Self.custodyChoiceRecordedReason &&
+                  exactScope($0, projectId: submitted.projectId, ownerUserId: submitted.ownerUserId, deliveryOrigin: origin) }),
+              marker.status == .parked,
+              let selected = entries.first(where: { conflictReference(choice.selected, matches: $0) && $0.status == .parked }),
+              submitted.draft.utf8.elementsEqual(selected.draft.utf8),
+              submitted.title.utf8.elementsEqual(selected.title.utf8),
+              submitted.phase.utf8.elementsEqual(selected.phase.utf8),
+              submitted.notes.utf8.elementsEqual(selected.notes.utf8),
+              try exactEncodedForCustody(submitted.studioWriteAnchors, selected.studioWriteAnchors),
+              try exactEncodedForCustody(submitted.screenplayBindings, selected.screenplayBindings),
+              !entries.contains(where: { $0.id == submitted.id ||
+                  (exactScope($0, projectId: submitted.projectId, ownerUserId: submitted.ownerUserId, deliveryOrigin: origin) &&
+                   ($0.status == .pending || $0.status == .inflight ||
+                    ($0.source == "studio_custody_selected" && $0.custodySupersededReceipt == nil))) }),
+              !durableBefore.contains(where: { $0.id == submitted.id ||
+                  (exactScope($0, projectId: submitted.projectId, ownerUserId: submitted.ownerUserId, deliveryOrigin: origin) &&
+                   ($0.status == .pending || $0.status == .inflight ||
+                    ($0.source == "studio_custody_selected" && $0.custodySupersededReceipt == nil))) }),
+              !durableBefore.contains(where: { $0.source == "studio_custody_review_choice" &&
+                  $0.lastError == Self.custodyChoiceCompletedReason && $0.custodyChoice?.selected == choice.selected &&
+                  $0.custodyReceipt?.serverVersionID == submitted.baseVersionId &&
+                  exactScope($0, projectId: submitted.projectId, ownerUserId: submitted.ownerUserId, deliveryOrigin: origin) }),
+              !hasUnscopedConflict(projectId: submitted.projectId, ownerUserId: submitted.ownerUserId) else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        var inflight = submitted
+        inflight.status = .inflight
+        let previous = entries
+        entries.append(inflight)
+        do { try persist() } catch { entries = previous; throw error }
+        let durable = try Self.decodeStoredEntries(Data(contentsOf: manifestURL))
+        guard durable.contains(where: { $0.id == inflight.id && $0.status == .inflight && sameImmutableRequest($0, inflight) }),
+              try custodyChoice(projectID: submitted.projectId, ownerUserID: submitted.ownerUserId, deliveryOrigin: origin) == choice else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        publishSnapshot()
+        return .deliver(inflight)
+    }
+
+    private func exactEncodedForCustody<T: Encodable>(_ lhs: T, _ rhs: T) throws -> Bool {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return try encoder.encode(lhs) == encoder.encode(rhs)
+    }
+
+    /// Ignore a terminal attempt only if its exact request and every held
+    /// source reference remain durable in this same account/document scope.
+    private func isValidSupersededCustody(_ row: ScreenplayDraftSaveOutboxEntry,
+                                          in durable: [ScreenplayDraftSaveOutboxEntry]) -> Bool {
+        guard row.source == "studio_custody_selected", row.status == .parked,
+              row.lastError == Self.custodySupersededReason, row.custodyReceipt == nil,
+              let receipt = row.custodySupersededReceipt, let choice = row.custodyChoice,
+              let origin = row.deliveryOrigin, row.hasExplicitBaseSelection, row.requestAuthority != nil,
+              hasValidDeliveryScope(row), validIdentifier(row.baseVersionId),
+              receipt.httpStatusCode == 409, receipt.proof == "full_request_hash_v1",
+              validIdentifier(receipt.savedVersionID), validIdentifier(receipt.serverHeadID),
+              !receipt.savedVersionID.utf8.elementsEqual(receipt.serverHeadID.utf8),
+              validRequestDigest(receipt.requestDigest),
+              (try? conflictRequestDigest(row)) == receipt.requestDigest else { return false }
+        let refs = [choice.selected] + choice.unchosen
+        guard !choice.unchosen.isEmpty, Set(refs.map(\.requestID)).count == refs.count,
+              let selected = durable.first(where: { $0.status == .parked && isWriterDecisionParked($0) &&
+                  conflictReference(choice.selected, matches: $0) }),
+              row.draft.utf8.elementsEqual(selected.draft.utf8), row.title.utf8.elementsEqual(selected.title.utf8),
+              row.phase.utf8.elementsEqual(selected.phase.utf8), row.notes.utf8.elementsEqual(selected.notes.utf8),
+              (try? exactEncodedForCustody(row.studioWriteAnchors, selected.studioWriteAnchors)) == true,
+              (try? exactEncodedForCustody(row.screenplayBindings, selected.screenplayBindings)) == true else { return false }
+        return refs.allSatisfy { ref in
+            ref.projectId == row.projectId && ref.ownerUserId == row.ownerUserId && ref.deliveryOrigin == origin &&
+                durable.contains { $0.status == .parked && isWriterDecisionParked($0) && conflictReference(ref, matches: $0) }
+        }
+    }
+
+    private func verifiedSupersededRowsAreCurrent(_ durable: [ScreenplayDraftSaveOutboxEntry]) throws -> Bool {
+        let stored = durable.filter { $0.custodySupersededReceipt != nil }
+        let inMemory = entries + retirementMarkers
+        let memory = inMemory.filter { $0.custodySupersededReceipt != nil }
+        guard !stored.isEmpty || !memory.isEmpty else { return true }
+        guard Set(durable.map(\.id)).count == durable.count, Set(inMemory.map(\.id)).count == inMemory.count,
+              try exactEncodedForCustody(durable.sorted { $0.id < $1.id }, inMemory.sorted { $0.id < $1.id }) else { return false }
+        return stored.allSatisfy { isValidSupersededCustody($0, in: durable) }
+    }
+
+    /// An interrupted selected-copy submission may only be retried explicitly,
+    /// using the original request and base. A new ID could duplicate a save.
+    func interruptedCustodySubmission(selectedID: String, projectID: String, ownerUserID: String,
+                                      deliveryOrigin: ScreenplayDraftSaveOrigin) throws -> ScreenplayDraftSaveOutboxEntry? {
+        try loadIfNeeded()
+        try validateScope(projectId: projectID, ownerUserId: ownerUserID, deliveryOrigin: deliveryOrigin)
+        let durable = try Self.decodeStoredEntries(Data(contentsOf: manifestURL))
+        let inMemory = entries + retirementMarkers
+        guard Set(durable.map(\.id)).count == durable.count,
+              Set(inMemory.map(\.id)).count == inMemory.count,
+              try exactEncodedForCustody(durable.sorted { $0.id < $1.id }, inMemory.sorted { $0.id < $1.id }) else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        guard try verifiedSupersededRowsAreCurrent(durable) else { throw BackendMemoryAPIError.invalidResponse }
+        let submissions = durable.filter { $0.source == "studio_custody_selected" && $0.custodySupersededReceipt == nil &&
+            exactScope($0, projectId: projectID, ownerUserId: ownerUserID, deliveryOrigin: deliveryOrigin) }
+        guard !submissions.isEmpty else { return nil }
+        guard submissions.count == 1, let stored = submissions.first, stored.status == .parked,
+              let choice = stored.custodyChoice, choice.selected.requestID == selectedID,
+              stored.hasExplicitBaseSelection, !stored.baseVersionId.isEmpty, stored.requestAuthority != nil,
+              stored.supersededConflictRequests.isEmpty, stored.deferredConflictRequests.isEmpty,
+              stored.savePredecessor == nil,
+              try custodyChoice(projectID: projectID, ownerUserID: ownerUserID, deliveryOrigin: deliveryOrigin) == choice,
+              let selected = durable.first(where: { $0.status == .parked && conflictReference(choice.selected, matches: $0) }),
+              stored.draft.utf8.elementsEqual(selected.draft.utf8),
+              stored.title.utf8.elementsEqual(selected.title.utf8),
+              stored.phase.utf8.elementsEqual(selected.phase.utf8),
+              stored.notes.utf8.elementsEqual(selected.notes.utf8),
+              try exactEncodedForCustody(stored.studioWriteAnchors, selected.studioWriteAnchors),
+              try exactEncodedForCustody(stored.screenplayBindings, selected.screenplayBindings),
+              entries.contains(where: { $0.id == stored.id && $0.status == .parked && sameImmutableRequest($0, stored) }),
+              !durable.contains(where: { $0.id != stored.id && ($0.status == .pending || $0.status == .inflight) &&
+                  exactScope($0, projectId: projectID, ownerUserId: ownerUserID, deliveryOrigin: deliveryOrigin) }),
+              !hasUnscopedConflict(projectId: projectID, ownerUserId: ownerUserID) else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        return stored
+    }
+
+    func beginCustodyRetry(_ request: ScreenplayDraftSaveOutboxEntry) throws -> ScreenplayDraftSaveDelivery {
+        guard let origin = request.deliveryOrigin, let choice = request.custodyChoice,
+              let held = try interruptedCustodySubmission(selectedID: choice.selected.requestID,
+                  projectID: request.projectId, ownerUserID: request.ownerUserId, deliveryOrigin: origin),
+              held.id == request.id, sameImmutableRequest(held, request),
+              let index = entries.firstIndex(where: { $0.id == held.id && $0.status == .parked && sameImmutableRequest($0, held) }) else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        let previous = entries
+        entries[index].status = .inflight
+        entries[index].nextAttemptAt = 0
+        do { try persist() } catch { entries = previous; throw error }
+        let durable = try Self.decodeStoredEntries(Data(contentsOf: manifestURL))
+        guard let claimed = durable.first(where: { $0.id == held.id && $0.status == .inflight && sameImmutableRequest($0, held) }),
+              try custodyChoice(projectID: held.projectId, ownerUserID: held.ownerUserId, deliveryOrigin: origin) == choice else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        publishSnapshot()
+        return .deliver(claimed)
+    }
+
+    /// Preserve the exact submitted request and all source copies after an
+    /// authenticated full-hash replay proves this save was superseded.
+    func recordConfirmedSupersededCustody(_ submission: ScreenplayDraftSaveOutboxEntry,
+        evidence: ScreenplayConfirmedSupersededCustodySave) throws {
+        try loadIfNeeded()
+        guard submission.source == "studio_custody_selected", submission.custodySupersededReceipt == nil,
+              let origin = submission.deliveryOrigin, let choice = submission.custodyChoice,
+              evidence.saved.requestID.utf8.elementsEqual(submission.id.utf8),
+              evidence.saved.owner.userID.utf8.elementsEqual(submission.ownerUserId.utf8),
+              evidence.saved.projectID.utf8.elementsEqual(submission.projectId.utf8),
+              evidence.saved.documentID.utf8.elementsEqual(origin.documentID.utf8),
+              evidence.saved.draft.utf8.elementsEqual(submission.draft.utf8),
+              origin.permitsBackend(evidence.saved.backendURL),
+              validIdentifier(evidence.saved.versionID), validIdentifier(evidence.serverHeadID),
+              !evidence.saved.versionID.utf8.elementsEqual(evidence.serverHeadID.utf8),
+              try custodyChoice(projectID: submission.projectId, ownerUserID: submission.ownerUserId,
+                  deliveryOrigin: origin) == choice,
+              let index = entries.firstIndex(where: { $0.id == submission.id && $0.status == .inflight &&
+                  $0.custodySupersededReceipt == nil && sameImmutableRequest($0, submission) }) else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        let before = try Self.decodeStoredEntries(Data(contentsOf: manifestURL))
+        let memory = entries + retirementMarkers
+        guard Set(before.map(\.id)).count == before.count, Set(memory.map(\.id)).count == memory.count,
+              try exactEncodedForCustody(before.sorted { $0.id < $1.id }, memory.sorted { $0.id < $1.id }),
+              try verifiedSupersededRowsAreCurrent(before),
+              before.contains(where: { $0.id == submission.id && $0.status == .inflight &&
+                  $0.custodySupersededReceipt == nil && sameImmutableRequest($0, submission) }) else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        let previous = entries
+        entries[index].status = .parked
+        entries[index].nextAttemptAt = 0
+        entries[index].lastError = Self.custodySupersededReason
+        entries[index].custodySupersededReceipt = .init(requestDigest: try conflictRequestDigest(submission),
+            savedVersionID: evidence.saved.versionID, serverHeadID: evidence.serverHeadID,
+            proof: "full_request_hash_v1", httpStatusCode: 409)
+        do { try persist() } catch { entries = previous; throw error }
+        let readback = try Self.decodeStoredEntries(supersededReceiptReader(manifestURL))
+        guard try verifiedSupersededRowsAreCurrent(readback),
+              readback.contains(where: { $0.id == submission.id && isValidSupersededCustody($0, in: readback) }),
+              try custodyChoice(projectID: submission.projectId, ownerUserID: submission.ownerUserId,
+                  deliveryOrigin: origin) == choice else { throw BackendMemoryAPIError.invalidResponse }
+        publishSnapshot()
+    }
+
+    /// The caller must validate the server's exact title, phase, notes, source,
+    /// anchors and bindings before presenting this acknowledgement.
+    func completeConfirmedCustodyChoice(_ submission: ScreenplayDraftSaveOutboxEntry,
+        evidence: ScreenplayConfirmedDraftSave, echoedRequestID: String) throws {
+        try loadIfNeeded()
+        guard submission.source == "studio_custody_selected", let origin = submission.deliveryOrigin,
+              let choice = submission.custodyChoice,
+              try custodyChoice(projectID: submission.projectId, ownerUserID: submission.ownerUserId,
+                  deliveryOrigin: origin) == choice,
+              let index = entries.firstIndex(where: { $0.id == submission.id && $0.status == .inflight &&
+                  sameImmutableRequest($0, submission) }),
+              let markerIndex = entries.firstIndex(where: { $0.source == "studio_custody_review_choice" &&
+                  $0.custodyChoice == choice && $0.lastError == Self.custodyChoiceRecordedReason &&
+                  exactScope($0, projectId: submission.projectId, ownerUserId: submission.ownerUserId, deliveryOrigin: origin) }),
+              echoedRequestID == submission.id, evidence.requestID == submission.id,
+              evidence.owner.userID == submission.ownerUserId, evidence.projectID == submission.projectId,
+              evidence.draft.utf8.elementsEqual(submission.draft.utf8), validIdentifier(evidence.versionID),
+              evidence.documentID == origin.documentID, origin.permitsBackend(evidence.backendURL) else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        let beforeWrite = try Self.decodeStoredEntries(Data(contentsOf: manifestURL))
+        guard beforeWrite.contains(where: { $0.id == submission.id && $0.status == .inflight &&
+            sameImmutableRequest($0, submission) }),
+              beforeWrite.contains(where: { $0.id == entries[markerIndex].id && $0.status == .parked &&
+                  $0.lastError == Self.custodyChoiceRecordedReason && sameImmutableRequest($0, entries[markerIndex]) }) else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        let markerID = entries[markerIndex].id
+        let previous = entries
+        entries[markerIndex].lastError = Self.custodyChoiceCompletedReason
+        entries[markerIndex].custodyReceipt = .init(submissionRequestID: submission.id, serverVersionID: evidence.versionID)
+        entries.remove(at: index)
+        do { try persist() } catch { entries = previous; throw error }
+        let readback = try Self.decodeStoredEntries(Data(contentsOf: manifestURL))
+        guard !readback.contains(where: { $0.id == submission.id }),
+              readback.contains(where: { $0.id == markerID && $0.status == .parked &&
+                  $0.lastError == Self.custodyChoiceCompletedReason && $0.custodyChoice == choice &&
+                  $0.custodyReceipt == .init(submissionRequestID: submission.id, serverVersionID: evidence.versionID) }),
+              ([choice.selected] + choice.unchosen).allSatisfy({ reference in
+                  readback.contains { $0.status == .parked && isWriterDecisionParked($0) && conflictReference(reference, matches: $0) }
+              }) else { throw BackendMemoryAPIError.invalidResponse }
+        publishSnapshot()
     }
 
     /// Check the actual stored row before absorbing an identical passive retry.
@@ -735,6 +1195,17 @@ actor ScreenplayDraftSaveOutbox {
                 blockingConflicts.append(candidate)
                 continue
             }
+            // A custody selection is never automatically replayed. Its prior
+            // server outcome must be reviewed after interruption or failure.
+            if candidate.source == "studio_custody_selected", candidate.status == .pending {
+                let previous = entries
+                entries[index].status = .parked
+                entries[index].nextAttemptAt = 0
+                entries[index].lastError = Self.custodySubmissionInterruptedReason
+                do { try persist() } catch { entries = previous; throw error }
+                publishSnapshot()
+                return nil
+            }
             // A legacy resolution with no verifiable scope or lineage cannot
             // be replayed. Park it even when its origin is missing so recovery
             // can surface its words and fence subsequent writes.
@@ -789,7 +1260,13 @@ actor ScreenplayDraftSaveOutbox {
               entries[index].status == .inflight,
               sameImmutableRequest(entries[index], request) else { return }
         let previous = entries
-        entries[index].status = .pending
+        if request.source == "studio_custody_selected" {
+            entries[index].status = .parked
+            entries[index].nextAttemptAt = 0
+            entries[index].lastError = Self.custodySubmissionInterruptedReason
+        } else {
+            entries[index].status = .pending
+        }
         do { try persist() } catch { entries = previous; throw error }
         publishSnapshot()
     }
@@ -844,6 +1321,7 @@ actor ScreenplayDraftSaveOutbox {
     ) throws -> Bool {
         try loadIfNeeded()
         guard let index = entries.firstIndex(where: { $0.id == id }),
+              entries[index].custodySupersededReceipt == nil,
               !requireInflight || entries[index].status == .inflight else { return false }
         // A legacy broad supersession flag is not authority to retire unrelated
         // rows. Exact conflict lineage is handled by the confirmed path below.
@@ -1022,6 +1500,9 @@ actor ScreenplayDraftSaveOutbox {
 
     func remove(id: String) throws {
         try loadIfNeeded()
+        guard !entries.contains(where: { $0.id == id && $0.custodySupersededReceipt != nil }) else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
         let previous = entries
         entries.removeAll { $0.id == id }
         do { try persist() } catch { entries = previous; throw error }
@@ -1534,6 +2015,7 @@ actor ScreenplayDraftSaveOutbox {
     func markRetryable(id: String, error: String, now: Date = Date()) throws {
         try loadIfNeeded()
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+        guard entries[index].custodySupersededReceipt == nil else { throw BackendMemoryAPIError.invalidResponse }
         let previous = entries[index]
         let retryCount = entries[index].retries + 1
         entries[index].retries = retryCount
@@ -1556,6 +2038,7 @@ actor ScreenplayDraftSaveOutbox {
     func markParked(id: String, error: String, now: Date = Date()) throws {
         try loadIfNeeded()
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+        guard entries[index].custodySupersededReceipt == nil else { throw BackendMemoryAPIError.invalidResponse }
         let previous = entries[index]
         entries[index].status = .parked
         entries[index].updatedAt = now.timeIntervalSince1970
@@ -1843,9 +2326,14 @@ actor ScreenplayDraftSaveOutbox {
         }
         let now = Date().timeIntervalSince1970
         for index in restoredEntries.indices where restoredEntries[index].status == .inflight ||
+            (restoredEntries[index].status == .pending && restoredEntries[index].source == "studio_custody_selected") ||
             (restoredEntries[index].status == .pending && restoredEntries[index].source == "studio_conflict_resolve" &&
              (restoredEntries[index].saveOrderingVersion == nil || !hasValidDeliveryScope(restoredEntries[index]))) {
-            if restoredEntries[index].source == "studio_conflict_resolve" {
+            if restoredEntries[index].source == "studio_custody_selected" {
+                restoredEntries[index].status = .parked
+                restoredEntries[index].nextAttemptAt = 0
+                restoredEntries[index].lastError = Self.custodySubmissionInterruptedReason
+            } else if restoredEntries[index].source == "studio_conflict_resolve" {
                 restoredEntries[index].status = .parked
                 restoredEntries[index].nextAttemptAt = 0
                 restoredEntries[index].lastError = Self.conflictReason
@@ -1855,6 +2343,10 @@ actor ScreenplayDraftSaveOutbox {
                 restoredEntries[index].lastError = "Interrupted while saving."
             }
         }
+        let restored = restoredEntries + restoredMarkers
+        guard restored.filter({ $0.custodySupersededReceipt != nil }).allSatisfy({
+            isValidSupersededCustody($0, in: restored)
+        }) else { throw BackendMemoryAPIError.invalidResponse }
         entries = restoredEntries
         retirementMarkers = restoredMarkers
         try persist()
@@ -1870,6 +2362,7 @@ actor ScreenplayDraftSaveOutbox {
             // cannot accept, rewrite, and silently discard causal authority.
             guard legacyEntries.allSatisfy({
                 $0.saveOrderingVersion == nil && $0.savePredecessor == nil &&
+                    $0.custodyChoice == nil && $0.custodyReceipt == nil && $0.custodySupersededReceipt == nil &&
                     !$0.hasExplicitBaseSelection
             }) else { throw BackendMemoryAPIError.invalidResponse }
             return legacyEntries
@@ -1878,9 +2371,15 @@ actor ScreenplayDraftSaveOutbox {
         let hasLineage = manifest.entries.contains { !$0.supersededConflictRequests.isEmpty }
         let hasDeferred = manifest.entries.contains { !$0.deferredConflictRequests.isEmpty }
         let hasOrdering = manifest.entries.contains { $0.saveOrderingVersion != nil }
-        guard (manifest.schemaVersion == Self.lineageManifestSchemaVersion && hasLineage && !hasDeferred && !hasOrdering) ||
+        let hasCustodyChoice = manifest.entries.contains { $0.custodyChoice != nil }
+        let hasCustodyReceipt = manifest.entries.contains { $0.custodyReceipt != nil }
+        let hasCustodySuperseded = manifest.entries.contains { $0.custodySupersededReceipt != nil }
+        guard (manifest.schemaVersion == Self.custodySupersededManifestSchemaVersion && hasCustodyChoice && hasCustodySuperseded) ||
+              (!hasCustodySuperseded && manifest.schemaVersion == Self.custodyReceiptManifestSchemaVersion && hasCustodyChoice && hasCustodyReceipt) ||
+              (!hasCustodySuperseded && !hasCustodyReceipt && manifest.schemaVersion == Self.custodyChoiceManifestSchemaVersion && hasCustodyChoice) ||
+              (!hasCustodySuperseded && !hasCustodyChoice && !hasCustodyReceipt && ((manifest.schemaVersion == Self.lineageManifestSchemaVersion && hasLineage && !hasDeferred && !hasOrdering) ||
               (manifest.schemaVersion == Self.deferredManifestSchemaVersion && (hasLineage || hasDeferred) && !hasOrdering) ||
-              (manifest.schemaVersion == Self.orderedManifestSchemaVersion && hasOrdering) else {
+              (manifest.schemaVersion == Self.orderedManifestSchemaVersion && hasOrdering))) else {
             throw BackendMemoryAPIError.invalidResponse
         }
         guard manifest.entries.allSatisfy({ entry in
@@ -1900,7 +2399,23 @@ actor ScreenplayDraftSaveOutbox {
             if lhs.createdAt == rhs.createdAt { return lhs.id < rhs.id }
             return lhs.createdAt < rhs.createdAt
         }
-        let data = if stored.contains(where: { $0.saveOrderingVersion != nil }) {
+        guard stored.filter({ $0.custodySupersededReceipt != nil }).allSatisfy({
+            isValidSupersededCustody($0, in: stored)
+        }) else { throw BackendMemoryAPIError.invalidResponse }
+        let data = if stored.contains(where: { $0.custodySupersededReceipt != nil }) {
+            try encoder.encode(ScreenplayDraftSaveOutboxManifest(
+                schemaVersion: Self.custodySupersededManifestSchemaVersion, entries: stored
+            ))
+        } else if stored.contains(where: { $0.custodyReceipt != nil }) {
+            try encoder.encode(ScreenplayDraftSaveOutboxManifest(
+                schemaVersion: Self.custodyReceiptManifestSchemaVersion, entries: stored
+            ))
+        } else if stored.contains(where: { $0.custodyChoice != nil }) {
+            try encoder.encode(ScreenplayDraftSaveOutboxManifest(
+                schemaVersion: Self.custodyChoiceManifestSchemaVersion,
+                entries: stored
+            ))
+        } else if stored.contains(where: { $0.saveOrderingVersion != nil }) {
             try encoder.encode(ScreenplayDraftSaveOutboxManifest(
                 schemaVersion: Self.orderedManifestSchemaVersion,
                 entries: stored
@@ -1958,6 +2473,7 @@ actor ScreenplayDraftSaveOutbox {
 
     private func isWriterDecisionParked(_ entry: ScreenplayDraftSaveOutboxEntry) -> Bool {
         entry.lastError == Self.conflictReason ||
+            entry.lastError == Self.divergentCustodyReason ||
             entry.lastError == Self.loadServerDeferredReason ||
             entry.lastError == Self.unprovenPredecessorReason
     }
@@ -2310,6 +2826,14 @@ actor ScreenplayDraftSaveOutbox {
             appendCanonical(try encoder.encode(request.savePredecessor), to: &projection)
             projection.append(request.hasExplicitBaseSelection ? 1 : 0)
         }
+        if let choice = request.custodyChoice {
+            appendCanonical(Data("custody-choice-v1".utf8), to: &projection)
+            appendCanonical(try encoder.encode(choice), to: &projection)
+        }
+        if let receipt = request.custodyReceipt {
+            appendCanonical(Data("custody-receipt-v1".utf8), to: &projection)
+            appendCanonical(try encoder.encode(receipt), to: &projection)
+        }
         return SHA256.hash(data: projection).map { String(format: "%02x", $0) }.joined()
     }
 
@@ -2382,6 +2906,14 @@ actor ScreenplayDraftSaveOutbox {
             appendCanonicalInteger(UInt64(ordering), to: &projection)
             appendCanonical(try encoder.encode(request.savePredecessor), to: &projection)
             projection.append(request.hasExplicitBaseSelection ? 1 : 0)
+        }
+        if let choice = request.custodyChoice {
+            appendCanonical(Data("custody-choice-v1".utf8), to: &projection)
+            appendCanonical(try encoder.encode(choice), to: &projection)
+        }
+        if let receipt = request.custodyReceipt {
+            appendCanonical(Data("custody-receipt-v1".utf8), to: &projection)
+            appendCanonical(try encoder.encode(receipt), to: &projection)
         }
         return SHA256.hash(data: projection).map { String(format: "%02x", $0) }.joined()
     }
