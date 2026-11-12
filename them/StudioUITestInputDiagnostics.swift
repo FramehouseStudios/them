@@ -22,6 +22,10 @@ private enum StudioUITestPromptRoutingValue: String {
     }
 }
 
+enum StudioUITestInspectorTabPhase: String {
+    case appeared, entered, applied, observed, routed
+}
+
 #if DEBUG && canImport(UIKit)
 import UIKit
 import ObjectiveC
@@ -80,6 +84,24 @@ enum StudioUITestInputDiagnostics {
         })
     }
 
+    static func inspectorFrame(
+        tab: ScreenplayStudioScreen.DirectionOneRightPanelTab, frame: CGRect
+    ) {
+        guard requested else { return }
+        record(["kind": "inspector_frame", "space": "tabs", "tab": tab.rawValue,
+                "x": frame.minX, "y": frame.minY, "width": frame.width, "height": frame.height])
+    }
+
+    static func inspectorTab(
+        _ phase: StudioUITestInspectorTabPhase,
+        requestedTab: ScreenplayStudioScreen.DirectionOneRightPanelTab,
+        selection: ScreenplayStudioScreen.DirectionOneRightPanelTab
+    ) {
+        guard requested else { return }
+        record(["kind": "inspector_tab", "phase": phase.rawValue,
+                "requested": requestedTab.rawValue, "selection": selection.rawValue])
+    }
+
     fileprivate static func capture(_ event: UIEvent) {
         guard requested, event.type == .touches, let touches = event.allTouches else { return }
         for touch in touches where [.began, .ended, .cancelled].contains(touch.phase) {
@@ -90,7 +112,8 @@ enum StudioUITestInputDiagnostics {
                 ancestors.append(current); view = current.superview
             }
             var entry: [String: Any] = ["kind": "touch", "phase": touch.phase.rawValue,
-                "x": point.x, "y": point.y, "window_key": touch.window?.isKeyWindow ?? false,
+                "x": point.x, "y": point.y, "touch_major_radius": touch.majorRadius,
+                "touch_radius_tolerance": touch.majorRadiusTolerance, "window_key": touch.window?.isKeyWindow ?? false,
                 "scene_state": touch.window?.windowScene?.activationState.rawValue ?? -1,
                 "views": ancestors.map { ["class": NSStringFromClass(type(of: $0)),
                     "interaction": $0.isUserInteractionEnabled, "hidden": $0.isHidden] as [String: Any] },
@@ -131,6 +154,13 @@ enum StudioUITestInputDiagnostics {
         })
     }
 
+    static var inspectorNavigationSnapshot: String? {
+        serialize(records.filter {
+            guard let kind = $0["kind"] as? String else { return false }
+            return ["installed", "touch", "inspector_frame", "inspector_tab"].contains(kind)
+        })
+    }
+
     private static func serialize(_ entries: [[String: Any]]) -> String? {
         guard let data = try? JSONSerialization.data(withJSONObject: entries, options: [.sortedKeys]) else { return nil }
         return String(data: data, encoding: .utf8)
@@ -147,12 +177,13 @@ private extension UIApplication {
 
 private final class StudioInputTraceView: UIView {
     var partnerPageOnly = false
+    var inspectorNavigationOnly = false
 
     override var accessibilityValue: String? {
         get {
-            partnerPageOnly
-                ? StudioUITestInputDiagnostics.partnerPageSnapshot
-                : StudioUITestInputDiagnostics.snapshot
+            if partnerPageOnly { return StudioUITestInputDiagnostics.partnerPageSnapshot }
+            if inspectorNavigationOnly { return StudioUITestInputDiagnostics.inspectorNavigationSnapshot }
+            return StudioUITestInputDiagnostics.snapshot
         }
         set {}
     }
@@ -161,9 +192,11 @@ private final class StudioInputTraceView: UIView {
 struct StudioUITestInputDiagnosticsView: UIViewRepresentable {
     var identifier = "studio.debug.input.trace"
     var partnerPageOnly = false
+    var inspectorNavigationOnly = false
     func makeUIView(context: Context) -> UIView {
         let view = StudioInputTraceView()
         view.partnerPageOnly = partnerPageOnly
+        view.inspectorNavigationOnly = inspectorNavigationOnly
         view.isUserInteractionEnabled = false
         view.isAccessibilityElement = StudioUITestInputDiagnostics.requested
         view.accessibilityIdentifier = identifier
@@ -176,6 +209,12 @@ struct StudioUITestInputDiagnosticsView: UIViewRepresentable {
 @MainActor
 enum StudioUITestInputDiagnostics {
     static func installIfRequested() {}
+    static func inspectorFrame(tab: ScreenplayStudioScreen.DirectionOneRightPanelTab, frame: CGRect) {}
+    static func inspectorTab(
+        _ phase: StudioUITestInspectorTabPhase,
+        requestedTab: ScreenplayStudioScreen.DirectionOneRightPanelTab,
+        selection: ScreenplayStudioScreen.DirectionOneRightPanelTab
+    ) {}
     static func heldPreview(_ phase: StudioUITestHeldPreviewPhase, owner: AnyObject) {}
     static func binding(_ original: Binding<Bool>, owner: AnyObject) -> Binding<Bool> { original }
     static func partnerPage(_ phase: StudioUITestPartnerPagePhase) {}
@@ -184,6 +223,7 @@ enum StudioUITestInputDiagnostics {
 struct StudioUITestInputDiagnosticsView: View {
     var identifier = "studio.debug.input.trace"
     var partnerPageOnly = false
+    var inspectorNavigationOnly = false
     var body: some View { EmptyView() }
 }
 #endif

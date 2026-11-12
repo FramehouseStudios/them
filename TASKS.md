@@ -5,6 +5,24 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### Current checkpoint — T-1443 inspector integration (2026-11-12)
+
+- **Owner:** Codex (Jarvis), bounded read-only Luna integration review. Atlas/Howard currently unavailable due workspace credit errors; Alfred idle; prior Zora/Einstein custody handoffs retained, not independently re-proven this pass.
+- **Scope:** preserving merge8688c30f into5f48066e on `codex/T-1443-inspector-routing-integration`. Keep original commits, full Page/autosave/held-preview diagnostic APIs and unrelated dependency link. Separate filtered navigation trace ID from existing Page trace. No backend/auth change.
+- **Status:** in-progress; signed combined hit-testing/Page units, essential inspector/Page UI, Mac scaffold and D009/diff are pending. Parent proof below is inherited evidence, not proof of this combined tree.
+- **Hold:** no paid calls, production/main/original PR mutation, review bypass or new phone claim. Private editor416 requires external-mutation authority; account-formcbd requires verified-origin authority.
+
+### Current parent checkpoint — T-1438 / T-1441 (2026-11-12)
+
+- **Owner:** Codex (Jarvis); actual Luna evidence/source handoff. Other roles and credit limits are recorded in the proof. No human review substituted.
+- **Branch/source:** `codex/T-1438-foundation-hitbox-proof`, runtimec04886f9, parent original964831. This older parent repair is separate from the broader custody backup5f; do not conflate their test counts or source trees.
+- **Fixed:** a touch centred inside Them directly activated Saved. Typed native receipts and settled geometry established the boundary. Pointer centres now select the unique visible child rectangle; semantic Buttons retain their actions. No fixed screen coordinates, guessed radius or new god-view state.
+- **Proof:** retained5 failing edge runs → routed1/0/0 → final edge plus original ordinary inspector/scroll2/0/0. Signed focused units5/0/0 on identical final product/unit/UI source; Mac scaffold build0; actual831 D009 five0. Invalid local preflight/build invocation is retained, not counted as proof.
+- **Original work:** exact909 rectangle and511 rows preserved; original UI bodies untouched. Diagnostic APIs proved unused were removed; only bounded metadata remains. Backend/package/auth sources unchanged; no repeated full backend/unit suite or paid call.
+- **GitHub:** original964831 still red and draft; original904909 and997f68 unchanged. No main change or review bypass. Scoped verified branch publication only; exact push receipt lives in private proof. Production hold remains.
+- **Next:** preserve-merge this into the full rehearsal. Finish explicit external-mutation ownership before publishing private416; its equal-pending restore ambiguity is real. Private account-formcbd needs verified-origin authority. Physical phone/intended-backend core loop remains unproved; broader main/release gates and genuine review still required.
+- **Evidence/files:** `docs/foundation-inspector-edge-hit-2026-11-12.md`; private `_proof/T-1441-inspector-pointer-routing-20261112/proof.json`. READY FOR CONTINUE.
+
 ### Current checkpoint — T-1434 / T-1435 / T-1437 (2026-11-12)
 
 - **Owner:** Codex (Jarvis); actual bounded Atlas implementation, Luna hosted/native evidence and preserved904 reconciliation, Zora account-form investigation/implementation. Agent checks are not human approval.
