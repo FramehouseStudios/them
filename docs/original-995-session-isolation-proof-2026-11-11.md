@@ -1,6 +1,41 @@
 # Original #995 — session isolation and updated-parent proof
 
-## Current checkpoint — 2026-11-12
+## Prepared current-parent checkpoint — 2026-11-12
+
+Preserving merge **99374e94f74c7f3236c6c9386e11e2e4c4abea13** has parents
+previous locald1ab98e3 and actual published #996
+8965788660912c2d31f09dd1d9419c4dc83fbd89. All original commits remain
+ancestors. Versus896, own code is still only original #995's two session-ID
+hunks, four additions/one removal; the parent's new owned-copy recovery
+classifier and all strict Autosave/drawer helpers remain intact.
+
+Fresh signed focused proof at993: direct typing **1/0/0**, authenticated
+reconnect/expired-auth/conflict-relaunch **3/0/0**, actual native summaries
+checked. Both runs resolve, erase, boot and test task-owned81F0FF38-9DAD-
+4011-907B-357DFADD094C, iPhone17Pro/iOS26.2(23C54), normal signing enabled.
+Xcode26.3. The recovery harness requires user auth and synthetic providers;
+no paid calls, live microphone or physical-phone claim. Host Node26.7.0 is
+fixture orchestration only, not a Node20 full-backend result.
+
+App/backend/units/scripts/workflows/Packages/Xcode trees are exact896;
+no unchanged broad backend/unit/macOS suite repeated. D009 versus the genuine
+published896 parent: all five deltas0; diff/source/ancestry checks pass.
+Build retains existing Swift concurrency warnings; no warning-free claim.
+The136 dependency version/integrity records match the lockfile; source
+content was not freshly audited. The untracked dependency link remains
+unstaged and the shared cache unchanged.
+
+Permanent proof, raw summaries/logs and both native bundles:
+`_proof/T-1404-original-995-owned-copy-parent-20261112/proof.json`.
+UI source SHA256:
+4738c1937a60f6cf039998a89824862fa8bbdb1cc969a989ebab96bcee7df682.
+
+This preparation does not clear parent896's still-running hosted gate.
+Original #995 remainsE91 until that gate completes and root rechecks the
+actual remote head/base; publication will require fresh child checks.
+Independent human review, unchanged main and the production hold remain.
+
+## Earlier checkpoint — 2026-11-12 (b0 parent)
 
 Original35cd28d70476d64bf60360f72a25a13464ea0098 and prior published
 e91f0898f8e2f5760ddfe385a3273e80efb157f7 remain ancestors. Preserving merge
