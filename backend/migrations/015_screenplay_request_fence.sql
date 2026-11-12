@@ -59,6 +59,9 @@ CREATE OR REPLACE FUNCTION public.screenplay_block_request(p_owner text,p_projec
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
 DECLARE owner_value jsonb; project jsonb; versions jsonb; version jsonb; found_count integer; head text; existing public.screenplay_request_fence%ROWTYPE; owner_role oid; guard_oid oid;
 BEGIN
+ -- Keep WAL flush enabled through the caller's transaction commit. Unlike a
+ -- function-level SET clause, SET LOCAL survives function return until commit.
+ PERFORM pg_catalog.set_config('synchronous_commit', 'on', true);
  IF p_owner IS NULL OR length(p_owner)>160 OR p_project IS NULL OR p_request IS NULL OR p_local_digest IS NULL OR p_request_hash IS NULL OR p_project !~ '^[A-Za-z0-9_.:-]{1,64}$' OR p_request !~ '^[A-Za-z0-9_.:-]{1,96}$' OR p_local_digest !~ '^[a-f0-9]{64}$' OR p_request_hash !~ '^[a-f0-9]{64}$' THEN RAISE EXCEPTION 'screenplay_fence_invalid_input'; END IF;
  LOCK TABLE public.persistence_screenplay IN ROW EXCLUSIVE MODE;
  SELECT relowner INTO owner_role FROM pg_catalog.pg_class WHERE oid='public.persistence_screenplay'::regclass;

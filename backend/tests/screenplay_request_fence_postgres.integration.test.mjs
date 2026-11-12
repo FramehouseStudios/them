@@ -130,3 +130,30 @@ test('JSON persistence cannot issue a database fence proof', { timeout: 30000 },
     assert.equal(response.status,503); assert.notEqual(response.json.proof,'pg_request_fence_v1');
   } finally { await server.stop(); }
 });
+
+test('fence keeps synchronous commit on until the transaction commits', { skip: !runtimeURL || !adminURL, timeout: 30000 }, async () => {
+  for (const url of [runtimeURL, adminURL]) {
+    const u = new URL(url);
+    assert.ok(['127.0.0.1', 'localhost', '::1'].includes(u.hostname) && u.pathname === '/them_t1368f');
+  }
+  const runtime = new pg.Client({ connectionString: runtimeURL });
+  const admin = new pg.Client({ connectionString: adminURL });
+  await runtime.connect(); await admin.connect();
+  try {
+    const owner = `test:${randomUUID()}`, project = `project-${randomUUID()}`, id = `request-${randomUUID()}`;
+    const value = { ownerKey: owner, activeProjectId: project, projects: [{ id: project, activeVersionId: 'head', versions: [{ id: 'head', clientRequestId: 'seed' }] }] };
+    await runtime.query('INSERT INTO public.persistence_screenplay(key,value) VALUES($1,$2)', [owner, value]);
+    await runtime.query('SET synchronous_commit = off');
+    assert.equal((await runtime.query('SHOW synchronous_commit')).rows[0].synchronous_commit, 'off');
+    await runtime.query('BEGIN');
+    const result = await runtime.query('SELECT public.screenplay_block_request($1,$2,$3,$4,$5) r', [owner, project, id, 'a'.repeat(64), 'b'.repeat(64)]);
+    assert.equal(result.rows[0].r.kind, 'blocked');
+    assert.equal((await runtime.query('SHOW synchronous_commit')).rows[0].synchronous_commit, 'on', 'The local setting must survive function return until COMMIT');
+    await runtime.query('COMMIT');
+    assert.equal((await runtime.query('SHOW synchronous_commit')).rows[0].synchronous_commit, 'off', 'The session setting must be restored after commit');
+    const stored = await admin.query('SELECT request_id FROM public.screenplay_request_fence WHERE owner_key=$1 AND project_id=$2 AND request_id=$3', [owner, project, id]);
+    assert.equal(stored.rowCount, 1);
+  } finally {
+    await runtime.end(); await admin.end();
+  }
+});
