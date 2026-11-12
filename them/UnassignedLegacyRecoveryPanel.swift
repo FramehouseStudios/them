@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 /// Device-owner access to old copies whose server origin cannot be proven.
 /// Nothing in this panel imports a copy into a project or sends it to a server.
 struct UnassignedLegacyRecoveryPanel: View {
+    var onboarding: OnboardingInputRecoveryActions? = nil
     @Environment(\.scenePhase) private var scenePhase
     @State private var authenticationContext: LAContext?
     @State private var records: [UnassignedLegacyRecoveryDescriptor] = []
@@ -15,17 +16,30 @@ struct UnassignedLegacyRecoveryPanel: View {
     @State private var message = ""
     @State private var attempt: UnassignedRecoveryExportAttempt?
     @State private var isExporting = false
+    @State private var onboardingDescriptor: OnboardingInputDescriptor?
+    @State private var confirmingOnboardingDiscard = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Device recovery copies")
+            Text(onboarding == nil ? "Device recovery copies" : "Unfinished setup on this device")
                 .font(.headline)
-            Text("These copies have no verified delivery destination. Exporting does not remove their local sources. JSON includes recovery metadata; screenplay text alone does not.")
+            Text(onboarding == nil
+                 ? "These copies have no verified delivery destination. Exporting does not remove their local sources. JSON includes recovery metadata; screenplay text alone does not."
+                 : "Resume restores only the fields you edited. It does not finish setup, sign in, start writing or send anything. The protected copy remains until you discard it.")
                 .font(.subheadline)
             if !unlocked {
                 Button(isUnlocking ? "Unlocking…" : "Unlock device copies") { unlock() }
                     .disabled(isUnlocking)
                     .accessibilityHint("Requires device authentication and a signed-out THEM account.")
+            } else if onboarding != nil {
+                if onboardingDescriptor != nil {
+                    Button("Resume saved setup") { prepareOnboardingAction(discard: false) }
+                        .accessibilityIdentifier("onboarding.input.resume")
+                    Button("Discard saved setup", role: .destructive) { confirmingOnboardingDiscard = true }
+                        .accessibilityIdentifier("onboarding.input.discard")
+                } else {
+                    Text("No verified unfinished setup is available. Current fields remain untouched.")
+                }
             } else if records.isEmpty {
                 Text("No ownerless copies are available here. Account-linked work may require signing back in.")
                     .font(.subheadline)
@@ -68,6 +82,11 @@ struct UnassignedLegacyRecoveryPanel: View {
             }
         }
         .onDisappear { lock() }
+        .confirmationDialog("Discard the saved unfinished setup?", isPresented: $confirmingOnboardingDiscard) {
+            Button("Discard saved setup", role: .destructive) { prepareOnboardingAction(discard: true) }
+        } message: {
+            Text("This removes only the selected protected setup copy. Current visible fields are kept.")
+        }
         .background {
             if let attempt {
                 UnassignedRecoveryExporterHost(attempt: attempt,
@@ -92,6 +111,10 @@ struct UnassignedLegacyRecoveryPanel: View {
             message = "Sign out of THEM before opening device-only copies. Your saved work remains on this device."
             return
         }
+        if let onboarding, !onboarding.canApply() {
+            message = "The fields changed or are still saving. Close recovery and try again."
+            return
+        }
         let context = LAContext()
         var error: NSError?
         guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) else {
@@ -111,7 +134,7 @@ struct UnassignedLegacyRecoveryPanel: View {
             }
             do {
                 let authenticated = try await context.evaluatePolicy(.deviceOwnerAuthentication,
-                    localizedReason: "Unlock older screenplay copies stored on this device.")
+                    localizedReason: onboarding == nil ? "Unlock older screenplay copies stored on this device." : "Unlock unfinished setup stored on this device.")
                 guard generation == accessGeneration else { return }
                 guard authenticated, deviceOnlyAccessAllowed(),
                       authIntent == BackendAuthClient.currentAuthSessionIntentGeneration() else {
@@ -120,6 +143,19 @@ struct UnassignedLegacyRecoveryPanel: View {
                 }
                 guard scenePhase == .active else {
                     message = "Return to THEM and try unlocking the copies again."
+                    return
+                }
+                if let onboarding {
+                    let custody = onboarding.custody
+                    let inventory = await Task.detached(priority: .utility) { custody.inventory() }.value
+                    guard generation == accessGeneration, scenePhase == .active, deviceOnlyAccessAllowed(),
+                          authIntent == BackendAuthClient.currentAuthSessionIntentGeneration(), onboarding.canApply() else { lock(); return }
+                    switch inventory {
+                    case .missing: onboardingDescriptor = nil; unlocked = true
+                    case .present(let descriptor): onboardingDescriptor = descriptor; unlocked = true
+                    case .unconfirmed: message = "Setup storage could not be confirmed. Its evidence and current fields remain untouched."
+                    }
+                    if unlocked { unlockedAuthIntent = authIntent }
                     return
                 }
                 let vault = UnassignedLegacyRecoveryVault()
@@ -179,6 +215,12 @@ struct UnassignedLegacyRecoveryPanel: View {
 
     private func prepareExport(_ descriptor: UnassignedLegacyRecoveryDescriptor, raw: Bool) {
         guard UnassignedDeviceRecoveryPolicy.allows(descriptor) else { lock(); return }
+        authenticateProtectedAction(reason: "Authenticate to export this older screenplay copy.") {
+            prepareAuthenticatedExport(descriptor, raw: raw)
+        }
+    }
+
+    private func authenticateProtectedAction(reason: String, perform: @escaping () -> Void) {
         guard unlocked, !isUnlocking, attempt == nil, scenePhase == .active,
               deviceOnlyAccessAllowed(),
               unlockedAuthIntent == BackendAuthClient.currentAuthSessionIntentGeneration() else { lock(); return }
@@ -201,7 +243,7 @@ struct UnassignedLegacyRecoveryPanel: View {
             }
             do {
                 let authenticated = try await context.evaluatePolicy(.deviceOwnerAuthentication,
-                    localizedReason: "Authenticate to export this older screenplay copy.")
+                    localizedReason: reason)
                 guard generation == accessGeneration else { return }
                 guard unlocked, authenticated, deviceOnlyAccessAllowed(),
                       authIntent == unlockedAuthIntent,
@@ -211,11 +253,36 @@ struct UnassignedLegacyRecoveryPanel: View {
                     message = "Return to THEM and unlock the copies again."
                     return
                 }
-                prepareAuthenticatedExport(descriptor, raw: raw)
+                perform()
             } catch {
                 guard generation == accessGeneration else { return }
                 if scenePhase != .active { lock() }
                 message = "The copy remains on this device. Authentication was not completed."
+            }
+        }
+    }
+
+    private func prepareOnboardingAction(discard: Bool) {
+        guard let onboarding, let descriptor = onboardingDescriptor, onboarding.canApply() else { lock(); return }
+        authenticateProtectedAction(reason: discard ? "Authenticate to discard this unfinished setup." : "Authenticate to resume this unfinished setup.") {
+            let generation = accessGeneration, intent = unlockedAuthIntent, custody = onboarding.custody
+            Task { @MainActor in
+                guard onboarding.canApply() else { lock(); return }
+                if discard {
+                    let discarded = await Task.detached(priority: .utility) { custody.discard(expected: descriptor) }.value
+                    guard generation == accessGeneration, scenePhase == .active, deviceOnlyAccessAllowed(),
+                          intent == BackendAuthClient.currentAuthSessionIntentGeneration(), onboarding.canApply() else { lock(); return }
+                    if discarded { onboarding.didDiscard() }
+                    else { message = "The saved setup changed or removal could not be confirmed. Current fields remain untouched." }
+                } else {
+                    let checkpoint = await Task.detached(priority: .utility) { custody.reveal(expected: descriptor) }.value
+                    guard generation == accessGeneration, scenePhase == .active, deviceOnlyAccessAllowed(),
+                          intent == BackendAuthClient.currentAuthSessionIntentGeneration(), onboarding.canApply() else { lock(); return }
+                    guard let checkpoint, onboarding.resume(checkpoint) else {
+                        message = "The setup or current fields changed. Close recovery and try again."
+                        return
+                    }
+                }
             }
         }
     }
@@ -283,6 +350,8 @@ struct UnassignedLegacyRecoveryPanel: View {
         unlocked = false
         unlockedAuthIntent = nil
         records = []
+        onboardingDescriptor = nil
+        confirmingOnboardingDiscard = false
         attempt = nil
         isExporting = false
         message = ""

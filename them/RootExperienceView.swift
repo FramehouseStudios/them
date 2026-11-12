@@ -2463,7 +2463,6 @@ struct RootExperienceView: View {
             studioWasAuthenticatedSnapshot = session.isAuthenticated && !session.accessExpired
         }
         ensureSessionBumped()
-        onboardingName = evolution.preferredName
         if evolution.needsOnboardingName {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
                 onboardingNameFocused = true
@@ -3896,8 +3895,8 @@ struct RootExperienceView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                VStack(spacing: 10) {
-                    TextField("Your name", text: $onboardingName)
+                OnboardingInputRecoveryScope(name: $onboardingName, premise: $onboardingSceneSeed) { name, premise in
+                    TextField("Your name", text: name)
                         .font(.system(size: 17, weight: .regular, design: .default))
                         .textFieldStyle(.roundedBorder)
                         .focused($onboardingNameFocused)
@@ -3909,7 +3908,7 @@ struct RootExperienceView: View {
                         }
                         .accessibilityIdentifier("onboarding.name.field")
 
-                    TextField("A detective finds a letter under a motel door...", text: $onboardingSceneSeed, axis: .vertical)
+                    TextField("A detective finds a letter under a motel door...", text: premise, axis: .vertical)
                         .font(.system(size: 16, weight: .regular, design: .default))
                         .textFieldStyle(.roundedBorder)
                         .lineLimit(3...5)

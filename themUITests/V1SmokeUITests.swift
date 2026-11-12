@@ -504,7 +504,7 @@ final class V1SmokeUITests: XCTestCase {
     }
 
     func test_first_run_onboarding_unlocks_companion() {
-        let app = launchApp(skipOnboarding: false)
+        let app = launchApp(skipOnboarding: false, onboardingInputRecoveryToken: UUID().uuidString)
 
         let nameField = textInput("onboarding.name.field", in: app)
         XCTAssertTrue(nameField.waitForExistence(timeout: 8))
@@ -516,11 +516,36 @@ final class V1SmokeUITests: XCTestCase {
         sceneField.tap()
         sceneField.typeText("A woman finds a blue key under a motel door.")
 
+        let custodyStatus = app.staticTexts["onboarding.input.custody.status"]
+        XCTAssertTrue(waitForAccessibilityText(in: custodyStatus, containing: "Unfinished setup saved on this device.", timeout: 8))
         let startButton = app.buttons["onboarding.start-page"]
         XCTAssertTrue(startButton.waitForExistence(timeout: 3))
         startButton.tap()
 
         XCTAssertTrue(waitForDraft(in: app, containing: "INT. KITCHEN - DAY", timeout: 10))
+    }
+
+    func test_first_run_unfinished_setup_survives_relaunch_without_automatic_restore() {
+        let token = UUID().uuidString
+        var app = launchApp(skipOnboarding: false, onboardingInputRecoveryToken: token)
+        let name = textInput("onboarding.name.field", in: app)
+        XCTAssertTrue(name.waitForExistence(timeout: 8)); name.tap(); name.typeText("  Ava  ")
+        let premise = textInput("onboarding.scene.field", in: app)
+        premise.tap(); premise.typeText("  A letter waits under the door.  ")
+        XCTAssertTrue(waitForAccessibilityText(identifier: "onboarding.input.custody.status",
+                                               containing: "Unfinished setup saved on this device.", in: app, timeout: 8))
+        app.terminate()
+        app = launchApp(skipOnboarding: false, onboardingInputRecoveryToken: token, resetState: false)
+        let restoredName = textInput("onboarding.name.field", in: app)
+        XCTAssertTrue(restoredName.waitForExistence(timeout: 8))
+        XCTAssertNotEqual(restoredName.value as? String, "  Ava  ")
+        XCTAssertNotEqual(textInput("onboarding.scene.field", in: app).value as? String, "  A letter waits under the door.  ")
+        let recovery = app.buttons["onboarding.input.recover"]
+        XCTAssertTrue(recovery.waitForExistence(timeout: 5)); recovery.tap()
+        XCTAssertTrue(app.buttons["Unlock device copies"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["onboarding.input.resume"].exists)
+        app.buttons["Done"].tap()
+        // Real device authentication/Resume is deliberately not bypassed here.
     }
 
     @MainActor
@@ -5305,6 +5330,7 @@ final class V1SmokeUITests: XCTestCase {
 
     private func launchApp(
         skipOnboarding: Bool = true,
+        onboardingInputRecoveryToken: String? = nil,
         openStudio: Bool = false,
         openMemories: Bool = false,
         openDataControls: Bool = false,
@@ -5360,6 +5386,9 @@ final class V1SmokeUITests: XCTestCase {
             arguments.append("--ui-reset-state")
         } else {
             arguments.append("--ui-preserve-state")
+        }
+        if let onboardingInputRecoveryToken {
+            arguments.append(contentsOf: ["--ui-onboarding-input-token", onboardingInputRecoveryToken])
         }
         if skipOnboarding {
             arguments.append("--ui-skip-onboarding")

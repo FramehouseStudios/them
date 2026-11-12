@@ -553,7 +553,13 @@ struct UnassignedLegacyRecoveryVault {
     }
 
     private func enforceCompleteFileProtection(at url: URL) throws {
-        if let fileProtectionEnforcer {
+        try Self.enforceCompleteProtection(at: url, fileManager: fileManager, enforcer: fileProtectionEnforcer)
+    }
+
+    fileprivate nonisolated static func enforceCompleteProtection(
+        at url: URL, fileManager: FileManager = .default, enforcer: ((URL) throws -> Void)? = nil
+    ) throws {
+        if let fileProtectionEnforcer = enforcer {
             try fileProtectionEnforcer(url)
             return
         }
@@ -778,7 +784,7 @@ struct UnassignedLegacyRecoveryVault {
         SHA256.hash(data: value).map { String(format: "%02x", $0) }.joined()
     }
 
-    private static func synchronizeDirectory(_ url: URL) throws {
+    fileprivate nonisolated static func synchronizeDirectory(_ url: URL) throws {
         let descriptor = url.path.withCString { path in
             Darwin.open(path, O_RDONLY | O_CLOEXEC)
         }
@@ -787,7 +793,7 @@ struct UnassignedLegacyRecoveryVault {
         guard Darwin.fsync(descriptor) == 0 else { throw posixError(errno, path: url.path) }
     }
 
-    private static func posixError(_ code: Int32, path: String) -> NSError {
+    private nonisolated static func posixError(_ code: Int32, path: String) -> NSError {
         NSError(domain: NSPOSIXErrorDomain, code: Int(code), userInfo: [NSFilePathErrorKey: path])
     }
 
@@ -798,7 +804,7 @@ struct UnassignedLegacyRecoveryVault {
                 .contains(nsError.code)
     }
 
-    private static func defaultRootDirectory(fileManager: FileManager) -> URL? {
+    private nonisolated static func defaultRootDirectory(fileManager: FileManager) -> URL? {
         fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
             .appendingPathComponent("io.them", isDirectory: true)
             .appendingPathComponent("UnassignedLegacyRecovery", isDirectory: true)
@@ -815,5 +821,251 @@ struct UnassignedLegacyRecoveryVault {
         case available
         case missing
         case unconfirmed
+    }
+}
+
+
+// Current onboarding input is a separate, mutable domain. It never enters the
+// append-only legacy inventory and carries no account, project or backend hint.
+nonisolated struct OnboardingInputFields: Codable, Equatable, Sendable {
+    var nameUTF8 = Data()
+    var premiseUTF8 = Data()
+    var nameWasEdited = false
+    var premiseWasEdited = false
+
+    var hasEdits: Bool { nameWasEdited || premiseWasEdited }
+    fileprivate var valid: Bool {
+        hasEdits && (nameWasEdited || nameUTF8.isEmpty) && (premiseWasEdited || premiseUTF8.isEmpty)
+            && String(data: nameUTF8, encoding: .utf8) != nil && String(data: premiseUTF8, encoding: .utf8) != nil
+    }
+}
+
+nonisolated struct OnboardingInputDescriptor: Equatable, Sendable {
+    let revisionID: String
+    let contentDigest: String
+}
+
+nonisolated struct OnboardingInputCheckpoint: Codable, Equatable, Sendable {
+    let schemaVersion: Int
+    let provenance: String
+    let revisionID: String
+    let previousRevisionID: String?
+    let previousContentDigest: String?
+    let fields: OnboardingInputFields
+    let contentDigest: String
+
+    var descriptor: OnboardingInputDescriptor { .init(revisionID: revisionID, contentDigest: contentDigest) }
+}
+
+nonisolated enum OnboardingInputInventory: Equatable, Sendable {
+    case missing
+    case present(OnboardingInputDescriptor)
+    case unconfirmed
+}
+
+nonisolated enum OnboardingInputWriteResult: Equatable, Sendable {
+    case verified(OnboardingInputDescriptor)
+    case occupied(OnboardingInputDescriptor)
+    case tooLarge
+    case unconfirmed
+}
+
+extension UnassignedLegacyRecoveryVault {
+    /// One canonical custody owner, with truthful provenance and a different
+    /// lifecycle from legacy evidence. The returned value is safe for utility I/O.
+    nonisolated static func onboardingInputs(
+        rootDirectory: URL? = nil,
+        fileProtectionEnforcer: (@Sendable (URL) throws -> Void)? = nil
+    ) -> OnboardingInputCustody {
+        let root = rootDirectory ?? defaultRootDirectory(fileManager: .default)?
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("OnboardingInputRecovery", isDirectory: true)
+            .appendingPathComponent("v1", isDirectory: true)
+        return OnboardingInputCustody(root: root, protection: fileProtectionEnforcer)
+    }
+}
+
+nonisolated struct OnboardingInputCustody: Sendable {
+    // At most current.json and pending.json, each bounded including its envelope.
+    static let maximumCheckpointBytes = 4 * 1024 * 1024
+    private static let lock = NSRecursiveLock()
+    private let root: URL?
+    private let protection: (@Sendable (URL) throws -> Void)?
+
+    fileprivate init(root: URL?, protection: (@Sendable (URL) throws -> Void)?) {
+        self.root = root
+        self.protection = protection
+    }
+
+    func inventory() -> OnboardingInputInventory {
+        transaction(create: false) { directory in
+            switch load(directory) {
+            case .missing: return .missing
+            case .present(let value): return .present(value.descriptor)
+            case .unconfirmed: return .unconfirmed
+            }
+        } ?? .unconfirmed
+    }
+
+    func reveal(expected: OnboardingInputDescriptor) -> OnboardingInputCheckpoint? {
+        transaction(create: false) { directory in
+            guard case let .present(value) = load(directory), value.descriptor == expected else { return nil }
+            return value
+        } ?? nil
+    }
+
+    func checkpoint(_ fields: OnboardingInputFields, expected: OnboardingInputDescriptor?,
+                    revisionID: String) -> OnboardingInputWriteResult {
+        guard fields.valid, UUID(uuidString: revisionID) != nil, revisionID != expected?.revisionID else { return .unconfirmed }
+        guard fields.nameUTF8.count <= Self.maximumCheckpointBytes - fields.premiseUTF8.count else { return .tooLarge }
+        let value = Self.make(fields, previous: expected, revisionID: revisionID)
+        guard let bytes = try? JSONEncoder().encode(value) else { return .unconfirmed }
+        guard bytes.count <= Self.maximumCheckpointBytes else { return .tooLarge }
+        return transaction(create: true) { directory in
+            let existing = load(directory)
+            switch existing {
+            case .unconfirmed: return .unconfirmed
+            case .missing:
+                guard expected == nil else { return .unconfirmed }
+            case .present(let current):
+                // A retried, already-written request acknowledges only its exact bytes.
+                if current == value { return normalize(current, in: directory) ? .verified(current.descriptor) : .unconfirmed }
+                guard current.descriptor == expected else { return .occupied(current.descriptor) }
+                guard normalize(current, in: directory) else { return .unconfirmed }
+            }
+            let pending = directory.appendingPathComponent("pending.json")
+            guard ScreenplayRecoveryExclusiveFileCreation.create(bytes, at: pending) == .created else { return .unconfirmed }
+            do { try protect(pending) } catch { return .unconfirmed }
+            guard read(pending) == .present(value), normalize(value, in: directory),
+                  read(directory.appendingPathComponent("current.json")) == .present(value) else { return .unconfirmed }
+            return .verified(value.descriptor)
+        } ?? .unconfirmed
+    }
+
+    /// Only the exact, explicitly selected current form can be discarded.
+    func discard(expected: OnboardingInputDescriptor) -> Bool {
+        transaction(create: false) { directory in
+            guard case let .present(value) = load(directory), value.descriptor == expected else { return false }
+            for name in ["current.json", "pending.json"] {
+                let url = directory.appendingPathComponent(name)
+                switch read(url) {
+                case .missing: continue
+                case .unconfirmed: return false
+                case .present(let copy):
+                    guard copy == value || (copy.revisionID == value.previousRevisionID && copy.contentDigest == value.previousContentDigest) else { return false }
+                    do { try FileManager.default.removeItem(at: url); try UnassignedLegacyRecoveryVault.synchronizeDirectory(directory) }
+                    catch { return false }
+                }
+            }
+            return load(directory) == .missing
+        } ?? false
+    }
+
+    private enum State: Equatable {
+        case missing, present(OnboardingInputCheckpoint), unconfirmed
+    }
+
+    private func load(_ directory: URL) -> State {
+        let names: [String]
+        do { names = try FileManager.default.contentsOfDirectory(atPath: directory.path) }
+        catch {
+            let error = error as NSError
+            return error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoSuchFileError ? .missing : .unconfirmed
+        }
+        guard Set(names).isSubset(of: ["current.json", "pending.json", ".custody.lock"]) else { return .unconfirmed }
+        let current = read(directory.appendingPathComponent("current.json"))
+        let pending = read(directory.appendingPathComponent("pending.json"))
+        switch (current, pending) {
+        case (.unconfirmed, _), (_, .unconfirmed): return .unconfirmed
+        case (.missing, .missing): return .missing
+        case (.present(let value), .missing), (.missing, .present(let value)): return .present(value)
+        case (.present(let old), .present(let next)):
+            return next.previousRevisionID == old.revisionID && next.previousContentDigest == old.contentDigest ? .present(next) : .unconfirmed
+        }
+    }
+
+    private func normalize(_ value: OnboardingInputCheckpoint, in directory: URL) -> Bool {
+        let currentURL = directory.appendingPathComponent("current.json")
+        let pendingURL = directory.appendingPathComponent("pending.json")
+        if read(currentURL) == .present(value) { return read(pendingURL) == .missing }
+        guard read(pendingURL) == .present(value) else { return false }
+        switch read(currentURL) {
+        case .unconfirmed: return false
+        case .missing: break
+        case .present(let old):
+            guard old.revisionID == value.previousRevisionID && old.contentDigest == value.previousContentDigest else { return false }
+            do { try FileManager.default.removeItem(at: currentURL); try UnassignedLegacyRecoveryVault.synchronizeDirectory(directory) }
+            catch { return false }
+        }
+        guard ScreenplayRecoveryExclusiveFilePromotion.promote(source: pendingURL, destination: currentURL) == .promoted else { return false }
+        do { try UnassignedLegacyRecoveryVault.synchronizeDirectory(directory) } catch { return false }
+        return read(currentURL) == .present(value)
+    }
+
+    private func read(_ url: URL) -> State {
+        do {
+            let attrs = try FileManager.default.attributesOfItem(atPath: url.path)
+            guard attrs[.type] as? FileAttributeType == .typeRegular,
+                  let size = attrs[.size] as? NSNumber, size.intValue <= Self.maximumCheckpointBytes else { return .unconfirmed }
+            try protect(url)
+            let value = try JSONDecoder().decode(OnboardingInputCheckpoint.self, from: Data(contentsOf: url))
+            guard value.schemaVersion == 1, value.provenance == "unassigned_onboarding_input",
+                  UUID(uuidString: value.revisionID) != nil,
+                  value.previousRevisionID == nil || UUID(uuidString: value.previousRevisionID!) != nil,
+                  (value.previousRevisionID == nil) == (value.previousContentDigest == nil),
+                  value.previousRevisionID != value.revisionID,
+                  value.fields.valid, value.contentDigest == Self.digest(value) else { return .unconfirmed }
+            return .present(value)
+        } catch {
+            let error = error as NSError
+            return error.domain == NSCocoaErrorDomain && [NSFileNoSuchFileError, NSFileReadNoSuchFileError].contains(error.code)
+                ? .missing : .unconfirmed
+        }
+    }
+
+    private func transaction<T>(create: Bool, _ body: (URL) -> T) -> T? {
+        Self.lock.lock(); defer { Self.lock.unlock() }
+        guard let root else { return nil }
+        if create { do { try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true) } catch { return nil } }
+        // A missing directory is an empty domain, not uncertain evidence.
+        if !FileManager.default.fileExists(atPath: root.path), !create {
+            // Inspecting absence still uses the same validation path without making data files.
+            return body(root)
+        }
+        do {
+            let attrs = try FileManager.default.attributesOfItem(atPath: root.path)
+            guard attrs[.type] as? FileAttributeType == .typeDirectory else { return nil }
+            try protect(root)
+        } catch { return nil }
+        let fd = root.appendingPathComponent(".custody.lock").path.withCString {
+            Darwin.open($0, O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, S_IRUSR | S_IWUSR)
+        }
+        guard fd >= 0 else { return nil }; defer { Darwin.close(fd) }
+        guard Darwin.lockf(fd, F_TLOCK, 0) == 0 else { return nil }
+        defer { _ = Darwin.lockf(fd, F_ULOCK, 0) }
+        do { try protect(root.appendingPathComponent(".custody.lock")) } catch { return nil }
+        return body(root)
+    }
+
+    private func protect(_ url: URL) throws {
+        try UnassignedLegacyRecoveryVault.enforceCompleteProtection(at: url, enforcer: protection)
+    }
+
+    private static func make(_ fields: OnboardingInputFields, previous: OnboardingInputDescriptor?, revisionID: String) -> OnboardingInputCheckpoint {
+        let unsigned = OnboardingInputCheckpoint(schemaVersion: 1, provenance: "unassigned_onboarding_input",
+            revisionID: revisionID, previousRevisionID: previous?.revisionID, previousContentDigest: previous?.contentDigest, fields: fields, contentDigest: "")
+        return .init(schemaVersion: 1, provenance: unsigned.provenance, revisionID: revisionID,
+            previousRevisionID: previous?.revisionID, previousContentDigest: previous?.contentDigest, fields: fields, contentDigest: digest(unsigned))
+    }
+
+    private static func digest(_ value: OnboardingInputCheckpoint) -> String {
+        var bytes = Data("io.them.onboarding-input.v1".utf8)
+        for field in [Data(value.revisionID.utf8), Data((value.previousRevisionID ?? "").utf8),
+                      Data((value.previousContentDigest ?? "").utf8), value.fields.nameUTF8, value.fields.premiseUTF8] {
+            var count = UInt64(field.count).bigEndian
+            withUnsafeBytes(of: &count) { bytes.append(contentsOf: $0) }; bytes.append(field)
+        }
+        bytes.append(value.fields.nameWasEdited ? 1 : 0); bytes.append(value.fields.premiseWasEdited ? 1 : 0)
+        return SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
     }
 }
