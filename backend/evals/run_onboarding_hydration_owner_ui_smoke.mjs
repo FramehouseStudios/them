@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -38,7 +38,8 @@ const nativeKeys = [...inherited, "USER", "LOGNAME", "SHELL", "DEVELOPER_DIR", "
 const nativeEnv = Object.fromEntries(nativeKeys.filter(key => process.env[key] !== undefined)
   .map(key => [key, process.env[key]]));
 let server;
-const report = { test, destination, bundle, appPreferredNameObserved: false, hydrationWitnessObserved: false };
+const report = { test, destination, bundle, appPreferredNameObserved: false, hydrationWitnessObserved: false,
+  preAuthCaptureObserved: false, preAuthCaptureStatus: "not inspected" };
 try {
   server = await startBackend({ env, unsetEnv });
   writeFileSync(xcconfig, "THEM_UITEST_WRITER_LOOP_BACKEND_PORT = " + server.port + "\n", { mode: 0o600 });
@@ -76,11 +77,27 @@ try {
     const witness = spawnSync("/usr/libexec/PlistBuddy", ["-c", "Print :her.lastThemeCue", preference],
       { encoding: "utf8" });
     report.hydrationWitnessObserved = witness.status === 0 && witness.stdout.trim() === "T1426 hydration consumed";
+    // This erased fixture uses a unique synthetic setup namespace. Verify only
+    // its known B bytes after native app termination; never retain raw fields.
+    const captures = join(container.stdout.trim(), "Library/Application Support/io.them/UITestOnboardingInput");
+    try {
+      const forms = readdirSync(captures, { withFileTypes: true })
+        .filter(entry => entry.isDirectory() && /^[0-9a-f-]{36}$/i.test(entry.name));
+      if (forms.length !== 1) throw new Error("Ambiguous fixture capture");
+      const form = join(captures, forms[0].name, "v1");
+      const saved = JSON.parse(readFileSync(join(form, "current.json"), "utf8"));
+      report.preAuthCaptureObserved = !existsSync(join(form, "pending.json"))
+        && saved.schemaVersion === 1 && saved.provenance === "unassigned_onboarding_input"
+        && saved.fields?.nameWasEdited === true && saved.fields?.premiseWasEdited === true
+        && saved.fields.nameUTF8 === Buffer.from("  Berta  ").toString("base64")
+        && saved.fields.premiseUTF8 === Buffer.from("  B keeps the typed premise exactly.  ").toString("base64");
+      report.preAuthCaptureStatus = report.preAuthCaptureObserved ? "verified fixture B" : "fixture differs or remains uncertain";
+    } catch { report.preAuthCaptureStatus = "fixture copy unavailable or ambiguous"; }
   }
   writeFileSync(join(artifact, "result.json"), JSON.stringify(report, null, 2) + "\n");
   if (exit !== 0) throw new Error("Held-login native regression failed; retained " + artifact + "\n" + output);
   assertSinglePassedTestSummary(report.summary);
-  if (!report.hydrationWitnessObserved || report.stats.namedAppSessionResponses < 1
+  if (!report.hydrationWitnessObserved || !report.preAuthCaptureObserved || report.stats.namedAppSessionResponses < 1
       || report.stats.hydrationContinuationRequests < 1
       || report.stats.heldLoginResponses !== 1 || report.stats.releasedLoginResponses !== 1
       || report.stats.closedHeldLogins !== 0 || report.stats.unexpectedMutations !== 0
