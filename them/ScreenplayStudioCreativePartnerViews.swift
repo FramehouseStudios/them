@@ -173,6 +173,30 @@ struct ScreenplayStudioCreativePartnerActions {
     let onClearMemory: () -> Void
 }
 
+/// Prepares the current Voice Pin without submitting it or changing the screenplay.
+@MainActor
+enum ScreenplayStudioCreativePartnerPagePreparation {
+    static func perform(
+        exchangeID: UUID,
+        exchanges: [ScreenplayStudioScreen.StudioAskNoteExchange],
+        openComposer: (String?, ScreenplayStudioScreen.PromptRoutingMode?, ScreenplayStudioScreen.StudioPromptIntent?, Bool) -> Void
+    ) -> Bool {
+        StudioUITestInputDiagnostics.partnerPage(.handlerEntered)
+        guard let exchange = exchanges.first(where: { $0.id == exchangeID }) else {
+            StudioUITestInputDiagnostics.partnerPage(.exchangeMissing)
+            return false
+        }
+        guard exchange.target == .voicePin else {
+            StudioUITestInputDiagnostics.partnerPage(.wrongTarget)
+            return false
+        }
+        StudioUITestInputDiagnostics.partnerPage(.exchangeResolved)
+        openComposer(exchange.prompt, .page, .rewrite, false)
+        StudioUITestInputDiagnostics.partnerPage(.composerReturned)
+        return true
+    }
+}
+
 enum ScreenplayStudioCreativePartnerPresentationPlanner {
     static func make(
         modes: [ScreenplayStudioCreativePartnerModeInput],
@@ -741,6 +765,7 @@ struct ScreenplayStudioCreativePartnerView: View {
                 .accessibilityIdentifier("studio.them.voice-pin.latest.reuse")
 
                 Button {
+                    StudioUITestInputDiagnostics.partnerPage(.buttonActivated)
                     actions.onSendVoicePinToPage(latest.exchangeID)
                 } label: {
                     Label(presentation.copy.toPageButtonTitle, systemImage: "doc.text")

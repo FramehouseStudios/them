@@ -2574,7 +2574,8 @@ final class V1SmokeUITests: XCTestCase {
             openCommandBar: true,
             routeVoicePin: true,
             seedCompanionSignal: true,
-            autoSubmitVoicePinPrompt: prompt
+            autoSubmitVoicePinPrompt: prompt,
+            launchEnvironment: ["THEM_UITEST_TRACE_INPUT": "1"]
         )
         defer { app.terminate() }
 
@@ -2664,6 +2665,13 @@ final class V1SmokeUITests: XCTestCase {
 #else
         toPage.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
 #endif
+#if os(iOS)
+        let inputTrace = element(identifier: "studio.debug.inspector.input.trace", in: app)
+        let immediateTrace = XCTAttachment(string: inputTrace.value as? String ?? "Native input trace unavailable")
+        immediateTrace.name = "Prepare for Page immediately after one tap"
+        immediateTrace.lifetime = .keepAlways
+        add(immediateTrace)
+#endif
 
         for _ in 0..<20 where !promptField.isHittable {
             drawer.swipeDown()
@@ -2679,6 +2687,12 @@ final class V1SmokeUITests: XCTestCase {
             waitForSelection(of: pageRoute, timeout: 6),
             "To Page did not re-route the current exchange to the page."
         )
+#if os(iOS)
+        let finalTrace = XCTAttachment(string: inputTrace.value as? String ?? "Native input trace unavailable")
+        finalTrace.name = "Prepare for Page after destination check"
+        finalTrace.lifetime = .keepAlways
+        add(finalTrace)
+#endif
 #if os(iOS)
         XCTAssertTrue(
             dismissKeyboardIfPresent(in: app),
