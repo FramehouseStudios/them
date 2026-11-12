@@ -231,6 +231,8 @@ final class OnboardingInputRecoveryModel: ObservableObject {
                     if earlierDrainID == owner.id { earlierCapture = .unconfirmed }
                     return
                 }
+                // Reserve that snapshot before status publication can re-enter.
+                owner.initial = owner.takeNext()
                 if !owner.sealed, owner.epoch == epoch, access?.credentialFree == true { status = .saving }
                 continue
             case .occupied, .unconfirmed:
