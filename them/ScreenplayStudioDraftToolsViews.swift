@@ -443,6 +443,9 @@ private struct ScreenplayStudioDraftDocumentControls: View {
                     .controlSize(.small)
                     .accessibilityIdentifier("studio.draft.document.autosave")
                     .accessibilityHint("Automatically saves screenplay changes while you write")
+                    .background(alignment: .topLeading) {
+                        StudioUITestInputDiagnosticsView().frame(width: 1, height: 1).allowsHitTesting(false)
+                    }
             }
 
             HStack(alignment: .top, spacing: 9) {

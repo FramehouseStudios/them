@@ -5029,7 +5029,7 @@ private var projectsSidebarContent: some View {
     private var draftToolsCard: some View {
         ScreenplayStudioDraftToolsCard(
             selectedSection: $selectedDraftToolsSection,
-            autosaveEnabled: $vm.autosaveEnabled,
+            autosaveEnabled: StudioUITestInputDiagnostics.binding($vm.autosaveEnabled, owner: vm),
             linesPerPage: $vm.linesPerPage,
             revisionColor: $vm.revisionColor,
             snapshotLabel: $vm.snapshotLabel,
