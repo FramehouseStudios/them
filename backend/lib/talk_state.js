@@ -35,6 +35,7 @@
 // access is named through commitSuccess / clearPending only.
 
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 
 const talkRateBuckets = new Map();
 const talkIdempotencyCache = new Map();
@@ -140,7 +141,28 @@ async function persistTalkIdempotencyTransition(
   maxEntries
 ) {
   if (typeof scaleBackplane.compareAndSetIdempotency === "function") {
-    return scaleBackplane.compareAndSetIdempotency(cacheKey, expected, next, ttlMs);
+    try {
+      return await scaleBackplane.compareAndSetIdempotency(cacheKey, expected, next, ttlMs);
+    } catch (error) {
+      if (error?.code === "TALK_IDEMPOTENCY_CONFLICT" && talkIdempotencyCache.get(cacheKey) === expected) {
+        try {
+          // A different worker may have completed this receipt before our CAS ACK.
+          const authoritative = await scaleBackplane.getIdempotency(cacheKey);
+          const status = String(authoritative?.status || "");
+          const expiresAt = Number(authoritative?.expiresAt);
+          const live = Number.isFinite(expiresAt) && expiresAt >= 0 && (expiresAt === 0 || expiresAt > Date.now());
+          const usable = status === "pending"
+            || (["prepared", "completed"].includes(status) && Buffer.isBuffer(authoritative?.body));
+          if (live && usable && !isDeepStrictEqual(authoritative, expected)
+            && talkIdempotencyCache.get(cacheKey) === expected) {
+            talkIdempotencyCache.delete(cacheKey); // The next request hydrates canonical authority.
+          }
+        } catch (_readError) {
+          // Unconfirmed authority cannot retire an accepted local receipt.
+        }
+      }
+      throw error;
+    }
   }
   return scaleBackplane.setIdempotency(cacheKey, next, ttlMs, maxEntries);
 }

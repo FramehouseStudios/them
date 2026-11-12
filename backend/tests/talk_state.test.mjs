@@ -25,6 +25,8 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { createJsonPersistence } from "../lib/persistence_json.js";
 import { createScaleBackplane } from "../lib/scale_backplane.mjs";
+import { createTalkTurnStore } from "../lib/talk_turn_store.js";
+import { createAdapterWalletPersistence } from "../lib/clementine/wallet_persistence.js";
 
 import {
   createTalkRateLimitGuard,
@@ -1838,3 +1840,197 @@ test("owned pending publication: legacy prepared receipt hydrates and reconciles
   assert.equal(__test.peekIdempotencyCache().get(key).status, "completed");
   assert.equal(settlements, 1);
 });
+
+
+// A separate process has its own talk-state cache and uses the same real JSON adapter.
+function replayAcceptedInFreshWorker(jsonRoot) {
+  const result = spawnSync(process.execPath, ["--input-type=module", "-e", `
+    import {EventEmitter} from "node:events";
+    import {createJsonPersistence} from ${JSON.stringify(new URL("../lib/persistence_json.js", import.meta.url).href)};
+    import {createScaleBackplane} from ${JSON.stringify(new URL("../lib/scale_backplane.mjs", import.meta.url).href)};
+    import {createTalkIdempotencyGuard} from ${JSON.stringify(new URL("../lib/talk_state.js", import.meta.url).href)};
+    import {createTalkTurnStore} from ${JSON.stringify(new URL("../lib/talk_turn_store.js", import.meta.url).href)};
+    import {createAdapterWalletPersistence} from ${JSON.stringify(new URL("../lib/clementine/wallet_persistence.js", import.meta.url).href)};
+    const persistence=createJsonPersistence({jsonRoot:process.argv[1]});
+    const bp=await createScaleBackplane({persistence,outboxFilePath:process.argv[1]+"/worker-outbox.json",logger:{log(){}}});
+    await bp.init(); const turns=createTalkTurnStore({persistence});
+    const wallet=createAdapterWalletPersistence({persistence});
+    let generated=0, settlements=0;
+    const guard=createTalkIdempotencyGuard({scaleBackplane:bp,talkIdempotencyEnabled:true,
+      talkIdempotencyTtlMs:60000,talkIdempotencyMaxEntries:16,isSpeculativePrepareRequest:()=>false,
+      normalizeIdempotencyKey:v=>String(v||""),resolveTalkSessionKey:()=>"retirement-session",
+      recordTalkMetric(){},logger:{log(){},warn(){}},
+      restoreTurnMetadata:(req,record)=>turns.restoreForReplay(record,{userId:req.authUser.id}),
+      reconcilePreparedIdempotency:async(_req,settlement)=>{settlements++;await wallet.applyTalkSettlement(settlement);}});
+    const req={authUser:{id:"retirement-writer"},get:n=>n.toLowerCase()==="x-idempotency-key"?"owned-turn":""};
+    const res=new EventEmitter();res.headers={};res.setHeader=(k,v)=>res.headers[k.toLowerCase()]=v;
+    res.getHeader=k=>res.headers[k.toLowerCase()];res.status=c=>{res.code=c;return res;};
+    res.send=b=>{res.body=b;return res;};res.json=b=>{res.body=b;return res;};
+    await guard(req,res,()=>generated++);
+    console.log(JSON.stringify({status:res.code,headers:res.headers,body:[...res.body],generated,settlements,
+      durableStatus:(await bp.getIdempotency("user:retirement-writer|owned-turn"))?.status,
+      pageMilliturns:(await wallet.getBalance("retirement-writer"))?.pageMilliturns}));await bp.close();
+  `, jsonRoot], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  return JSON.parse(result.stdout);
+}
+
+test("CAS conflict recovery: fresh-worker completion cannot leave the original worker prepared forever", async t => {
+  const prepared = heldReply(), acknowledge = heldReply();
+  const f = await pendingRetirementFixture(t, adapter => ({ ...adapter,
+    async compareAndSwap(args) {
+      const changed = await adapter.compareAndSwap(args);
+      if (changed && args.domain === "talk_idempotency" && args.value?.status === "prepared") {
+        prepared.resolve(); await acknowledge.promise;
+      }
+      return changed;
+    },
+  }));
+  const wallet = createAdapterWalletPersistence({ persistence: f.persistence });
+  await wallet.putBalance({ ownerId: "retirement-writer", pageMilliturns: 10_000, grantedPageMilliturns: 10_000 });
+  const turns = createTalkTurnStore({ persistence: f.persistence });
+  const restoreTurnMetadata = (req, record) => turns.restoreForReplay(record, { userId: req.authUser.id });
+  const helpers = createTalkIdempotencyHelpers({ ...f.guardConfig, restoreTurnMetadata });
+  const guard = createTalkIdempotencyGuard({ ...f.guardConfig, restoreTurnMetadata,
+    reconcilePreparedIdempotency: (_req, settlement) => wallet.applyTalkSettlement(settlement) });
+  const { req, res } = await f.admit(guard);
+  const key = req.talkIdempotency.cacheKey, body = Buffer.from([0, 255, 128, 42]);
+  const at = Date.now();
+  req.talkTurnMetadata = { turnId: "cross-worker-turn", userId: "retirement-writer", requestId: req.requestId,
+    createdAt: at, updatedAt: at, screenplayOutput: { target: "page", text: "INT. CAFÉ - NIGHT\n\nÉlodie keeps her last words. 👩🏽‍🚀\n" } };
+  const settleResults = [];
+  req.clementine = {
+    buildWalletSettlement: settlementKey => ({ settlementKey, ownerId: "retirement-writer", lane: "page",
+      settledMilliturns: 200, actualOutputTokens: 80, createdAt: at }),
+    async settleWalletDurably(settlement) { settleResults.push(await wallet.applyTalkSettlement(settlement)); },
+  };
+  const committing = helpers.commitSuccess(req, { statusCode: 207,
+    headers: { "Content-Type": "application/octet-stream", "X-Turn-Id": "cross-worker-turn" }, body })
+    .then(() => ({ ok: true }), error => ({ ok: false, code: error.code }));
+  await prepared.promise;
+  res.emit("finish");
+  assert.equal(await req.talkIdempotency.pendingRetirement, false);
+  const other = replayAcceptedInFreshWorker(f.jsonRoot);
+  acknowledge.resolve();
+  const outcome = await committing;
+  const localAfter = __test.peekIdempotencyCache().get(key);
+  const durable = await f.backplane.getIdempotency(key);
+  const retries = [];
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const retry = stubRequest({ authUser: { id: "retirement-writer" }, headers: { "Idempotency-Key": "owned-turn" } });
+    const response = stubResponse();
+    await guard(retry, response, () => assert.fail("accepted response must never regenerate"));
+    retries.push(response._recorded);
+  }
+  const ledger = await f.persistence.list({ domain: "wallet_talk_settlements" });
+  t.diagnostic(JSON.stringify({ otherWorker: other.status, durableStatus: durable.status,
+    originalOutcome: outcome, localAfter: localAfter?.status ?? null,
+    retries: retries.map(response => response.statusCode), ledgerRows: ledger.length,
+    pageMilliturns: (await wallet.getBalance("retirement-writer")).pageMilliturns }));
+  assert.equal(other.status, 207); assert.equal(other.generated, 0); assert.equal(other.settlements, 1);
+  assert.deepEqual(other.body, [...body]);
+  assert.deepEqual(outcome, { ok: false, code: "TALK_IDEMPOTENCY_CONFLICT" });
+  assert.equal(localAfter, undefined);
+  assert.equal(durable.status, "completed"); assert.deepEqual(durable.body, body);
+  assert.deepEqual(durable.turnMetadata, req.talkTurnMetadata);
+  for (const response of retries) {
+    assert.equal(response.statusCode, 207); assert.deepEqual(response.body, body);
+    assert.equal(response.headers["x-idempotency-replay"], "1");
+    assert.equal(response.headers["x-turn-id"], "cross-worker-turn");
+  }
+  assert.equal(ledger.length, 1);
+  assert.equal((await wallet.getBalance("retirement-writer")).pageMilliturns, 9_800);
+  assert.equal(settleResults.length, 1); assert.equal(settleResults[0].alreadySettled, true);
+  assert.equal((await turns.read("cross-worker-turn", { userId: "retirement-writer" })).screenplayOutput.text,
+    req.talkTurnMetadata.screenplayOutput.text);
+});
+
+test("CAS conflict recovery: guard reconciliation evicts its exact stale prepared publication", async t => {
+  const f = await pendingRetirementFixture(t);
+  const key = "user:retirement-writer|owned-turn", body = Buffer.from([255, 0, 128, 42]);
+  const record = { status: "prepared", expiresAt: 0, body, statusCode: 207,
+    headers: { "content-type": "application/octet-stream", "x-turn-id": "guard-conflict" },
+    settlement: { settlementKey: key, ownerId: "retirement-writer", lane: "page" } };
+  await f.backplane.setIdempotency(key, record);
+  const other = await createScaleBackplane({ persistence: f.persistence,
+    outboxFilePath: path.join(f.jsonRoot, "other-outbox.json"), logger: { log() {} } });
+  await other.init(); t.after(() => other.close());
+  let reconciles = 0;
+  const guard = createTalkIdempotencyGuard({ ...f.guardConfig,
+    async reconcilePreparedIdempotency() {
+      reconciles++;
+      const current = await other.getIdempotency(key);
+      if (current.status === "prepared") await other.compareAndSetIdempotency(key, current,
+        { ...current, status: "completed", completedAt: Date.now(), expiresAt: Date.now() + 60_000 });
+    },
+  });
+  const makeReq = () => stubRequest({ authUser: { id: "retirement-writer" }, headers: { "Idempotency-Key": "owned-turn" } });
+  const first = stubResponse();
+  await guard(makeReq(), first, () => assert.fail("prepared receipt cannot generate"));
+  const cachedAfterConflict = __test.peekIdempotencyCache().get(key);
+  const retry = stubResponse();
+  await guard(makeReq(), retry, () => assert.fail("completed receipt cannot generate"));
+  t.diagnostic(JSON.stringify({ initialStatus: first._recorded.statusCode,
+    localAfterConflict: cachedAfterConflict?.status ?? null, retryStatus: retry._recorded.statusCode, reconciles }));
+  assert.equal(first._recorded.statusCode, 503);
+  assert.equal(first._recorded.body.error, "settlement_pending");
+  assert.equal(cachedAfterConflict, undefined);
+  assert.equal(retry._recorded.statusCode, 207); assert.deepEqual(retry._recorded.body, body);
+  assert.equal(retry._recorded.headers["x-idempotency-replay"], "1");
+  assert.equal(reconciles, 1);
+});
+
+for (const readOutcome of ["error", "missing", "expired", "unchanged", "invalid-body", "new-local-owner"]) {
+  test(`CAS conflict recovery: ${readOutcome} authoritative read preserves the captured boundary`, async t => {
+    let accepted, armRecoveryRead = false;
+    const f = await pendingRetirementFixture(t, adapter => ({ ...adapter,
+      async compareAndSwap(args) {
+        if (args.domain === "talk_idempotency" && args.value?.status === "prepared") {
+          accepted = { ...args.value, status: "completed", completedAt: Date.now(), expiresAt: Date.now() + 60_000 };
+          assert.equal(await adapter.compareAndSwap({ ...args, value: accepted }), true);
+          armRecoveryRead = true;
+        }
+        return adapter.compareAndSwap(args);
+      },
+    }));
+    const { req, pending } = await f.admit();
+    const key = req.talkIdempotency.cacheKey;
+    const get = f.backplane.getIdempotency;
+    const readStarted = heldReply(), releaseRead = heldReply();
+    f.backplane.getIdempotency = async cacheKey => {
+      if (!armRecoveryRead) return get(cacheKey);
+      armRecoveryRead = false;
+      if (readOutcome === "error") throw new Error("authoritative read unavailable");
+      if (readOutcome === "missing") return null;
+      if (readOutcome === "expired") return { ...await get(cacheKey), expiresAt: Date.now() - 1 };
+      if (readOutcome === "unchanged") return structuredClone(pending);
+      if (readOutcome === "invalid-body") return { ...await get(cacheKey), body: "unverified bytes" };
+      readStarted.resolve(); await releaseRead.promise;
+      return get(cacheKey);
+    };
+    const committing = f.helpers.commitSuccess(req, { body: Buffer.from([255, 0, 42]) });
+    let currentLocal = pending;
+    if (readOutcome === "new-local-owner") {
+      // If the old source never performs a recovery read, fail the intended assertion without hanging.
+      const raced = await Promise.race([readStarted.promise.then(() => true), committing.then(() => false, () => false)]);
+      assert.equal(raced, true, "typed CAS conflict must consult authoritative state");
+      __test.reset(); // Existing explicit cache eviction seam; a fresh guard now owns the hydrated record.
+      const response = stubResponse();
+      await f.guard(stubRequest({ authUser: { id: "retirement-writer" }, headers: { "Idempotency-Key": "owned-turn" } }),
+        response, () => assert.fail("new local recovery owner cannot regenerate"));
+      currentLocal = __test.peekIdempotencyCache().get(key);
+      assert.equal(response._recorded.statusCode, 200);
+      releaseRead.resolve();
+    }
+    await assert.rejects(committing, error => error?.code === "TALK_IDEMPOTENCY_CONFLICT");
+    assert.equal(__test.peekIdempotencyCache().get(key), currentLocal);
+    const raw = await f.persistence.get({ domain: "talk_idempotency", key });
+    assert.equal(raw.status, "completed");
+    assert.deepEqual(Buffer.from(raw.body.data, "base64"), Buffer.from([255, 0, 42]));
+    if (readOutcome !== "new-local-owner") {
+      const response = stubResponse();
+      await f.guard(req, response, () => assert.fail("unconfirmed authority cannot trigger generation"));
+      assert.equal(response._recorded.statusCode, 409);
+    }
+  });
+}
