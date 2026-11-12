@@ -5,6 +5,23 @@ enum StudioUITestHeldPreviewPhase: String {
     case projectInvalidated, documentInvalidated, identityInvalidated, contextInvalidated
 }
 
+enum StudioUITestPartnerPagePhase: String {
+    case buttonActivated = "button_activated"
+    case handlerEntered = "handler_entered"
+    case exchangeMissing = "exchange_missing"
+    case wrongTarget = "wrong_target"
+    case exchangeResolved = "exchange_resolved"
+    case composerReturned = "composer_returned"
+}
+
+private enum StudioUITestPromptRoutingValue: String {
+    case automatic, page, voicePin, invalid
+
+    init(_ storageValue: String) {
+        self = Self(rawValue: storageValue) ?? .invalid
+    }
+}
+
 #if DEBUG && canImport(UIKit)
 import UIKit
 import ObjectiveC
@@ -47,6 +64,22 @@ enum StudioUITestInputDiagnostics {
                 "owner": ObjectIdentifier(owner).hashValue])
     }
 
+    static func partnerPage(_ phase: StudioUITestPartnerPagePhase) {
+        guard requested else { return }
+        record(["kind": "partner_page", "phase": phase.rawValue])
+    }
+
+    static func promptRoutingBinding(_ original: Binding<String>) -> Binding<String> {
+        guard requested else { return original }
+        return Binding(get: { original.wrappedValue }, set: { new in
+            let old = StudioUITestPromptRoutingValue(original.wrappedValue)
+            original.wrappedValue = new
+            record(["kind": "prompt_routing", "old": old.rawValue,
+                    "requested": StudioUITestPromptRoutingValue(new).rawValue,
+                    "readback": StudioUITestPromptRoutingValue(original.wrappedValue).rawValue])
+        })
+    }
+
     fileprivate static func capture(_ event: UIEvent) {
         guard requested, event.type == .touches, let touches = event.allTouches else { return }
         for touch in touches where [.began, .ended, .cancelled].contains(touch.phase) {
@@ -70,6 +103,13 @@ enum StudioUITestInputDiagnostics {
                 entry["switch_enabled"] = control.isEnabled
                 entry["switch_tracking"] = control.isTracking
             }
+            if let scroll = ancestors.compactMap({ $0 as? UIScrollView }).first {
+                // Observed after UIKit dispatch; motion may have stopped during delivery.
+                entry["scroll_dragging"] = scroll.isDragging
+                entry["scroll_tracking"] = scroll.isTracking
+                entry["scroll_decelerating"] = scroll.isDecelerating
+                entry["scroll_delays_content_touches"] = scroll.delaysContentTouches
+            }
             record(entry)
         }
     }
@@ -81,8 +121,18 @@ enum StudioUITestInputDiagnostics {
         if records.count > 32 { records.removeFirst(records.count - 32) }
     }
 
-    static var snapshot: String? {
-        guard let data = try? JSONSerialization.data(withJSONObject: records, options: [.sortedKeys]) else { return nil }
+    static var snapshot: String? { serialize(records) }
+
+    static var partnerPageSnapshot: String? {
+        // This surface excludes unrelated traces that carry object-owner hashes.
+        serialize(records.filter {
+            guard let kind = $0["kind"] as? String else { return false }
+            return ["installed", "touch", "partner_page", "prompt_routing"].contains(kind)
+        })
+    }
+
+    private static func serialize(_ entries: [[String: Any]]) -> String? {
+        guard let data = try? JSONSerialization.data(withJSONObject: entries, options: [.sortedKeys]) else { return nil }
         return String(data: data, encoding: .utf8)
     }
 }
@@ -96,16 +146,24 @@ private extension UIApplication {
 }
 
 private final class StudioInputTraceView: UIView {
+    var partnerPageOnly = false
+
     override var accessibilityValue: String? {
-        get { StudioUITestInputDiagnostics.snapshot }
+        get {
+            partnerPageOnly
+                ? StudioUITestInputDiagnostics.partnerPageSnapshot
+                : StudioUITestInputDiagnostics.snapshot
+        }
         set {}
     }
 }
 
 struct StudioUITestInputDiagnosticsView: UIViewRepresentable {
     var identifier = "studio.debug.input.trace"
+    var partnerPageOnly = false
     func makeUIView(context: Context) -> UIView {
         let view = StudioInputTraceView()
+        view.partnerPageOnly = partnerPageOnly
         view.isUserInteractionEnabled = false
         view.isAccessibilityElement = StudioUITestInputDiagnostics.requested
         view.accessibilityIdentifier = identifier
@@ -120,9 +178,12 @@ enum StudioUITestInputDiagnostics {
     static func installIfRequested() {}
     static func heldPreview(_ phase: StudioUITestHeldPreviewPhase, owner: AnyObject) {}
     static func binding(_ original: Binding<Bool>, owner: AnyObject) -> Binding<Bool> { original }
+    static func partnerPage(_ phase: StudioUITestPartnerPagePhase) {}
+    static func promptRoutingBinding(_ original: Binding<String>) -> Binding<String> { original }
 }
 struct StudioUITestInputDiagnosticsView: View {
     var identifier = "studio.debug.input.trace"
+    var partnerPageOnly = false
     var body: some View { EmptyView() }
 }
 #endif

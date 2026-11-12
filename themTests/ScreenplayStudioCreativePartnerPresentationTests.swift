@@ -346,6 +346,89 @@ final class ScreenplayStudioCreativePartnerPresentationTests: XCTestCase {
         }
     }
 
+    func testPagePreparationLoadsExactRequestedPromptOnce() throws {
+        let exchangeID = UUID()
+        let prompt = "  Keep cafe\u{0301} and café distinct.\r\n\nDo not submit. 🎬  "
+        var calls: [(prompt: String?, route: ScreenplayStudioScreen.PromptRoutingMode?,
+                     intent: ScreenplayStudioScreen.StudioPromptIntent?, focus: Bool)] = []
+
+        let prepared = ScreenplayStudioCreativePartnerPagePreparation.perform(
+            exchangeID: exchangeID,
+            exchanges: [
+                makeHistoryExchange(id: UUID(), prompt: "Unrelated Voice Pin"),
+                makeHistoryExchange(id: exchangeID, prompt: prompt)
+            ]
+        ) { calls.append(($0, $1, $2, $3)) }
+
+        XCTAssertTrue(prepared)
+        XCTAssertEqual(calls.count, 1)
+        let call = try XCTUnwrap(calls.first)
+        XCTAssertEqual(Array(try XCTUnwrap(call.prompt).utf8), Array(prompt.utf8))
+        XCTAssertEqual(call.route, .page)
+        XCTAssertEqual(call.intent, .rewrite)
+        XCTAssertFalse(call.focus)
+    }
+
+    func testPagePreparationMissingExchangePreservesComposer() {
+        assertUnavailablePagePreparation(
+            exchangeID: UUID(),
+            exchanges: [makeHistoryExchange(id: UUID())]
+        )
+    }
+
+    func testPagePreparationWrongTargetDoesNotUseALaterMatchingVoicePin() {
+        let exchangeID = UUID()
+        assertUnavailablePagePreparation(
+            exchangeID: exchangeID,
+            exchanges: [
+                makeHistoryExchange(id: exchangeID, target: .page),
+                makeHistoryExchange(id: exchangeID)
+            ]
+        )
+    }
+
+    private func assertUnavailablePagePreparation(
+        exchangeID: UUID,
+        exchanges: [ScreenplayStudioScreen.StudioAskNoteExchange],
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        var composerCalls = 0
+        var prompt: String? = "Current writer ask"
+        var route: ScreenplayStudioScreen.PromptRoutingMode? = .voicePin
+        var intent: ScreenplayStudioScreen.StudioPromptIntent? = .advice
+        var focus = true
+        let prepared = ScreenplayStudioCreativePartnerPagePreparation.perform(
+            exchangeID: exchangeID,
+            exchanges: exchanges
+        ) {
+            composerCalls += 1
+            (prompt, route, intent, focus) = ($0, $1, $2, $3)
+        }
+
+        XCTAssertFalse(prepared, file: file, line: line)
+        XCTAssertEqual(composerCalls, 0, file: file, line: line)
+        XCTAssertEqual(prompt, "Current writer ask", file: file, line: line)
+        XCTAssertEqual(route, .voicePin, file: file, line: line)
+        XCTAssertEqual(intent, .advice, file: file, line: line)
+        XCTAssertTrue(focus, file: file, line: line)
+    }
+
+    private func makeHistoryExchange(
+        id: UUID,
+        prompt: String = "Help with this beat",
+        target: ScreenplayStudioScreen.StudioTarget = .voicePin
+    ) -> ScreenplayStudioScreen.StudioAskNoteExchange {
+        ScreenplayStudioScreen.StudioAskNoteExchange(
+            id: id, backendThreadID: nil, backendTurn: nil, requestID: nil,
+            prompt: prompt, target: target, source: .typed,
+            noteTitle: "Fixture", noteBody: "Fixture body", writeID: nil,
+            replacedWriteID: nil, anchorLine: nil, anchorEndLine: nil,
+            anchorSceneLabel: nil, anchorExcerpt: nil, insertedText: nil,
+            timestamp: Date(timeIntervalSince1970: 100_000)
+        )
+    }
+
     private func makePresentation(
         selectedModeRawValue: String = "coach",
         routesToPage: Bool = false,

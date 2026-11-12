@@ -3863,14 +3863,13 @@ Detail:
     }
 
     private func sendCreativePartnerVoicePinToPage(exchangeID: UUID) {
-        guard let exchange = studioAskNoteHistory.first(where: { $0.id == exchangeID }),
-              exchange.target == .voicePin else { return }
-        openStudioCommandBar(
-            prefill: exchange.prompt,
-            routingMode: .page,
-            intent: .rewrite,
-            focusComposer: false
-        )
+        if !ScreenplayStudioCreativePartnerPagePreparation.perform(
+            exchangeID: exchangeID,
+            exchanges: studioAskNoteHistory,
+            openComposer: openStudioCommandBar
+        ) {
+            vm.infoText = "This Voice Pin is no longer available. Choose a current one."
+        }
     }
 
     private var directionOneRightPanelTabs: some View {
@@ -8229,7 +8228,7 @@ Current draft version:
 
     private var studioPromptRoutingMode: PromptRoutingMode {
         get { PromptRoutingMode(rawValue: studioPromptRoutingModeRaw) ?? .automatic }
-        nonmutating set { studioPromptRoutingModeRaw = newValue.rawValue }
+        nonmutating set { StudioUITestInputDiagnostics.promptRoutingBinding($studioPromptRoutingModeRaw).wrappedValue = newValue.rawValue }
     }
 
     private var studioPromptHelperText: String {

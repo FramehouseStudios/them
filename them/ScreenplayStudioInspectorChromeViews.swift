@@ -14,6 +14,13 @@ struct ScreenplayStudioPinnedInspectorTabs<Tabs: View>: ViewModifier {
             tabs
                 .padding(.horizontal, 12)
                 .padding(.top, 12)
+                .overlay(alignment: .topTrailing) {
+                    StudioUITestInputDiagnosticsView(
+                        identifier: "studio.debug.inspector.input.trace", partnerPageOnly: true
+                    )
+                        .frame(width: 12, height: 12)
+                        .allowsHitTesting(false)
+                }
             content.id(selection)
                 .accessibilityIdentifier("studio.sidebar.right.content-scroll")
         }
