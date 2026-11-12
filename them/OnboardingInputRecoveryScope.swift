@@ -222,7 +222,18 @@ final class OnboardingInputRecoveryModel: ObservableObject {
                 if earlierDrainID == owner.id {
                     earlierCapture = owner.pending == nil ? .protected : .sealing
                 }
-            case .occupied, .tooLarge, .unconfirmed:
+            case .tooLarge:
+                // Custody rejects capacity before I/O, so the original CAS
+                // lineage still applies to a distinct, smaller queued snapshot.
+                guard let pending = owner.pending, pending.fields != work.fields,
+                      pending.fields.nameUTF8.count + pending.fields.premiseUTF8.count
+                        < work.fields.nameUTF8.count + work.fields.premiseUTF8.count else {
+                    if earlierDrainID == owner.id { earlierCapture = .unconfirmed }
+                    return
+                }
+                if !owner.sealed, owner.epoch == epoch, access?.credentialFree == true { status = .saving }
+                continue
+            case .occupied, .unconfirmed:
                 if earlierDrainID == owner.id { earlierCapture = .unconfirmed }
                 return
             }
