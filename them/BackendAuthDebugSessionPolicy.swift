@@ -102,7 +102,8 @@ nonisolated enum BackendAuthDebugSessionPolicy {
         environment: [String: String],
         isResumeFixtureActivated: Bool
     ) -> AutomationSessionOverride? {
-        automationSessionOverride(arguments: arguments, environment: environment)
+        guard !usesStoredCredentials(arguments: arguments, environment: environment) else { return nil }
+        return automationSessionOverride(arguments: arguments, environment: environment)
             ?? uiTestAuthenticationResumeFixtureOverride(
                 arguments: arguments,
                 isActivated: isResumeFixtureActivated
