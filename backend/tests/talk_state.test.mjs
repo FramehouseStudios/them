@@ -1258,3 +1258,204 @@ test("createTalkConcurrencyGuard requires positive talkMaxInFlight", () => {
     /talkMaxInFlight/
   );
 });
+
+
+function sessionSerialGuardForTest(scaleBackplane, overrides = {}) {
+  return createTalkSessionSerialGuard({
+    isSpeculativePrepareRequest: () => false,
+    talkSessionSerialEnabled: true,
+    resolveTalkSessionKey: () => "session-handoff",
+    scaleBackplane,
+    recordTalkMetric: () => {},
+    createRequestId: () => "generated-request",
+    sttTimeoutMs: 5_000, chatTimeoutMs: 5_000, ttsTimeoutMs: 5_000,
+    ...overrides,
+  });
+}
+
+function heldReply() {
+  let resolve, reject;
+  const promise = new Promise((resolveReply, rejectReply) => {
+    resolve = resolveReply;
+    reject = rejectReply;
+  });
+  return { promise, resolve, reject };
+}
+
+test("session handoff: local ownership covers a pending distributed acquisition", async (t) => {
+  resetState();
+  const replies = [];
+  const guard = sessionSerialGuardForTest({
+    acquireSessionLock() {
+      const reply = heldReply();
+      replies.push(reply);
+      return reply.promise;
+    },
+    async releaseSessionLock() {},
+  });
+  const firstResponse = stubResponse();
+  const secondResponse = stubResponse();
+  t.after(() => {
+    firstResponse.emit("finish");
+    secondResponse.emit("finish");
+  });
+  let continuations = 0;
+  const first = guard(stubRequest({ requestId: "owner-a" }), firstResponse, () => continuations++);
+  const second = guard(stubRequest({ requestId: "owner-b" }), secondResponse, () => continuations++);
+  const attemptsBeforeResolution = replies.length;
+  for (const reply of replies) reply.resolve({ ok: true }); // Existing Redis-unavailable success policy.
+  await Promise.all([first, second]);
+  assert.equal(attemptsBeforeResolution, 1, "A pending owner must reject B before B calls the distributed lock");
+  assert.equal(continuations, 1);
+  assert.equal(secondResponse._recorded.statusCode, 409);
+  assert.equal(secondResponse._recorded.body.stage, "busy_session");
+  assert.equal(secondResponse._recorded.headers["retry-after"], "1");
+});
+
+for (const terminalEvent of ["close", "finish"]) {
+  test(`session handoff: ${terminalEvent} during acquisition cleans up late success`, async (t) => {
+    resetState();
+    const reply = heldReply();
+    const leases = new Map();
+    const releases = [];
+    const guard = sessionSerialGuardForTest({
+      acquireSessionLock(key, owner) {
+        leases.set(key, owner); // Command applied; its acknowledgement is delayed.
+        return reply.promise;
+      },
+      async releaseSessionLock(key, owner) {
+        releases.push([key, owner]);
+        if (leases.get(key) === owner) leases.delete(key);
+      },
+    });
+    const response = stubResponse();
+    t.after(() => { response.emit("finish"); response.emit("close"); });
+    let continuations = 0;
+    const acquiring = guard(stubRequest({ requestId: "owner-a" }), response, () => continuations++);
+    response.emit(terminalEvent);
+    reply.resolve({ ok: true });
+    await acquiring;
+    assert.equal(continuations, 0, JSON.stringify({
+      localOwners: talkInFlightBySessionSize(), remoteOwner: leases.get("session-handoff"), releases,
+    }));
+    assert.equal(talkInFlightBySessionSize(), 0);
+    assert.equal(leases.size, 0);
+    response.emit("finish");
+    response.emit("close");
+    assert.deepEqual(releases, [["session-handoff", "owner-a"]]);
+  });
+}
+
+test("session handoff: a closed old acquisition cannot replace or release the new owner", async (t) => {
+  resetState();
+  const replies = new Map();
+  const leases = new Map();
+  const releases = [];
+  const guard = sessionSerialGuardForTest({
+    acquireSessionLock(key, owner) {
+      if (leases.has(key)) return Promise.resolve({ ok: false });
+      leases.set(key, owner);
+      const reply = heldReply();
+      replies.set(owner, reply);
+      return reply.promise;
+    },
+    async releaseSessionLock(key, owner) {
+      releases.push([key, owner]);
+      if (leases.get(key) === owner) leases.delete(key);
+    },
+  });
+  const firstResponse = stubResponse();
+  const secondResponse = stubResponse();
+  t.after(() => {
+    firstResponse.emit("finish"); firstResponse.emit("close");
+    secondResponse.emit("finish"); secondResponse.emit("close");
+  });
+  let oldContinuations = 0, newContinuations = 0;
+  const oldAcquisition = guard(stubRequest({ requestId: "owner-a" }), firstResponse, () => oldContinuations++);
+  firstResponse.emit("close");
+  leases.delete("session-handoff"); // The old remote lease expires before its reply arrives.
+  const newAcquisition = guard(stubRequest({ requestId: "owner-b" }), secondResponse, () => newContinuations++);
+  replies.get("owner-b").resolve({ ok: true });
+  await newAcquisition;
+  replies.get("owner-a").resolve({ ok: true });
+  await oldAcquisition;
+  assert.equal(oldContinuations, 0);
+  assert.equal(newContinuations, 1);
+  assert.equal(__test.peekInFlightBySession().get("session-handoff")?.requestId, "owner-b");
+  assert.equal(leases.get("session-handoff"), "owner-b");
+  assert.deepEqual(releases, [["session-handoff", "owner-a"]]);
+  firstResponse.emit("finish"); firstResponse.emit("close");
+  assert.equal(leases.get("session-handoff"), "owner-b");
+  secondResponse.emit("finish"); secondResponse.emit("close");
+  assert.equal(talkInFlightBySessionSize(), 0);
+  assert.equal(leases.size, 0);
+  assert.deepEqual(releases, [["session-handoff", "owner-a"], ["session-handoff", "owner-b"]]);
+});
+
+
+for (const outcome of ["denied", "error"]) {
+  for (const closed of [false, true]) {
+    test(`session handoff: ${outcome} acquisition cleans ownership with response closed ${closed}`, async () => {
+      resetState();
+      const reply = heldReply();
+      const releases = [];
+      const guard = sessionSerialGuardForTest({
+        acquireSessionLock: () => reply.promise,
+        async releaseSessionLock(...args) { releases.push(args); },
+      });
+      const response = stubResponse();
+      const continuations = [];
+      const acquiring = guard(stubRequest({ requestId: "owner-failed" }), response,
+        (...args) => continuations.push(args));
+      if (closed) response.emit("close");
+      const error = new Error("synthetic acquisition failure");
+      if (outcome === "denied") reply.resolve({ ok: false });
+      else reply.reject(error);
+      await acquiring;
+      assert.equal(talkInFlightBySessionSize(), 0);
+      assert.deepEqual(releases, [], "An unconfirmed lease must not release another owner");
+      if (closed) {
+        assert.deepEqual(continuations, []);
+        assert.equal(response._recorded.sent, false);
+      } else if (outcome === "denied") {
+        assert.deepEqual(continuations, []);
+        assert.equal(response._recorded.statusCode, 409);
+        assert.equal(response._recorded.body.stage, "busy_session");
+        assert.equal(response._recorded.headers["retry-after"], "1");
+      } else {
+        assert.deepEqual(continuations, [[error]]);
+      }
+      response.emit("finish"); response.emit("close");
+      assert.deepEqual(releases, []);
+    });
+  }
+}
+
+for (const terminalProperty of ["destroyed", "writableEnded"]) {
+  test(`session handoff: already ${terminalProperty} response never acquires or continues`, async () => {
+    resetState();
+    let acquisitions = 0, continuations = 0;
+    const guard = sessionSerialGuardForTest({
+      async acquireSessionLock() { acquisitions += 1; return { ok: true }; },
+      async releaseSessionLock() {},
+    });
+    const response = stubResponse();
+    response[terminalProperty] = true;
+    await guard(stubRequest(), response, () => continuations++);
+    assert.equal(acquisitions, 0);
+    assert.equal(continuations, 0);
+    assert.equal(talkInFlightBySessionSize(), 0);
+  });
+}
+
+test("session handoff: disabled serial guard preserves bypass behavior", async () => {
+  resetState();
+  let continuations = 0;
+  const guard = sessionSerialGuardForTest({
+    async acquireSessionLock() { throw new Error("disabled guard must not acquire"); },
+    async releaseSessionLock() { throw new Error("disabled guard must not release"); },
+  }, { talkSessionSerialEnabled: false });
+  await guard(stubRequest(), stubResponse(), () => continuations++);
+  assert.equal(continuations, 1);
+  assert.equal(talkInFlightBySessionSize(), 0);
+});

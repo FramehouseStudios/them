@@ -461,6 +461,8 @@ export function createTalkSessionSerialGuard({
   return async function talkSessionSerialGuard(req, res, next) {
     if (isSpeculativePrepareRequest(req)) return next();
     if (!talkSessionSerialEnabled) return next();
+    let responseClosed = false;
+    let cleanup = () => {};
     try {
       const sessionKey = resolveTalkSessionKey(req);
       const existing = talkInFlightBySession.get(sessionKey);
@@ -487,12 +489,41 @@ export function createTalkSessionSerialGuard({
         startedAt: Date.now(),
         requestId: req.requestId || createRequestId(),
       };
+      let leaseAcquired = false;
+      let leaseReleased = false;
+      cleanup = () => {
+        if (talkInFlightBySession.get(sessionKey) === marker) {
+          talkInFlightBySession.delete(sessionKey);
+        }
+        if (leaseAcquired && !leaseReleased) {
+          leaseReleased = true;
+          void scaleBackplane.releaseSessionLock(sessionKey, marker.requestId);
+        }
+      };
+      const closeResponse = () => {
+        responseClosed = true;
+        cleanup();
+      };
+      talkInFlightBySession.set(sessionKey, marker);
+      res.on("finish", closeResponse);
+      res.on("close", closeResponse);
+      if (res.destroyed || res.writableEnded) {
+        closeResponse();
+        return;
+      }
       const distributed = await scaleBackplane.acquireSessionLock(
         sessionKey,
         marker.requestId,
         Math.max(10_000, sttTimeoutMs + chatTimeoutMs + ttsTimeoutMs + 15_000)
       );
-      if (!distributed?.ok) {
+      leaseAcquired = Boolean(distributed?.ok);
+      if (responseClosed || res.destroyed || res.writableEnded
+        || talkInFlightBySession.get(sessionKey) !== marker) {
+        cleanup();
+        return;
+      }
+      if (!leaseAcquired) {
+        cleanup();
         recordTalkMetric({
           statusCode: 409,
           totalMs: 0,
@@ -511,22 +542,10 @@ export function createTalkSessionSerialGuard({
           error: "Previous turn is still processing for this session.",
         });
       }
-      talkInFlightBySession.set(sessionKey, marker);
-      let released = false;
-      const release = () => {
-        if (released) return;
-        released = true;
-        const active = talkInFlightBySession.get(sessionKey);
-        if (active === marker) {
-          talkInFlightBySession.delete(sessionKey);
-        }
-        void scaleBackplane.releaseSessionLock(sessionKey, marker.requestId);
-      };
-      res.on("finish", release);
-      res.on("close", release);
       next();
     } catch (err) {
-      next(err);
+      cleanup();
+      if (!responseClosed && !res.destroyed && !res.writableEnded) next(err);
     }
   };
 }
