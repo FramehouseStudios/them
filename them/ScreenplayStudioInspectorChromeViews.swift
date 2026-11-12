@@ -26,6 +26,18 @@ struct ScreenplayStudioRightPanelTabs: View {
                 .stroke(strokeColor.opacity(0.55), lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(alignment: .topTrailing) {
+            StudioUITestInputDiagnosticsView(identifier: "studio.debug.inspector.input.trace")
+                .frame(width: 12, height: 12)
+                .allowsHitTesting(false)
+        }
+        .onAppear {
+            StudioUITestInputDiagnostics.installIfRequested()
+            StudioUITestInputDiagnostics.inspectorTab(.appeared, requestedTab: selection, selection: selection)
+        }
+        .onChange(of: selection) { _, value in
+            StudioUITestInputDiagnostics.inspectorTab(.observed, requestedTab: value, selection: selection)
+        }
     }
 
     private func rightPanelTabRow(
@@ -35,9 +47,11 @@ struct ScreenplayStudioRightPanelTabs: View {
             ForEach(tabs) { tab in
                 let isActive = selection == tab
                 Button {
+                    StudioUITestInputDiagnostics.inspectorTab(.entered, requestedTab: tab, selection: selection)
                     withAnimation(.easeInOut(duration: 0.16)) {
                         selection = tab
                     }
+                    StudioUITestInputDiagnostics.inspectorTab(.applied, requestedTab: tab, selection: selection)
                 } label: {
                     VStack(spacing: 6) {
                         Image(systemName: tab.iconName)

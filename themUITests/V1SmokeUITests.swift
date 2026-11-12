@@ -791,7 +791,8 @@ final class V1SmokeUITests: XCTestCase {
 
     func test_them_inspector_tab_right_edge_selects_its_panel() throws {
 #if os(iOS)
-        let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true)
+        let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true,
+            launchEnvironment: ["THEM_UITEST_TRACE_INPUT": "1"])
         defer { app.terminate() }
 
         let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
@@ -818,6 +819,11 @@ final class V1SmokeUITests: XCTestCase {
             themTab.coordinate(withNormalizedOffset: .zero)
                 .withOffset(CGVector(dx: frame.width - 1, dy: frame.height / 2)).tap()
         }
+        let trace = element(identifier: "studio.debug.inspector.input.trace", in: app)
+        let attachment = XCTAttachment(string: trace.value as? String ?? "Native input trace unavailable")
+        attachment.name = "Inspector immediately after one edge touch"
+        attachment.lifetime = .keepAlways
+        add(attachment)
         XCTAssertTrue(
             waitForSelection(of: themTab, timeout: 3),
             "One touch inside the Them tab's right edge must select Them."
