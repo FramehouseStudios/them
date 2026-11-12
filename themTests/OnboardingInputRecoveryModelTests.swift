@@ -254,4 +254,194 @@ final class OnboardingInputRecoveryModelTests: XCTestCase {
         try await waitForSave(next)
     }
 
+    private func waitForIdle(_ model: OnboardingInputRecoveryModel) async throws {
+        for _ in 0..<500 {
+            if !model.isCapturing { return }
+            try await Task.sleep(for: .milliseconds(2))
+        }
+        XCTFail("Capture did not finish")
+    }
+
+    private func heldFixture() -> (URL, OnboardingInputCustody, OnboardingPendingFileHold) {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("onboarding-handoff-\(UUID().uuidString)")
+        let hold = OnboardingPendingFileHold()
+        let custody = UnassignedLegacyRecoveryVault.onboardingInputs(rootDirectory: root, fileProtectionEnforcer: { url in
+            guard !Thread.isMainThread else { throw CocoaError(.fileWriteUnknown) }
+            try hold.protect(url)
+        })
+        return (root, custody, hold)
+    }
+
+    private func waitForHold(_ hold: OnboardingPendingFileHold) async throws {
+        for _ in 0..<500 {
+            if hold.isWaiting { return }
+            try await Task.sleep(for: .milliseconds(2))
+        }
+        XCTFail("Production checkpoint never reached its pending-file protection boundary")
+        throw CocoaError(.fileWriteUnknown)
+    }
+
+    private func checkpoint(_ custody: OnboardingInputCustody) async -> OnboardingInputCheckpoint? {
+        await Task.detached { () -> OnboardingInputCheckpoint? in
+            guard case .present(let descriptor) = custody.inventory() else { return nil }
+            return custody.reveal(expected: descriptor)
+        }.value
+    }
+
+    func testLoginReservationKeepsAnonymousCaptureButInvalidatesOldRecoveryChallenge() async throws {
+        let (root, custody, model) = fixture(); defer { try? FileManager.default.removeItem(at: root) }
+        let before = OnboardingInputAccess(active: true, credentialFree: true, authIntent: 10, sessionEpoch: 20)
+        let reserved = OnboardingInputAccess(active: true, credentialFree: true, authIntent: 11, sessionEpoch: 20)
+        await model.inspect(before); model.editName("A", access: before); model.editPremise("A premise", access: before)
+        try await waitForSave(model)
+        let oldChallenge = model.editGeneration
+        model.updateAccess(reserved)
+        XCTAssertFalse(model.canRecover(editGeneration: oldChallenge, access: before))
+        let name = "  B cafe\u{301} \t", premise = "\r\nB keeps 👩🏽‍🚀 and these spaces. \t\r\n"
+        model.editName(name, access: reserved); model.editPremise(premise, access: reserved)
+        try await waitForIdle(model)
+        let saved = await checkpoint(custody)
+        XCTAssertEqual(saved?.fields.nameUTF8, Data(name.utf8))
+        XCTAssertEqual(saved?.fields.premiseUTF8, Data(premise.utf8))
+        XCTAssertEqual(model.status, .saved)
+    }
+
+    func testCredentialBoundaryDrainsFrozenBBehindHeldAWithoutSavingKnownAccountC() async throws {
+        let (root, custody, hold) = heldFixture()
+        defer { hold.release(); try? FileManager.default.removeItem(at: root) }
+        let model = OnboardingInputRecoveryModel(custody: custody)
+        let before = OnboardingInputAccess(active: true, credentialFree: true, authIntent: 10, sessionEpoch: 20)
+        let known = OnboardingInputAccess(active: true, credentialFree: false, authIntent: 12, sessionEpoch: 21)
+        await model.inspect(before); hold.arm()
+        model.editName("A", access: before); model.editPremise("A is in flight", access: before)
+        try await waitForHold(hold)
+        let name = "  B E\u{301}va \t", premise = "\r\nB frozen words. 👩🏽‍🚀 \t\r\n"
+        model.editName(name, access: before); model.editPremise(premise, access: before)
+        let staleEdits = model.editGeneration
+        model.updateAccess(known)
+        model.editName("known-account C must remain local", access: known)
+        hold.release(); try await waitForIdle(model)
+        let saved = await checkpoint(custody)
+        XCTAssertEqual(saved?.fields.nameUTF8, Data(name.utf8))
+        XCTAssertEqual(saved?.fields.premiseUTF8, Data(premise.utf8))
+        XCTAssertEqual(saved?.provenance, "unassigned_onboarding_input")
+        XCTAssertEqual(model.fields.nameUTF8, Data("known-account C must remain local".utf8))
+        XCTAssertFalse(model.fields.premiseWasEdited)
+        XCTAssertEqual(model.status, .accountRestricted)
+        XCTAssertFalse(model.canRecover(editGeneration: staleEdits, access: before))
+        let relaunched = OnboardingInputRecoveryModel(custody: custody)
+        await relaunched.inspect(known)
+        XCTAssertFalse(relaunched.fields.hasEdits)
+        XCTAssertFalse(relaunched.canRecover(editGeneration: relaunched.editGeneration, access: known))
+    }
+
+    func testSessionEpochABARevokesCaptureEvenWithSameCredentialFreeFlagAndIntent() async throws {
+        let (root, custody, model) = fixture(); defer { try? FileManager.default.removeItem(at: root) }
+        let before = OnboardingInputAccess(active: true, credentialFree: true, authIntent: 10, sessionEpoch: 20)
+        let afterABA = OnboardingInputAccess(active: true, credentialFree: true, authIntent: 10, sessionEpoch: 22)
+        await model.inspect(before); model.editPremise("A protected", access: before)
+        try await waitForSave(model)
+        let bytes = try Data(contentsOf: root.appendingPathComponent("current.json"))
+        model.updateAccess(afterABA)
+        XCTAssertFalse(model.fields.hasEdits)
+        model.editName("new visitor cannot adopt A's lease", access: afterABA)
+        try await waitForIdle(model)
+        XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent("current.json")), bytes)
+        XCTAssertEqual(model.status, .existing)
+    }
+
+    func testUnconfirmedHeldWriteStopsSealedDrainAndPreservesPendingEvidence() async throws {
+        let (root, custody, hold) = heldFixture()
+        defer { hold.release(); try? FileManager.default.removeItem(at: root) }
+        let model = OnboardingInputRecoveryModel(custody: custody)
+        await model.inspect(signedOut); hold.arm(fail: true)
+        model.editPremise("A valid pending evidence", access: signedOut)
+        try await waitForHold(hold)
+        let pending = root.appendingPathComponent("pending.json")
+        let bytes = try Data(contentsOf: pending)
+        model.editPremise("B cannot be confirmed", access: signedOut)
+        let known = OnboardingInputAccess(active: true, credentialFree: false, authIntent: 11, sessionEpoch: 1)
+        model.updateAccess(known)
+        hold.release(); try await waitForIdle(model)
+        XCTAssertEqual(try Data(contentsOf: pending), bytes)
+        XCTAssertEqual(model.status, .accountRestricted)
+        let saved = await checkpoint(custody)
+        XCTAssertEqual(saved?.fields.premiseUTF8, Data("A valid pending evidence".utf8))
+        XCTAssertFalse(model.canRecover(editGeneration: model.editGeneration, access: known))
+    }
+
+    func testSealedCaptureNeverAdoptsAnotherWindowsOccupiedDescriptor() async throws {
+        let (root, custody, model) = fixture(); defer { try? FileManager.default.removeItem(at: root) }
+        await model.inspect(signedOut)
+        var foreign = OnboardingInputFields(); foreign.premiseWasEdited = true; foreign.premiseUTF8 = Data("another window".utf8)
+        let foreignFields = foreign
+        let foreignResult = await Task.detached { custody.checkpoint(foreignFields, expected: nil, revisionID: UUID().uuidString) }.value
+        guard case .verified = foreignResult else { return XCTFail("Missing other window checkpoint") }
+        let bytes = try Data(contentsOf: root.appendingPathComponent("current.json"))
+        model.editPremise("B cannot replace occupied input", access: signedOut)
+        model.updateAccess(.init(active: true, credentialFree: false, authIntent: 11, sessionEpoch: 1))
+        try await waitForIdle(model)
+        XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent("current.json")), bytes)
+        XCTAssertEqual(model.status, .accountRestricted)
+    }
+
+    func testSealedAnonymousDrainOutlivesFormWithoutImportingLaterEpochFields() async throws {
+        let (root, custody, hold) = heldFixture()
+        defer { hold.release(); try? FileManager.default.removeItem(at: root) }
+        var model: OnboardingInputRecoveryModel? = .init(custody: custody)
+        weak var retained = model
+        await model!.inspect(signedOut); hold.arm()
+        model!.editPremise("A in flight", access: signedOut)
+        try await waitForHold(hold)
+        model!.editPremise("B survives the form", access: signedOut)
+        model!.updateAccess(.init(active: true, credentialFree: false, authIntent: 11, sessionEpoch: 1))
+        model!.editPremise("known C", access: .init(active: true, credentialFree: false, authIntent: 11, sessionEpoch: 1))
+        model!.updateAccess(.init(active: true, credentialFree: true, authIntent: 12, sessionEpoch: 2))
+        model!.editName("later anonymous epoch", access: .init(active: true, credentialFree: true, authIntent: 12, sessionEpoch: 2))
+        model = nil
+        XCTAssertNotNil(retained, "The in-flight owner must retain its immutable handoff")
+        hold.release()
+        for _ in 0..<500 {
+            if retained == nil { break }
+            try await Task.sleep(for: .milliseconds(2))
+        }
+        XCTAssertNil(retained)
+        let saved = await checkpoint(custody)
+        XCTAssertEqual(saved?.fields.premiseUTF8, Data("B survives the form".utf8))
+        XCTAssertFalse(saved?.fields.nameWasEdited ?? true)
+    }
+
+}
+
+
+/// Holds the real pending-file protection boundary; no store behavior is replaced.
+nonisolated private final class OnboardingPendingFileHold: @unchecked Sendable {
+    private let condition = NSCondition()
+    private var armed = false
+    private var waiting = false
+    private var released = false
+    private var fail = false
+
+    var isWaiting: Bool {
+        condition.lock(); defer { condition.unlock() }
+        return waiting
+    }
+    func arm(fail: Bool = false) {
+        condition.lock(); defer { condition.unlock() }
+        armed = true; waiting = false; released = false; self.fail = fail
+    }
+    func release() {
+        condition.lock(); released = true; condition.broadcast(); condition.unlock()
+    }
+    func protect(_ url: URL) throws {
+        guard url.lastPathComponent == "pending.json" else { return }
+        condition.lock(); defer { condition.unlock() }
+        guard armed else { return }
+        armed = false; waiting = true
+        let deadline = Date().addingTimeInterval(10)
+        while !released {
+            guard condition.wait(until: deadline) else { throw CocoaError(.fileWriteUnknown) }
+        }
+        if fail { throw CocoaError(.fileWriteUnknown) }
+    }
 }

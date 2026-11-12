@@ -5,6 +5,11 @@ nonisolated struct OnboardingInputAccess: Equatable, Sendable {
     let active: Bool
     let credentialFree: Bool
     let authIntent: Int
+    let sessionEpoch: Int
+    init(active: Bool, credentialFree: Bool, authIntent: Int, sessionEpoch: Int = 0) {
+        self.active = active; self.credentialFree = credentialFree
+        self.authIntent = authIntent; self.sessionEpoch = sessionEpoch
+    }
     var permitsAccess: Bool { active && credentialFree }
 }
 
@@ -37,6 +42,7 @@ final class OnboardingInputRecoveryModel: ObservableObject {
     private var mayWrite = false
     private var lease: OnboardingInputDescriptor?
     private var writing = false
+    var isCapturing: Bool { writing }
     private var capturePausedUntilEdit = false
     private var readOnlyRecovery = false
     private var failed: Write?
@@ -171,7 +177,7 @@ final class OnboardingInputRecoveryModel: ObservableObject {
     }
 
     func canRecover(editGeneration: UInt64, access expected: OnboardingInputAccess) -> Bool {
-        !writing && self.editGeneration == editGeneration && access == expected && expected.permitsAccess
+        !isCapturing && self.editGeneration == editGeneration && access == expected && expected.permitsAccess
     }
 
     @discardableResult
@@ -351,7 +357,8 @@ struct OnboardingInputRecoveryScope<Content: View>: View {
         return .init(active: scenePhase == .active,
                      credentialFree: !BackendAuthClient.authSessionTokenDeletionIsPending()
                         && session.user == nil && !session.accessTokenPresent && !session.refreshTokenPresent,
-                     authIntent: BackendAuthClient.currentAuthSessionIntentGeneration())
+                     authIntent: BackendAuthClient.currentAuthSessionIntentGeneration(),
+                     sessionEpoch: BackendAuthClient.currentAuthSessionEpoch())
     }
 
     private static func processCustody() -> OnboardingInputCustody {
