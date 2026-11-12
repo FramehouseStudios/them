@@ -5,6 +5,33 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### Current checkpoint — T-1419 / T-1421 (2026-11-12)
+
+- **Owner:** Codex (Jarvis); bounded source work by Zora, CI preparation by Luna,
+  evidence review/preservation by Einstein. These are actual tool participants,
+  not human reviewers. **Status:** in-progress; integration is not on main.
+- **Current branch:** `codex/T-1419-onboarding-action-owner`; app identity
+  `cd8e95ec`, preserving original #422 and published custody backup e1c6e10b.
+  Follow-up 443b38bf carries the CI credit fence without changing app sources.
+- **Fixed:** captured onboarding intent through sign-in; stored-auth fallback
+  precedence/bootstrap wiring; stale action ownership; export-control reveal.
+  CI requires fresh explicit approval for provider-capable optional gates.
+- **Proof:** signed full units1599/0/0; first-run UI5/0/0, writer1/0/0,
+  recovery3/0/0, voice1/0/0; macOS build; D009 Root−122/Memory−8/others0.
+  Backend3121/0/5 is inherited from the unchanged exact backend tree, not rerun.
+  Actual external Files export is separately observed component proof.
+- **Retained failures:** auth regression1failed before fix; isolated CI fixture
+ 16/2/0 before including canonical child scripts, then18/0/0. No hidden retry.
+- **GitHub:** #995 head5c5062cd all three hosted gates green. Original #964
+  advanced normally to ca019af2 for the CI credit safeguard; fresh checks running,
+  non-author review deferred by the human. #997 descendant preparation continues.
+  Main remains78b8c94f; no auto-merge, direct push or production change.
+- **Next:** preserve/publish this coherent backup and original #997 through
+  required checks/review; then observed physical-phone journey with identified
+  backend. Fresh paid-call approval is still required. Production hold remains.
+- **Evidence/files/limits:** `docs/onboarding-recovery-integration-2026-11-12.md`.
+  Older entries below are historical checkpoints, not current completion claims.
+
 ### T-1202 — Restore pending manual saves and exact queued recovery
 
 - **Owner:** Codex (Jarvis), with bounded independent review in actual chat
