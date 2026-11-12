@@ -1,5 +1,7 @@
 # Onboarding, recovery and writer integration — 2026-11-12
 
+**Historical checkpoint:** the subsequent named-account hydration root cause, causal red/green and1603-test result are recorded in [the follow-up proof](onboarding-name-hydration-proof-2026-11-12.md). Earlier “current” wording below describes that earlier source checkpoint.
+
 ## Current result and boundaries
 
 VERIFIED: preserved original #422 `6a5010eeede3d5edb482287d548f66fd0a9da366` in a no-ff integration, retained the published writer/backend custody work, and repaired two onboarding/authentication ownership problems. Current app sources are exactly those tested at `cd8e95ecdb12925707a099b04997ee413c3f10e3`. Subsequent preserving merge `443b38bfed774a17eafc3d69741be0a0f57f795d` adds the published #964 CI provider-approval fence; `bd4096a3` adapts its isolated shell fixture to the existing child runner contract. Neither changes app/backend/package/project sources.
