@@ -2724,34 +2724,6 @@ nonisolated struct BackendScreenplayCommentsResponse: Decodable {
     let backendBootId: String?
 }
 
-nonisolated struct BackendScreenplayVersionMutationResponse: Decodable {
-    let stage: String?
-    let status: String?
-    let createdProject: Bool?
-    let projectId: String?
-    let versionId: String?
-    let version: BackendScreenplayVersion?
-    let project: BackendScreenplayProjectSummary?
-    let formatScore: Double?
-    let storyScore: Double?
-    let confidenceClass: String?
-    let warnings: [String]?
-    let baseVersionId: String?
-    let serverVersionId: String?
-    let serverVersion: BackendScreenplayVersion?
-    let conflict: Bool?
-    let replayed: Bool?, replayProof: String?
-    let sessionId: String?
-    let stateVersion: String?
-    let lastUpdatedAt: TimeInterval?
-    let historyUpdatedAt: TimeInterval?
-    let memoryUpdatedAt: TimeInterval?
-    let lastTurnId: String?
-    let schemaVersion: Int?
-    let backendBuild: String?
-    let backendBootId: String?
-}
-
 nonisolated struct BackendScreenplayRevisionSummary: Decodable, Hashable {
     let unchanged: Int
     let revised: Int
@@ -8094,7 +8066,8 @@ actor BackendMemoryAPI {
         baseVersionId: String = "",
         conflictStrategy: String = "reject_if_stale",
         clientRequestId: String = "",
-        expectedBackendURL: URL? = nil, maySend: (@Sendable () async -> Bool)? = nil,
+        expectedBackendURL: URL? = nil,
+        maySend: (@Sendable () async -> Bool)? = nil,
         includeUserIdentity: Bool = true,
         includeAuthToken: Bool = true,
         clientTokenOverride: String? = nil,
@@ -8150,6 +8123,7 @@ actor BackendMemoryAPI {
             payload["client_request_id"] = String(normalizedClientRequestId.prefix(96))
         }
         let requestBody = try JSONSerialization.data(withJSONObject: payload, options: [])
+
         var data = Data()
         var http: HTTPURLResponse?
         var didAttemptAuthRefresh = false
@@ -8170,7 +8144,12 @@ actor BackendMemoryAPI {
 #if DEBUG
             screenplaySaveAuthFault.apply(to: &request)
 #endif
-            guard await maySend?() ?? true else { throw BackendMemoryAPIError.server(status: 409, message: "The active document changed before the save was sent.") }
+            guard await maySend?() ?? true else {
+                throw BackendMemoryAPIError.server(
+                    status: 409,
+                    message: "The active document changed before the save was sent."
+                )
+            }
             let responsePair = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
             try owner.requireCurrentOwner(requestIdentityProvider(false))
             guard let response = responsePair.1 as? HTTPURLResponse else {
