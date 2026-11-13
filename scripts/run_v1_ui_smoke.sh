@@ -109,4 +109,15 @@ build_args+=("$@")
 # test in minutes instead of holding the job until the runner limit; the
 # slowest single story (the integrated writer loop) measured ~324 s on a
 # GitHub macos runner, so 900 s leaves headroom without masking a hang.
-"${XCODEBUILD_BIN}" "${build_args[@]}"
+if "${XCODEBUILD_BIN}" "${build_args[@]}"; then
+  exit 0
+else
+  status=$?
+  if [[ "$status" == 70 ]]; then
+    # Never replace the original failure, even if metadata collection fails.
+    node "${ROOT}/scripts/collect_ios_destination_failure.mjs" \
+      "$XCODEBUILD_BIN" "$XCRUN_BIN" "$PROJECT" "$SCHEME" "$CONFIGURATION" \
+      "$simulator_udid" "$ARTIFACT_DIR" >/dev/null 2>&1 || true
+  fi
+  exit "$status"
+fi

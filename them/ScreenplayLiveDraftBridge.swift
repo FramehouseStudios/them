@@ -3216,9 +3216,10 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     /// Fired for barge-in / manual typing / cancel so clients can POST /talk/page-cancel.
     var onPageGenerationInterrupted: ((ScreenplaySyncedInsertInterruptionReason) -> Void)?
 
+    private(set) var replacementSubmissionID: String = ""
+
 #if DEBUG
     private let debugReplacementTraceStorageKey = "studio_debug_replacement_trace_json"
-    private var debugActiveReplacementRequestID: String = ""
 #endif
 
     var syncedVoiceAppliedCueCount: Int {
@@ -6378,9 +6379,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     ) {
         let cleanText = currentText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanText.isEmpty else {
-#if DEBUG
-            debugActiveReplacementRequestID = ""
-#endif
+            replacementSubmissionID = ""
             pendingReplacementTarget = nil
             debugTraceReplacementTarget(
                 kind: "prepare-empty-clear",
@@ -6391,9 +6390,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         }
         let safeStart = max(1, startLine)
         let safeEnd = max(safeStart, endLine ?? safeStart)
-#if DEBUG
-        debugActiveReplacementRequestID = ""
-#endif
+        replacementSubmissionID = ""
         pendingReplacementTarget = ScreenplayPendingReplacementTarget(
             id: UUID(),
             sourceWriteID: sourceWriteID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
@@ -6416,15 +6413,11 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         )
         pendingReplacementTarget = nil
         submittedReplacementTarget = nil
-#if DEBUG
-        debugActiveReplacementRequestID = ""
-#endif
+        replacementSubmissionID = ""
     }
 
     func capturePendingPageWriteReplacementForSubmission(requestID: String? = nil) {
-#if DEBUG
-        debugActiveReplacementRequestID = requestID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-#endif
+        replacementSubmissionID = requestID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         submittedReplacementTarget = pendingReplacementTarget
         debugTraceReplacementTarget(
             kind: "capture-submit",
@@ -6454,9 +6447,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         )
         pendingReplacementTarget = nil
         submittedReplacementTarget = nil
-#if DEBUG
-        debugActiveReplacementRequestID = ""
-#endif
+        replacementSubmissionID = ""
         refreshProjectBindingSnapshot()
     }
 
@@ -6486,7 +6477,7 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     ) {
 #if DEBUG
         guard IOThemRuntime.isStudioAutomationSession else { return }
-        let resolvedRequestID = (requestID ?? debugActiveReplacementRequestID)
+        let resolvedRequestID = (requestID ?? replacementSubmissionID)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let event = ScreenplayReplacementTraceEvent(
             kind: kind,
@@ -9403,10 +9394,9 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
                 ? .parenthetical
                 : currentElement
 
-            return FountainFormatter.normalizeEditorLine(
-                trimmed,
-                as: effectiveElement,
-                existingDraft: parent.text
+            return FountainFormatter.normalizeLiveEditorLine(
+                lineText,
+                as: effectiveElement
             )
         }
 
@@ -10718,39 +10708,12 @@ private func hollywoodScreenplayEditorUIFont() -> UIFont {
     UIFont(name: "Courier", size: 12) ?? UIFont.monospacedSystemFont(ofSize: 12, weight: .regular)
 }
 
-struct ScreenplayDeferredTextPublicationRequirement: Equatable {
-    var text: String
-    var requestID: UUID?
-}
-
-enum ScreenplayDeferredPublicationGate {
-    static func requestIsCurrent(
-        _ requestID: UUID?,
-        lastAppliedInsertionID: UUID?,
-        activeInsertionRequestID: UUID?
-    ) -> Bool {
-        guard let requestID else { return true }
-        return lastAppliedInsertionID == requestID && activeInsertionRequestID == requestID
-    }
-
-    static func acceptsTextGeneration(
-        _ generation: Int,
-        requirements: [Int: ScreenplayDeferredTextPublicationRequirement],
-        currentText: String,
-        lastAppliedInsertionID: UUID?,
-        activeInsertionRequestID: UUID?
-    ) -> Bool {
-        guard let requirement = requirements[generation] else { return true }
-        return currentText == requirement.text && requestIsCurrent(
-            requirement.requestID,
-            lastAppliedInsertionID: lastAppliedInsertionID,
-            activeInsertionRequestID: activeInsertionRequestID
-        )
-    }
-}
-
 struct IOSCursorInsertTextEditor: UIViewRepresentable {
     @Binding var text: String
+    var documentID: String = ""
+    var externalMutationRevision: UInt64 = 0
+    var currentModelAuthority: (() -> ScreenplayEditorModelAuthority)? = nil
+    var currentReplacementSubmissionID: (() -> String)? = nil
     @Binding var activeScreenplayElement: ScreenplayEditorElement
     @Binding var insertionRequest: ScreenplayInsertionRequest?
     @Binding var lineJumpRequest: ScreenplayLineJumpRequest?
@@ -10838,6 +10801,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
         let previousPendingID = context.coordinator.parent.pendingReplacementTarget?.id
         let previousSubmittedID = context.coordinator.parent.submittedReplacementTarget?.id
         let previousInsertionID = context.coordinator.parent.insertionRequest?.id
+        let previousDocumentID = context.coordinator.parent.documentID
         context.coordinator.parent = self
         let currentPendingID = pendingReplacementTarget?.id
         let currentSubmittedID = submittedReplacementTarget?.id
@@ -10868,7 +10832,12 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             context.coordinator.applyActiveElementFromBinding(activeScreenplayElement)
         }
 
-        if !context.coordinator.isApplyingProgrammaticChange, uiView.text != text {
+        if !context.coordinator.isApplyingProgrammaticChange,
+           context.coordinator.shouldApplyModelText(
+               incomingText: text,
+               to: uiView,
+               documentDidChange: previousDocumentID != documentID
+           ) {
             let previousSelection = uiView.selectedRange
             context.coordinator.isApplyingProgrammaticChange = true
             uiView.text = text
@@ -10914,22 +10883,26 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
     }
 
     final class Coordinator: NSObject, UITextViewDelegate {
-        private struct DeferredBindingValue<Value: Equatable> {
+        struct DeferredBindingValue<Value: Equatable> {
             var expected: Value
             var value: Value
             var generation: Int
             var requestID: UUID?
+            var authority: ScreenplayEditorModelAuthority
+            var replacementSubmissionID: String
         }
 
         private struct DeferredStructuredDraftSnapshot {
             var text: String
             var elements: [ScreenplayEditorElement?]
             var generation: Int
+            var authority: ScreenplayEditorModelAuthority
         }
 
         private struct DeferredUserEdit {
             var expectedText: String
             var generation: Int
+            var authority: ScreenplayEditorModelAuthority
         }
 
         private struct DeferredReplacementTrace {
@@ -10937,6 +10910,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             var target: ScreenplayPendingReplacementTarget?
             var detail: String
             var requestID: String?
+            var authority: ScreenplayEditorModelAuthority
         }
 
         var parent: IOSCursorInsertTextEditor
@@ -10975,9 +10949,12 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
         var explicitCurrentLineLocation: Int?
         var paragraphElements: [ScreenplayEditorElement?] = []
         var lastKnownTextSnapshot: String
+        var lastRenderedModelText: String
+        var lastRenderedExternalMutationRevision: UInt64
+        var pendingEditorPublications = ScreenplayEditorTextBindingPolicy.PendingPublications()
         private var representableUpdateDepth = 0
-        private var representableUpdateGeneration = 0
-        private var activeRepresentableUpdateGeneration: Int?
+        var representableUpdateGeneration = 0
+        var activeRepresentableUpdateGeneration: Int?
         private var deferredFlushScheduled = false
         private var deferredText: DeferredBindingValue<String>?
         private var deferredActiveElement: DeferredBindingValue<ScreenplayEditorElement>?
@@ -10996,6 +10973,8 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             self.parent = parent
             self.lastKnownActiveElement = parent.activeScreenplayElement
             self.lastKnownTextSnapshot = parent.text
+            self.lastRenderedModelText = parent.text
+            self.lastRenderedExternalMutationRevision = parent.externalMutationRevision
         }
 
         @objc func saveDraftFromKeyboard() {
@@ -11018,31 +10997,9 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             scheduleDeferredPublicationFlush()
         }
 
-        private func coalesce<Value: Equatable>(
-            _ pending: inout DeferredBindingValue<Value>?,
-            current: Value,
-            value: Value,
-            requestID: UUID? = nil
-        ) {
-            let generation = activeRepresentableUpdateGeneration ?? representableUpdateGeneration
-            if var existing = pending, existing.generation == generation {
-                existing.value = value
-                existing.requestID = requestID ?? existing.requestID
-                pending = existing
-            } else {
-                pending = DeferredBindingValue(
-                    expected: current,
-                    value: value,
-                    generation: generation,
-                    requestID: requestID
-                )
-            }
-            scheduleDeferredPublicationFlush()
-        }
-
         private func publishText(_ value: String, requestID: UUID? = nil) {
             guard representableUpdateDepth > 0 else {
-                parent.text = value
+                publishEditorText(value)
                 return
             }
             coalesce(&deferredText, current: parent.text, value: value, requestID: requestID)
@@ -11130,7 +11087,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             }
             deferredUserEdit = DeferredUserEdit(
                 expectedText: expectedText,
-                generation: activeRepresentableUpdateGeneration ?? representableUpdateGeneration
+                generation: activeRepresentableUpdateGeneration ?? representableUpdateGeneration, authority: parent.renderedModelAuthority
             )
             scheduleDeferredPublicationFlush()
         }
@@ -11149,7 +11106,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             deferredStructuredDraftSnapshot = DeferredStructuredDraftSnapshot(
                 text: text,
                 elements: elements,
-                generation: activeRepresentableUpdateGeneration ?? representableUpdateGeneration
+                generation: activeRepresentableUpdateGeneration ?? representableUpdateGeneration, authority: parent.renderedModelAuthority
             )
             scheduleDeferredPublicationFlush()
         }
@@ -11174,13 +11131,13 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                     kind: kind,
                     target: target,
                     detail: detail,
-                    requestID: requestID
+                    requestID: requestID, authority: parent.renderedModelAuthority
                 )
             )
             scheduleDeferredPublicationFlush()
         }
 
-        private func scheduleDeferredPublicationFlush() {
+        func scheduleDeferredPublicationFlush() {
             guard !deferredFlushScheduled else { return }
             deferredFlushScheduled = true
             DispatchQueue.main.async { [self] in
@@ -11235,60 +11192,67 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 }
 
                 if let text,
-                   self.parent.text == text.expected,
+                   text.authority == self.parent.modelAuthority,
+                   self.parent.text.utf8.elementsEqual(text.expected.utf8),
                    requestIsCurrent(text.requestID) {
-                    self.parent.text = text.value
+                    self.publishEditorText(text.value)
                 }
                 if let activeElement,
+                   activeElement.authority == self.parent.modelAuthority,
                    generationIsAccepted(activeElement.generation),
                    self.parent.activeScreenplayElement == activeElement.expected {
                     self.parent.activeScreenplayElement = activeElement.value
                 }
                 if let cursorLine,
+                   cursorLine.authority == self.parent.modelAuthority,
                    generationIsAccepted(cursorLine.generation),
                    self.parent.currentCursorLine == cursorLine.expected {
                     self.parent.currentCursorLine = cursorLine.value
                 }
                 if let editorSelection,
+                   editorSelection.authority == self.parent.modelAuthority,
                    generationIsAccepted(editorSelection.generation),
                    self.parent.editorSelection == editorSelection.expected {
                     self.parent.editorSelection = editorSelection.value
                 }
                 if let committedWrite,
+                   committedWrite.authority == self.parent.modelAuthority,
                    generationIsAccepted(committedWrite.generation),
                    self.parent.lastCommittedWrite == committedWrite.expected,
                    requestIsCurrent(committedWrite.requestID) {
                     self.parent.lastCommittedWrite = committedWrite.value
                 }
                 if let insertionRequest,
-                   generationIsAccepted(insertionRequest.generation),
-                   self.parent.insertionRequest == insertionRequest.expected {
+                   self.canPublishDeferredControl(insertionRequest, current: self.parent.insertionRequest,
+                       generationAccepted: generationIsAccepted(insertionRequest.generation)) {
                     self.parent.insertionRequest = insertionRequest.value
                 }
                 if let pendingReplacementTarget,
-                   generationIsAccepted(pendingReplacementTarget.generation),
-                   self.parent.pendingReplacementTarget == pendingReplacementTarget.expected {
+                   self.canPublishDeferredControl(pendingReplacementTarget, current: self.parent.pendingReplacementTarget,
+                       generationAccepted: generationIsAccepted(pendingReplacementTarget.generation)) {
                     self.parent.pendingReplacementTarget = pendingReplacementTarget.value
                 }
                 if let submittedReplacementTarget,
-                   generationIsAccepted(submittedReplacementTarget.generation),
-                   self.parent.submittedReplacementTarget == submittedReplacementTarget.expected {
+                   self.canPublishDeferredControl(submittedReplacementTarget, current: self.parent.submittedReplacementTarget,
+                       generationAccepted: generationIsAccepted(submittedReplacementTarget.generation)) {
                     self.parent.submittedReplacementTarget = submittedReplacementTarget.value
                 }
                 if let snapshot,
+                   snapshot.authority == self.parent.modelAuthority,
                    generationIsAccepted(snapshot.generation),
-                   self.parent.text == snapshot.text {
+                   self.parent.text.utf8.elementsEqual(snapshot.text.utf8) {
                     ScreenplayLiveDraftBridge.shared.syncStructuredDraftSnapshot(
                         text: snapshot.text,
                         elements: snapshot.elements
                     )
                 }
                 if let userEdit,
+                   userEdit.authority == self.parent.modelAuthority,
                    generationIsAccepted(userEdit.generation),
-                   self.parent.text == userEdit.expectedText {
+                   self.parent.text.utf8.elementsEqual(userEdit.expectedText.utf8) {
                     self.parent.onUserEdit?()
                 }
-                for trace in traces {
+                for trace in traces where trace.authority == self.parent.modelAuthority {
                     ScreenplayLiveDraftBridge.shared.debugTraceReplacementTarget(
                         kind: trace.kind,
                         target: trace.target,
@@ -11384,7 +11348,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             syncActiveElementFromSelection()
             refreshScreenplayPresentationAndTyping()
             let next = textView.text ?? ""
-            if parent.text != next {
+            if !parent.text.utf8.elementsEqual(next.utf8) {
                 publishText(next)
             }
             publishUserEdit(expectedText: next)
@@ -11565,7 +11529,7 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             syncActiveElementFromSelection()
             refreshScreenplayPresentationAndTyping()
             let next = textView.text ?? ""
-            if parent.text != next {
+            if !parent.text.utf8.elementsEqual(next.utf8) {
                 publishText(next)
             }
             publishUserEdit(expectedText: next)
@@ -11781,10 +11745,9 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
                 ? .parenthetical
                 : currentElement
 
-            return FountainFormatter.normalizeEditorLine(
-                trimmed,
-                as: effectiveElement,
-                existingDraft: parent.text
+            return FountainFormatter.normalizeLiveEditorLine(
+                lineText,
+                as: effectiveElement
             )
         }
 

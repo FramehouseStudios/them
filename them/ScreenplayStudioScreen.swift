@@ -989,7 +989,6 @@ Replace is best when this file should become the script you edit. Append is safe
     private var studioThreadStateBoundView: some View {
         studioObservedView
             .onChange(of: studioAskNoteHistory) { _, newValue in
-                persistStudioAskNoteHistory(newValue, for: activeStudioAskNoteHistoryKey)
                 persistStudioWriteAnchorSnapshot(
                     from: newValue,
                     for: activeStudioAskNoteHistoryKey,
@@ -1014,6 +1013,7 @@ Replace is best when this file should become the script you edit. Append is safe
                 }
                 migrateAcknowledgedStudioDiffStorageKeysIfNeeded(entries: newValue)
                 refreshAcknowledgedDiffState()
+                persistStudioAskNoteHistory(newValue, for: activeStudioAskNoteHistoryKey)
                 syncPreferredFocusedRevisedDiffIfNeeded()
                 syncFocusedPageDiffAnchorRequest()
                 persistFullThreadBrowseState(for: activeStudioAskNoteHistoryKey)
@@ -2874,22 +2874,7 @@ private var directionOneScriptEditor: some View {
                 isCommitNoticeVisible: isPageCommitNoticeVisible
             ) {
                 CursorInsertTextEditor(
-                    text: $vm.fountainDraft,
-                    activeScreenplayElement: $liveDraftBridge.activeScreenplayElement,
-                    insertionRequest: $liveDraftBridge.pendingInsertion,
-                    lineJumpRequest: $liveDraftBridge.pendingLineJump,
-                    lineHighlightRequest: $liveDraftBridge.pendingLineHighlight,
-                    anchoredTextRectRequest: $liveDraftBridge.pendingAnchoredTextRectRequest,
-                    anchoredTextRectSnapshot: $liveDraftBridge.anchoredTextRectSnapshot,
-                    editorFocusRequest: $liveDraftBridge.pendingEditorFocus,
-                    editorActionRequest: $liveDraftBridge.pendingEditorAction,
-                    editorSelection: $liveDraftBridge.editorSelection,
-                    currentCursorLine: $liveDraftBridge.currentCursorLine,
-                    lastCommittedWrite: $liveDraftBridge.lastCommittedWrite,
-                    pendingReplacementTarget: $liveDraftBridge.pendingReplacementTarget,
-                    submittedReplacementTarget: $liveDraftBridge.submittedReplacementTarget,
-                    onUserEdit: vm.noteManualDraftEdit, canSaveDraft: vm.selectedProject != nil &&
-                        vm.hasUnsavedDraftChanges && !vm.isSaving && !vm.fountainDraft.isEmpty,
+                    model: vm, bridge: liveDraftBridge,
                     onSaveDraft: { triggerStudioManualSave() }
                 )
                 .overlay(alignment: .topLeading) {
@@ -4480,6 +4465,7 @@ private func refreshStudioCreativeInstincts(
                     .font(.system(size: 11, weight: .regular, design: .default))
                     .foregroundStyle(directionOneChromeSecondaryText)
                     .lineLimit(1)
+                    .accessibilityIdentifier("studio.transient.status.info")
             }
 
             Spacer(minLength: 0)
@@ -14404,6 +14390,7 @@ The door closes softly. That is worse than a slam.
         let requestedVersionID = liveDraftBridge.debugRequestedVersionID
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !requestedProjectID.isEmpty else { return false }
+        guard token <= 0 || token != studioDebugLoadProjectAckToken else { return false }
         if token > 0,
            token == lastAppliedBridgeDebugProjectLoadToken,
            isStudioDebugProjectLoadReady(
@@ -14911,14 +14898,8 @@ Look at the city.
               ) else {
             return
         }
-        didApplyUITestSaveNetworkFault = true
-        let offlineBaseURL = uiTestLaunchArgumentValue(
-            "--ui-screenplay-save-network-fault-url",
-            in: arguments
-        ) ?? "http://127.0.0.1:3999"
-        await vm.runQueuedSaveNetworkFaultUITest(
-            marker: marker,
-            offlineBaseURL: offlineBaseURL
+        didApplyUITestSaveNetworkFault = await vm.runQueuedSaveNetworkFaultUITest(
+            marker: marker
         )
         publishDebugStudioDiffState()
     }
