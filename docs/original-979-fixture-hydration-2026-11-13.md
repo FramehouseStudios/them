@@ -45,3 +45,34 @@ No main merge, replacement PR, squash/force, deployment or provider call.
 Main71's original Autosave failure and the separate actual-auth freeze remain
 unresolved. Production is held; the live physical-phone journey remains unproved.
 READY FOR CONTINUE.
+
+## Root execution — exact sourcefd03fdfa
+
+VERIFIED: one canonical two-case recovery execution on erased owned81F,
+iOS26.2/Xcode26.3, native/producer exit0: **2 passed/0 failed/0 skipped**.
+Both exact identities occurred once. The ordinary reconnect case retained the
+complete seeded scene plus marker through queueing, termination and reconnect.
+The stale-conflict case preserved the full writer copy, explicit choice, exact
+version-set and final clean-relaunch assertions introduced at4af.
+
+All1411 tracked source files and four proof-driver hashes remained unchanged.
+The fixture required authentication; its live PID and per-run nonce were verified
+before Xcode. Known Node HTTP/fetch/WebSocket guards recorded zero external
+attempts; this is not OS-wide network isolation. No real provider key was used.
+Exact136 locked packages were copied from our already-verified task-owned offline
+install and version-checked, without network or another npm installation.
+HostNode26.7.0; not a fresh fullNode20 suite. The inherited DEBUG auth override
+still prevents claiming an actual401/refresh exchange.
+
+Bundle: /private/tmp/them-t1472-focused-recovery/native-run/them-save-recovery-SogPrH/recovery-ios.xcresult.
+Completion/source/driver/ownership receipts are adjacent. Swift syntax and diff
+checks passed. CanonicalD009 against exactmain71 passed with five zero deltas.
+All other model bytes, UI identities/assertions, runners, backend and dependencies
+remain exact4af. This documentation update follows execution and does not alter
+its tested source. No unchanged broad local suites were repeated.
+
+The hosted4af1/1/0 failure remains retained. Publish this proven descendant only
+through a normal original979 fast-forward; do not replace its PR or rewrite
+history. Fresh hosted checks and genuine non-author review remain mandatory.
+Main Autosave and separate auth-freeze investigations remain open; production
+hold and real-phone verification gap remain unchanged. READY FOR CONTINUE.

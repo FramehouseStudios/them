@@ -10,8 +10,8 @@
 - **Owner:** Jarvis; Zora bounded read-only source challenge.
 - **Verified red:** exact4af hosted recovery1/1/0; ordinary offline queue contains only marker, not seeded page; stale-conflict case passes. Artifact/hash retained privately.
 - **Fix:** reuse preserved919b24 / original39ca DEBUG helper readiness, matching selected+loaded draft project and cancellation; same40x250ms budget. All test identities/assertions/runtime bytes otherwise unchanged.
-- **Proof:** exact source/method comparison and diff check; signed focused recovery pending. No live-model/phone/real401 claim.
-- **Next:** one canonical signed two-case recovery execution, then scoped evidence and normal original979 advancement only if proven. Main Autosave failure and production hold persist. See docs/original-979-fixture-hydration-2026-11-13.md. READY FOR CONTINUE.
+- **Proof:** exactfd03 signed erasedowned81F recovery2/0/0; both identities once; all1411 source/four driver hashes unchanged; authenticated fixture livePID/nonce verified, known external API attempts0. Swiftparse/diff/D009fivezero. No unchanged broad local reruns or live-model/phone/real401 claim.
+- **Next:** record proof and normally fast-forward original979; fresh hosted checks and genuine non-author review required. Main Autosave failure and production hold persist. See docs/original-979-fixture-hydration-2026-11-13.md. READY FOR CONTINUE.
 
 ### Original #979 immutable conflict-chain proof — T-1469 root execution
 
