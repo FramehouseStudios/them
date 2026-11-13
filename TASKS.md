@@ -5,6 +5,15 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### Current original919 byte/conflict checkpoint — T-1449 (2026-11-12)
+
+- **Owner:** Jarvis; Zora bounded recovery review and Luna current topology/CI evidence. Einstein/Howard/Alfred idle; no human approval substituted.
+- **Source:** runtime `6c4c5d39`, preserving merges `c0fc5bc0` + `b262b50c`, retains original919510, parent904ce and foundation975. Sole TASKS conflict reconciled additively; no source overwritten or original history dropped.
+- **Root fix:** byte-aware completion/publisher/enqueue/hydration/delayed Load Server; stale metadata cannot erase known choices; ordinary receipts retain independent parked copies and their original bases; actor snapshot guard rejects intervening queue changes. Explicit Keep Mine/Load Server, owner/project filters and transactional rollback retained.
+- **Proof:** original five actual failures0/5/0 before; unchanged bodies pass within full signed units714/0/0; full V1 36/0/6 (42total, both recovery/relaunch and keyboard-focus cases pass); canonical authenticated writer1/0/0; Mac compile0; actual904 D009 five0; diff/parse pass. Backend sources identical to904's Node20.20.2 result2758/0/2, inherited rather than rerun. No paid calls or physical-phone/production claim.
+- **GitHub:** normal original919 advancement only after checkpoint; fresh hosted checks/review required. Parents964975 and904ce remain draft with Quality in progress at last observation; review absent/dismissed, main78b unchanged. Production held; public API health302parking at02:32UTC.
+- **Next:** preserve actual child #9230ea0a2ed recovery contracts, then inspect separate #973aa729e79 transport boundary. Physical-phone/intended-backend/live-model/export-open proof still missing. Evidence: `docs/original-919-recovery-byte-authority-2026-11-12.md`. READY FOR CONTINUE.
+
 ### Current original904 recovery checkpoint — T-1447 (2026-11-12)
 
 - **Owner:** Codex (Jarvis); scoped Luna package/topology work and Zora recovery investigation. Original909, foundation831, history975 and all incoming commits preserved through no-ff merges. No replacement PR/main mutation.
