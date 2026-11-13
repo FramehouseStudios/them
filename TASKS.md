@@ -5,6 +5,13 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### Root-verified core-fixes integration — T-1475 (2026-11-13)
+
+- **Completed:** source456b27b8 combines preserved original919/979/621/625 and writer pipe drain. Full signed units723/0/0, Node20 backend2783/0/2, writer1/0/0, keyboard1/0/0, recovery2/0/0, voice-fault1/0/0 and macOS build pass; canonical D009 five zero deltas vs exactmain71.
+- **Failures/limits:** initial private writer guard dummy-key mismatch stopped before native execution; corrected remaining phases only, no repeated units/backend. PostgreSQL and preview-header skips retained. Actual-auth freeze, historical missed Autosave tap, live microphone/model and physical-phone/export journey remain unproved.
+- **Decision:** root narrows the earlier blanket Autosave merge hold for the scoped original979 security repair only: shipping UI is unchangedmain71 and exact2ea's fresh hosted gates all pass. Historical root cause is still open; no other PR inherits eligibility. Genuine current-head review, all protections and live Auto-DeployOff verification remain mandatory; production held.
+- **Next:** save this verified tree to its normal task backup branch, not a replacement PR; original919/621/625 remain untouched. Await real9792ea review, then preserve actual main into the next original branch. See docs/core-fixes-integration-2026-11-13.md. READY FOR CONTINUE.
+
 ### Private preserving core-fixes integration — T-1475 (2026-11-13)
 
 - **Owner/history:** Einstein, new `codex/T-1475-core-fixes-integration`, exact585 base. Preserving merges31d6163d(writer5e),58c25f76(entry-aware6fc),44cfa53d(correctedbillingef93 containing3af/e3). Original919/979/621/625 histories retained; no replacement PR/publication.

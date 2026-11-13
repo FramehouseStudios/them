@@ -99,3 +99,97 @@ no publishing or protection change. Main71 Autosave/actual-auth limits, main and
 production holds, independent current-head review and real-phone journey remain.
 No whole-product, merged-main or live-provider readiness is claimed.
 READY FOR CONTINUE.
+
+## Root integration execution — verified 2026-11-13
+
+The initial preparation statements above describe the earlier static checkpoint.
+Root subsequently executed the combined tree at exact head
+`456b27b8df6e0bb3b011df6ff29e065eb87ead7a`; the following results are fresh,
+not inherited. This documentation-only descendant leaves that source unchanged.
+
+| Check | Fresh result |
+| --- | --- |
+| Full backend, cached Node20.20.2 / npm10.8.2 | 2,783 passed / 0 failed / 2 skipped (2,785 total). |
+| Full signed themTests, erased task-owned81F / iOS26.2 / Xcode26.3 | 723 passed / 0 failed / 0 skipped; unique identities verified. |
+| Canonical typed writer workflow | 1 passed / 0 failed / 0 skipped. |
+| Original919 keyboard/page/prompt focus | 1 passed / 0 failed / 0 skipped. |
+| Canonical ordinary/offline and stale-conflict recovery | 2 passed / 0 failed / 0 skipped. |
+| Controlled voice-fault UI | 1 passed / 0 failed / 0 skipped. |
+| macOS scaffold build | BUILD SUCCEEDED. |
+| D009 against exactmain71 | All five protected files have zero line growth; recorded canonical gate passed. |
+
+Both backend skips are the unconfigured live-Postgres case and existing talk
+preview-header case. The five selected UI cases are an essential subset, not
+this branch's entire42-case V1 suite. Each native phase erased only the owned
+`81F0FF38-9DAD-4011-907B-357DFADD094C` simulator and kept test signing enabled.
+Every runtime receipt verifies all1,442 tracked inputs unchanged; native driver
+and reused dependency hashes were checked. Backend Docker used networknone,
+no host ports, cached exact-lock modules and dummy provider values. Local native
+fixtures required authentication and live PID/nonce identity; known Node network
+API guards reported zero blocked external attempts. This is not OS-wide native
+network isolation. No paid provider call ran.
+
+One initial writer-driver attempt failed before backend or Xcode launch because
+root's private preloader expected the recovery fixture's dummy key while the
+writer uses its different established dummy key. This is retained as an
+infrastructure failure with zero native writer cases executed. Root corrected
+only that phase-specific private guard and ran the remaining four phases once;
+units and backend were not repeated. The earlier positive billing-fixture23/1
+failure and expected BEFORE regression failures remain in their owner reports.
+No production acceptance threshold, app behavior or test assertion was weakened.
+
+Primary receipts (private, preserved with native bundles and driver hashes):
+
+- `/private/tmp/them-t1475-integration-proof/unit/completion.json`
+- `/private/tmp/them-t1475-node20-proof/after/full/completion.json`
+- `/private/tmp/them-t1475-native-ui-proof/native-completion.json`
+- `/private/tmp/them-t1475-core-fixes-integration/FINAL-RECEIPT.json`
+
+### Integration and review boundary
+
+Original #979 head2ea now separately passes hosted run43409457104: backend
+2758/0/2, signed units709/0/0, writer1/0/0, V1 32/0/9, recovery2/0/0,
+voice-fault1/0/0 and macOS scaffold. D009 and Docker run43409457121 pass.
+Hosted Xcode26.6/iOS26.5 is distinct from the local environment above. The
+successful hosted workflow retains no downloadable native bundle; its counts
+are checked from job logs and the unchanged canonical producers' strict native
+summary guards. This is not local723-unit or full combined-tree hosted proof.
+
+Root's engineering decision: the prior blanket main-merge hold caused by the
+historical Autosave activation miss is narrowed for original #979's scoped
+security repair only. Its shipping UI and required producers are unchanged
+from main71, the current uninstrumented writer flow and all required checks
+pass, and blocking the dependency repair would retain known vulnerable packages.
+This is eligibility for genuine current-head review, not a merge or waiver.
+The missed tap's root cause is unresolved; a separate corrected diagnostic
+recorded one successful setter(true→false), not a repair. No other PR inherits
+eligibility from this decision. Keep the historical first red and actual-auth
+freeze tracked; stop and investigate any new required red on the current head.
+
+Main remains71; original919,621,625 and973 have not been advanced by this
+integration. Publication is a normal scoped backup branch only, not a replacement
+PR or main change. Before any actual merge reverify exact head/base, all required
+checks, genuine non-author approval and live Render Auto-DeployOff. Production
+hold remains binding. Accepted DECISIONS and branch protections were not changed.
+
+### Required session report
+
+1. **Completed:** preserving integration of the prepared editor, pipe-drain,
+   entry-aware outbox and billing fixes; fresh combined local proof above.
+2. **Files changed in finalization:** only TASKS.md and this proof document;
+  13 runtime/test differences from the prepared585 base are listed above.
+3. **Root issues fixed:** fixture hydration readiness, writer-driver pipe
+   backpressure, idle duplicate notifications without suppressing real row
+   changes, and empty/rejected draft billing/owner-mutation boundaries. The
+   latter fixes were implemented in their preserved source branches, not newly
+   rewritten here. Autosave intermittent missed tap and actual-auth freeze stay open.
+4. **Verification:** all counts, skips, initial infrastructure failure and limits
+   are recorded above; no repeated broad run after documentation-only changes.
+5. **GitHub status:** original9792ea is green but lacks current-head human
+   approval; this branch is a verified backup, not an independently approved PR.
+6. **Next active task:** genuine979 review then a protected preserving merge if
+   every condition still holds; next preserve actual main into original919 and
+   continue the real base chain. Capture the unresolved actual-auth boundary.
+7. **Continue status:** READY FOR CONTINUE. Human review and the shipping-backend /
+   physical-phone journey remain required. No live microphone/model, real401
+   refresh, physical phone, external-file-open or production readiness is proven.
