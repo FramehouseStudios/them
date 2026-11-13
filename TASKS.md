@@ -5,6 +5,13 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### Original919 handoff refresh to published9792ea — T-1470 (2026-11-13)
+
+- **Owner/history:** Einstein, existing clean task-owned T1470 only. Preserving mergea963371e retains exact47ca908c +2ea20422; original heads remain ancestors. Three TASKS stages/full copies/index preserved and rehashed; sole conflict concatenates both blocks verbatim, no Swift edit.
+- **Source:** entireVM exactb24 AND2ea (incoming DEBUG guard already preserved); every app/unit file exactb24, backend/dependencies exact2ea, all app/unit/UI bytes unchanged47ca. V1 retains42unique IDs including keyboard case; all2ea recovery methods/inspector intent exact. Complete1,429-path proof/zero mismatch.
+- **Fresh static only:** VM/V1 parse/diff0; canonical D009 exactmain71fivezero, actual Node24.19.0, taskref removed. No tests/backend/npm/Docker/native/provider execution. Root'sfd03 recovery2/0/0 and original91912/0/0 remain inherited separate checkpoints, not combined proof or actual401-refresh.
+- **Next/hold:** root reviews local refresh; preserve actualmain after979 before original919 publication. Public919/923/973 and dirtyT1451 untouched; main71/Autosave/productionhold remain. Existing T1470 proof updated; new private receipts in `refresh-2ea20422`, prior proof untouched. READY FOR CONTINUE.
+
 ### Original919 editor/security handoff preparation — T-1470 (2026-11-13)
 
 - **Owner:** Einstein, bounded local-only integration in new `codex/T-1470-editor-security-handoff`; root retains first-red work, execution/publication and human-review boundary.

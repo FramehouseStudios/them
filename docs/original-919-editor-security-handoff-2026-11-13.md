@@ -1,5 +1,49 @@
 # T-1470 — Preserve original919 editor work with original979 security and recovery proof
 
+## Refresh to published original9792ea — 2026-11-13
+
+Current preserving merge `a963371e302b5f32b6f7c6d54b0e9d312e2af3e8` has exact parents
+`47ca908c089b9d7811bc09b416ac0ca4d524ff06` and
+`2ea2042220e6f440ab9d6552f8f4059e5af71880`, with merge base4af.
+The incoming source commit is `fd03fdfa7de498f9116eec8276b6682ac7d1ee93`;
+2ea adds its root execution record. Earlier T1470 evidence below remains historical.
+
+Only TASKS conflicted. All three stages, full working TASKS, automatic VM/V1 and
+complete index were preserved/rehashed before one verbatim two-block concatenation.
+There was no production conflict or manual Swift edit. The incoming seven-line
+DEBUG hydration guard was already preserved in original919b24: the ENTIRE
+ScreenplayStudioViewModel is byte-identical to both b24 and2ea, SHA256
+`233e57e0925c19a87c9e758d6e13ec1fa0e152bbbf53bc20628684478f151ec3`.
+Every app/unit file remains exactb24; every backend/dependency file is exact2ea.
+All app/unit/UI source bytes are unchanged from47ca. The merge's only tree changes
+from47ca are additive TASKS and the exact incoming hydration proof document; this
+subsequent record changes only TASKS and the existing T1470 proof document.
+
+Complete1,429-path comparison:1,406 identical to both parents,21 retained from47ca,
+one incoming proof document, one contextual TASKS; zero ambiguity/mismatch.
+V1 is exact2ea plus the original919 keyboard case and unchanged tutorial-helper
+relocation:42 unique identities, all41 incoming cases retained. Whole composition
+also verifies every2ea recovery method and inspector-navigation helper unchanged.
+V1 SHA256 remains `bd479dfdd862980f3a831580efdfc58897a953ae5c55d42f1fe5fcf97d4c6135`.
+
+Fresh syntax-only VM/V1 parse and staged/working diff checks exit0. CanonicalD009
+against exactmain71 exits0, all five deltas0, actual static Node24.19.0; temporary
+base ref removed and existing origin/mainbc unchanged. No tests, backend, npm,
+Docker, native, simulator, port or provider execution occurred in this refresh.
+Root's fd03 signed recovery2/0/0 is inherited parent evidence, NOT a new combined
+run; original919's12/0/0 checkpoint likewise stays separately attributed. The
+DEBUG auth override does not prove actual401/refresh. No broad-readiness claim.
+
+New private receipts: `/private/tmp/them-t1470-editor-security-handoff/refresh-2ea20422`.
+Preservation SHA256 `2fcafb446e745a9653d003dc7eface89f376228106d59ef63f5cfb8e72b7f969`;
+complete-source-proof.json SHA256 `cffb7d4893e95118ad8697aeeb45e33f6eac59fe32cd603f60a1187eda0de52d`;
+D009-exact-main71.json SHA256 `0d1d45628c4b31ddca6cb466eb9f983453c34b7ceb07881bb99ef813d64f320c`.
+Prior proof files remain untouched. Root reviews this local refresh before any
+original919 advancement; preserve actualmain after979. Original919/923/973 public
+heads and dirtyT1451 stay untouched. Main71 Autosave/held-merges/production hold
+remain; genuine current-head review and physical-phone proof remain required.
+READY FOR CONTINUE.
+
 The local preserving merge `3ec873c9f54349f0d054738cd634d902dafe429a` has exact parents
 `b24c6f853ba474531662fe3302d649012b98a961` (prepared original919) and
 `4afc2c6dc01d0d8c94ff07260514fa06b899d235` (published original979).
