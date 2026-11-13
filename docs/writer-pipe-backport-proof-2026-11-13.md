@@ -61,3 +61,22 @@ Root reviewed the original change, exact backport and driver before execution.
 Howard prepared source; Einstein prepared isolation/proof inputs; neither supplies
 independent human GitHub approval. Scoped commit/branch backup only until the
 current protected integration boundary is resolved. READY FOR CONTINUE.
+
+## Parent preservation — original9792ea
+
+Preserving merge1047291908126171a56c2c4e890d32b3e61e8cf3 retains both
+published writer-pipece7 and original9792ea2042220e6f440ab9d6552f8f4059e5af71880.
+Only TASKS conflicted; all three stages and working output were saved before
+resolution. Both additive task blocks and the entire common body were retained.
+The model is byte-identical2ea, including preserved919's DEBUG readiness guard;
+writer runner and pressure regression are byte-identical testedce7. No test
+identity/assertion/deadline, production app behavior or dependency was changed.
+Relative2ea, implementation remains only the original pipe-drain capability and
+its regression. Original979 fresh required CI continues untouched.
+
+Verification of this preserving merge is source/static only. Earlier signed
+writer1/0/0 and fullNode20backend2759/0/2 remain inherited pipe-source proof;
+parent's focused recovery2/0/0 remains separate parent proof, not a new combined
+execution. Required integration checks remain for the actual future PR head.
+Normal backup push only; no replacement PR/main merge/deploy. The main Autosave
+first-red and production hold remain. READY FOR CONTINUE.
