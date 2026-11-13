@@ -270,3 +270,32 @@ Normal verified task-branch backup only. Keep original625 PR/head until actual
 parent preservation, fresh required hosted gates and genuine review. Production,
 main Autosave and actual-auth-freeze holds remain; owner-hook delivery atomicity
 and the real-phone journey remain unproved. READY FOR CONTINUE.
+
+## Swift helper reconciliation correction — caught before semantic build
+
+The original T1474 preserving merge incorrectly retained both copies of
+`dismissKeyboardTypingTutorialIfPresent` in the same V1SmokeUITests class
+(at current3af lines117 and3336). The static test-identity checks did not
+catch this duplicate method; parsing alone would not establish successful
+semantic compilation. This was a preparation mistake, with no main impact.
+
+Before correction, the entire3af V1 file and this proof note were preserved
+and hash-checked at `/private/tmp/them-t1474-swift-helper-before-hm4tlgi4`.
+V1 SHA256: `db15996da10c66ccebf2f2905d2b738e521459b009cadc4481a8d222b09f279b`.
+
+The earlier helper matched exact parent2ea; the existing end helper matched
+original62525d and differed in comments/error copy. The root explicitly
+authorized deleting the earlier duplicate and replacing the end helper with
+the exact extracted2ea method. The sole canonical method now lives at the
+end helper location; original625 text remains in preserved history/backups.
+Its method SHA256 is `867952b2ebb5e1113969b528019cae394914d406646cdad2f7b1493829825d68`.
+All41 test identities, call sites, executable predicates, taps, guards and
+timeouts are unchanged. No second helper owner or workflow was introduced.
+
+VERIFIED static method-count/byte and scope checks plus `git diff --check`.
+No native semantic build/test or backend/provider execution was run for this
+correction. The complete backend runtime/tests remain byte-identical to the
+root-tested e3 tree; the recorded Node20 focused24/0/0 and full2782/0/2 belong
+to that unchanged backend, not new Swift proof. Root owns the next native
+integration build and all publication/review decisions. Production hold and
+real-phone proof remain unchanged.

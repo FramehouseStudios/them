@@ -114,27 +114,6 @@ final class V1SmokeUITests: XCTestCase {
 #endif
     }
 
-    private func dismissKeyboardTypingTutorialIfPresent(in app: XCUIApplication) -> Bool {
-#if os(iOS)
-        // Preserved 2fcdc772: identify this system tutorial, not any Continue action.
-        let tutorial = app.staticTexts.matching(NSPredicate(
-            format: "label BEGINSWITH %@", "Speed up your typing by sliding"
-        )).firstMatch
-        guard tutorial.waitForExistence(timeout: 0.5) else { return true }
-        let continueTyping = app.buttons["Continue"].firstMatch
-        guard continueTyping.exists, continueTyping.isHittable else {
-            XCTFail("The keyboard tutorial did not expose its Continue action.")
-            return false
-        }
-        continueTyping.tap()
-        guard waitForDisappearance(of: tutorial, timeout: 5) else {
-            XCTFail("The keyboard tutorial still covers the Studio controls.")
-            return false
-        }
-#endif
-        return true
-    }
-
     func test_profile_exposes_local_demo_and_keychain_remember_options_separately_from_apple() {
         let app = launchApp()
         defer { app.terminate() }
@@ -3335,20 +3314,19 @@ final class V1SmokeUITests: XCTestCase {
 
     private func dismissKeyboardTypingTutorialIfPresent(in app: XCUIApplication) -> Bool {
 #if os(iOS)
-        // Reuse 2fcdc772's identified system-tutorial setup, not an arbitrary
-        // Continue action or a repeated submission of a writer's prompt.
+        // Preserved 2fcdc772: identify this system tutorial, not any Continue action.
         let tutorial = app.staticTexts.matching(NSPredicate(
             format: "label BEGINSWITH %@", "Speed up your typing by sliding"
         )).firstMatch
         guard tutorial.waitForExistence(timeout: 0.5) else { return true }
         let continueTyping = app.buttons["Continue"].firstMatch
         guard continueTyping.exists, continueTyping.isHittable else {
-            XCTFail("The keyboard typing tutorial did not expose its Continue action.")
+            XCTFail("The keyboard tutorial did not expose its Continue action.")
             return false
         }
         continueTyping.tap()
         guard waitForDisappearance(of: tutorial, timeout: 5) else {
-            XCTFail("The keyboard typing tutorial still covers the Studio controls.")
+            XCTFail("The keyboard tutorial still covers the Studio controls.")
             return false
         }
 #endif
