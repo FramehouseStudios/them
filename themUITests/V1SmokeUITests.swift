@@ -789,6 +789,54 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(staticText(containing: "Select or create a project", in: app).exists)
     }
 
+    func test_them_inspector_tab_right_edge_selects_its_panel() throws {
+#if os(iOS)
+        let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true,
+            launchEnvironment: ["THEM_UITEST_TRACE_INPUT": "1"])
+        defer { app.terminate() }
+
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        let themTab = app.buttons["studio.right-panel.them"]
+        let draftTab = app.buttons["studio.right-panel.draft"]
+        guard drawer.waitForExistence(timeout: 8),
+              waitForHittability(of: themTab, timeout: 8),
+              waitForSelection(of: draftTab, timeout: 3) else {
+            XCTFail("The edge-hit fixture must begin with the Draft inspector and a reachable Them tab.")
+            return
+        }
+        let frame = themTab.frame
+        guard !frame.isEmpty, frame.width > 2, frame.height > 2,
+              drawer.frame.contains(frame),
+              !themTab.isSelected, (themTab.value as? String) != "Selected" else {
+            XCTFail("The Them tab must have a contained frame and be unselected before the one edge touch.")
+            return
+        }
+
+        // Exercise the semantic control's visible rectangle, not its icon/text
+        // center. The original tap-based rail workflow remains unchanged.
+        let point = CGPoint(x: frame.maxX - 1, y: frame.midY)
+        XCTContext.runActivity(named: "Single Them right-interior touch at \(point.x), \(point.y)") { _ in
+            themTab.coordinate(withNormalizedOffset: .zero)
+                .withOffset(CGVector(dx: frame.width - 1, dy: frame.height / 2)).tap()
+        }
+        let trace = element(identifier: "studio.debug.inspector.input.trace", in: app)
+        let attachment = XCTAttachment(string: trace.value as? String ?? "Native input trace unavailable")
+        attachment.name = "Inspector immediately after one edge touch"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        XCTAssertTrue(
+            waitForSelection(of: themTab, timeout: 3),
+            "One touch inside the Them tab's right edge must select Them."
+        )
+        XCTAssertTrue(
+            app.descendants(matching: .any)["studio.them.panel"].waitForExistence(timeout: 4),
+            "The selected Them tab must expose its actual inspector panel."
+        )
+#else
+        throw XCTSkip("The semantic edge-hit regression specifically covers the iPhone inspector.")
+#endif
+    }
+
     func test_them_rail_routes_to_passive_overview_and_surface_mix() {
         let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true)
         defer { app.terminate() }

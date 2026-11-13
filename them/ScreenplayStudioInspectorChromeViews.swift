@@ -3,6 +3,9 @@ import ScreenplayStudio
 
 struct ScreenplayStudioRightPanelTabs: View {
     @Binding var selection: ScreenplayStudioScreen.DirectionOneRightPanelTab
+    @State private var tabFrames: [ScreenplayStudioScreen.DirectionOneRightPanelTab: CGRect] = [:]
+    private static let coordinateSpace = "studio.inspector.tabs"
+    private static let tabOutlineWidth: CGFloat = 1
     let textColor: Color
     let secondaryTextColor: Color
     let panelColor: Color
@@ -11,15 +14,58 @@ struct ScreenplayStudioRightPanelTabs: View {
     let strokeColor: Color
 
     var body: some View {
-        let columns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 3)
+        let tabs = ScreenplayStudioScreen.DirectionOneRightPanelTab.allCases
+        let rowCount = (tabs.count + 2) / 3
 
-        LazyVGrid(columns: columns, spacing: 8) {
-            ForEach(ScreenplayStudioScreen.DirectionOneRightPanelTab.allCases) { tab in
+        VStack(spacing: 8) {
+            ForEach(0..<rowCount, id: \.self) { row in
+                rightPanelTabRow(Array(tabs.dropFirst(row * 3).prefix(3)))
+            }
+        }
+        .padding(6)
+        .coordinateSpace(name: Self.coordinateSpace)
+        .contentShape(Rectangle())
+        .highPriorityGesture(
+            SpatialTapGesture(coordinateSpace: .named(Self.coordinateSpace)).onEnded { value in
+                guard let tab = ScreenplayStudioInspectorTabHitTesting.target(at: value.location, frames: tabFrames) else { return }
+                StudioUITestInputDiagnostics.inspectorTab(.routed, requestedTab: tab, selection: selection)
+                activate(tab)
+            }
+        )
+        .background(panelSoftColor)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(strokeColor.opacity(0.55), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(alignment: .topTrailing) {
+            StudioUITestInputDiagnosticsView(identifier: "studio.debug.inspector.input.trace")
+                .frame(width: 12, height: 12)
+                .allowsHitTesting(false)
+        }
+        .onAppear {
+            StudioUITestInputDiagnostics.installIfRequested()
+            StudioUITestInputDiagnostics.inspectorTab(.appeared, requestedTab: selection, selection: selection)
+        }
+        .onChange(of: selection) { _, value in
+            StudioUITestInputDiagnostics.inspectorTab(.observed, requestedTab: value, selection: selection)
+        }
+    }
+
+    private func activate(_ tab: ScreenplayStudioScreen.DirectionOneRightPanelTab) {
+        withAnimation(.easeInOut(duration: 0.16)) { selection = tab }
+        StudioUITestInputDiagnostics.inspectorTab(.applied, requestedTab: tab, selection: selection)
+    }
+
+    private func rightPanelTabRow(
+        _ tabs: [ScreenplayStudioScreen.DirectionOneRightPanelTab]
+    ) -> some View {
+        HStack(spacing: 6) {
+            ForEach(tabs) { tab in
                 let isActive = selection == tab
                 Button {
-                    withAnimation(.easeInOut(duration: 0.16)) {
-                        selection = tab
-                    }
+                    StudioUITestInputDiagnostics.inspectorTab(.entered, requestedTab: tab, selection: selection)
+                    activate(tab)
                 } label: {
                     VStack(spacing: 6) {
                         Image(systemName: tab.iconName)
@@ -33,6 +79,16 @@ struct ScreenplayStudioRightPanelTabs: View {
                     }
                     .foregroundStyle(isActive ? textColor.opacity(0.96) : secondaryTextColor)
                     .frame(maxWidth: .infinity, minHeight: 48)
+                    .onGeometryChange(for: CGRect.self) { proxy in
+                        proxy.frame(in: .named(Self.coordinateSpace))
+                    } action: { frame in
+                        let visibleFrame = ScreenplayStudioInspectorTabHitTesting.visibleFrame(
+                            for: frame, outlineWidth: Self.tabOutlineWidth
+                        )
+                        if tabFrames[tab] != visibleFrame { tabFrames[tab] = visibleFrame }
+                        StudioUITestInputDiagnostics.inspectorFrame(tab: tab, frame: visibleFrame)
+                    }
+                    .contentShape(Rectangle())
                     .background(
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
                             .fill(isActive ? Color.white.opacity(0.96) : panelColor)
@@ -41,7 +97,7 @@ struct ScreenplayStudioRightPanelTabs: View {
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
                             .stroke(
                                 isActive ? selectionStrokeColor.opacity(0.72) : strokeColor.opacity(0.36),
-                                lineWidth: 1
+                                lineWidth: Self.tabOutlineWidth
                             )
                     )
                 }
@@ -53,13 +109,27 @@ struct ScreenplayStudioRightPanelTabs: View {
                 .accessibilityAddTraits(isActive ? .isSelected : [])
             }
         }
-        .padding(6)
-        .background(panelSoftColor)
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(strokeColor.opacity(0.55), lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+}
+
+/// Resolves the visible control under a pointer without choosing a neighbouring finger-area candidate.
+enum ScreenplayStudioInspectorTabHitTesting {
+    static func visibleFrame(for frame: CGRect, outlineWidth: CGFloat) -> CGRect {
+        guard outlineWidth.isFinite, outlineWidth >= 0 else { return .null }
+        // SwiftUI's centred outline extends half its width beyond layout bounds.
+        return frame.insetBy(dx: -outlineWidth / 2, dy: -outlineWidth / 2)
+    }
+
+    static func target(
+        at point: CGPoint,
+        frames: [ScreenplayStudioScreen.DirectionOneRightPanelTab: CGRect]
+    ) -> ScreenplayStudioScreen.DirectionOneRightPanelTab? {
+        guard point.x.isFinite, point.y.isFinite else { return nil }
+        let matches = frames.filter { _, frame in
+            !frame.isEmpty && frame.minX.isFinite && frame.minY.isFinite &&
+                frame.maxX.isFinite && frame.maxY.isFinite && frame.contains(point)
+        }
+        return matches.count == 1 ? matches.first?.key : nil
     }
 }
 
