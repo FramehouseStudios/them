@@ -1986,6 +1986,7 @@ final class V1SmokeUITests: XCTestCase {
         let fixture = try await seedBackendRestoreContractFixture(baseURL: baseURL)
         let marker = "SAVE-CONFLICT-\(UUID().uuidString.uppercased())"
         let expectedQueuedDraft = "\(fixture.expectedDraft)\n\n\(marker)"
+        let expectedQueuedFingerprint = draftFingerprint(expectedQueuedDraft)
         var app = launchApp(
             openStudio: true,
             screenplaySaveNetworkFaultMarker: marker,
@@ -2005,6 +2006,7 @@ final class V1SmokeUITests: XCTestCase {
                     && stringValue(snapshot["loaded_draft_project_id"]).lowercased() == fixture.projectID.lowercased()
                     && stringValue(snapshot["draft_tail_preview"]) == String(expectedQueuedDraft.suffix(260))
                     && intValue(snapshot["draft_character_count"]) == expectedQueuedDraft.count
+                    && stringValue(snapshot["draft_fingerprint"]) == expectedQueuedFingerprint
                     && intValue(snapshot["queued_draft_save_count"]) == 1
                     && intValue(snapshot["parked_draft_save_count"]) == 0
                     && boolValue(snapshot["has_unsaved_draft_changes"])
@@ -2060,11 +2062,15 @@ final class V1SmokeUITests: XCTestCase {
             waitForRestoreSnapshot(in: app, timeout: 75) { snapshot in
                 conflictSnapshot = snapshot
                 return stringValue(snapshot["selected_project_id"]).lowercased() == fixture.projectID.lowercased()
+                    && stringValue(snapshot["loaded_draft_project_id"]).lowercased() == fixture.projectID.lowercased()
                     && stringValue(snapshot["conflict_project_id"]).lowercased() == fixture.projectID.lowercased()
                     && stringValue(snapshot["conflict_server_version_id"]).lowercased() == competingVersionID.lowercased()
                     && stringValue(snapshot["draft_tail_preview"]).contains(marker)
+                    && stringValue(snapshot["draft_fingerprint"]) == expectedQueuedFingerprint
+                    && intValue(snapshot["draft_character_count"]) == expectedQueuedDraft.count
                     && intValue(snapshot["queued_draft_save_count"]) == 0
-                    && intValue(snapshot["parked_draft_save_count"]) == 1
+                    && intValue(snapshot["parked_draft_save_count"]) > 0
+                    && !boolValue(snapshot["is_saving"])
                     && boolValue(snapshot["has_unsaved_draft_changes"])
                     && stringValue(snapshot["error_text"]).isEmpty
             },
@@ -2088,6 +2094,12 @@ final class V1SmokeUITests: XCTestCase {
         let preResolutionBody = preResolutionEnvelope["project"] as? [String: Any]
             ?? preResolutionEnvelope
         let preResolutionVersions = preResolutionBody["versions"] as? [[String: Any]] ?? []
+        XCTAssertEqual(preResolutionVersions.count, 2, "An unresolved choice must retain only seed and competitor versions.")
+        XCTAssertEqual(
+            Set(preResolutionVersions.map { stringValue($0["id"]) }),
+            Set([fixture.versionID, competingVersionID]),
+            "No server version may be added before the writer chooses."
+        )
         XCTAssertEqual(
             preResolutionVersions.filter { stringValue($0["draft"]).contains(marker) }.count,
             0,
@@ -2101,11 +2113,16 @@ final class V1SmokeUITests: XCTestCase {
         var relaunchedConflict: [String: Any] = [:]
         XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: 75) { snapshot in
             relaunchedConflict = snapshot
-            return stringValue(snapshot["conflict_project_id"]).lowercased() == fixture.projectID.lowercased()
+            return stringValue(snapshot["selected_project_id"]).lowercased() == fixture.projectID.lowercased()
+                && stringValue(snapshot["loaded_draft_project_id"]).lowercased() == fixture.projectID.lowercased()
+                && stringValue(snapshot["conflict_project_id"]).lowercased() == fixture.projectID.lowercased()
                 && stringValue(snapshot["conflict_server_version_id"]).lowercased() == competingVersionID.lowercased()
                 && stringValue(snapshot["draft_tail_preview"]).contains(marker)
+                && stringValue(snapshot["draft_fingerprint"]) == expectedQueuedFingerprint
+                && intValue(snapshot["draft_character_count"]) == expectedQueuedDraft.count
                 && intValue(snapshot["queued_draft_save_count"]) == 0
-                && intValue(snapshot["parked_draft_save_count"]) == 1
+                && intValue(snapshot["parked_draft_save_count"]) > 0
+                && !boolValue(snapshot["is_saving"])
                 && boolValue(snapshot["has_unsaved_draft_changes"])
                 && stringValue(snapshot["error_text"]).isEmpty
         }, "Unresolved conflict lost its durable writer copy after relaunch: \(relaunchedConflict)")
@@ -2120,8 +2137,12 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(
             waitForRestoreSnapshot(in: app, timeout: 75) { snapshot in
                 resolvedSnapshot = snapshot
-                return stringValue(snapshot["conflict_project_id"]).isEmpty
+                return stringValue(snapshot["selected_project_id"]).lowercased() == fixture.projectID.lowercased()
+                    && stringValue(snapshot["loaded_draft_project_id"]).lowercased() == fixture.projectID.lowercased()
+                    && stringValue(snapshot["conflict_project_id"]).isEmpty
                     && stringValue(snapshot["draft_tail_preview"]).contains(marker)
+                    && stringValue(snapshot["draft_fingerprint"]) == expectedQueuedFingerprint
+                    && intValue(snapshot["draft_character_count"]) == expectedQueuedDraft.count
                     && intValue(snapshot["queued_draft_save_count"]) == 0
                     && intValue(snapshot["parked_draft_save_count"]) == 0
                     && !boolValue(snapshot["has_unsaved_draft_changes"])
@@ -2168,6 +2189,70 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertEqual(
             stringValue(resolvedBody["active_version_id"] ?? resolvedBody["activeVersionId"]).lowercased(),
             localVersionID.lowercased()
+        )
+        let expectedResolvedVersionIDs = Set([
+            fixture.versionID, competingVersionID, localVersionID,
+        ])
+        XCTAssertEqual(resolvedVersions.count, 3, "Keep Mine must add only the one explicitly chosen version.")
+        XCTAssertEqual(
+            Set(resolvedVersions.map { stringValue($0["id"]) }),
+            expectedResolvedVersionIDs,
+            "Keep Mine must preserve seed and competitor without an extra UI save."
+        )
+
+        app.terminate()
+        app = launchApp(openStudio: true, resetState: false,
+                        launchEnvironment: fixture.appLaunchEnvironment)
+        XCTAssertTrue(app.otherElements["studio.surface"].waitForExistence(timeout: 12))
+        var relaunchedResolvedSnapshot: [String: Any] = [:]
+        let restoredChosenVersion = waitForRestoreSnapshot(in: app, timeout: 75) { snapshot in
+            relaunchedResolvedSnapshot = snapshot
+            return stringValue(snapshot["selected_project_id"]).lowercased() == fixture.projectID.lowercased()
+                && stringValue(snapshot["loaded_draft_project_id"]).lowercased() == fixture.projectID.lowercased()
+                && stringValue(snapshot["latest_version_id"]).lowercased() == localVersionID.lowercased()
+                && stringValue(snapshot["conflict_project_id"]).isEmpty
+                && stringValue(snapshot["draft_fingerprint"]) == expectedQueuedFingerprint
+                && intValue(snapshot["draft_character_count"]) == expectedQueuedDraft.count
+                && intValue(snapshot["queued_draft_save_count"]) == 0
+                && intValue(snapshot["parked_draft_save_count"]) == 0
+                && !boolValue(snapshot["has_unsaved_draft_changes"])
+                && !boolValue(snapshot["is_saving"])
+                && stringValue(snapshot["error_text"]).isEmpty
+        }
+        let relaunchEvidenceKeys: Set<String> = [
+            "selected_project_id", "loaded_draft_project_id", "latest_version_id", "conflict_project_id",
+            "draft_fingerprint", "draft_character_count", "queued_draft_save_count", "parked_draft_save_count",
+            "has_unsaved_draft_changes", "is_saving",
+        ]
+        var relaunchEvidence = relaunchedResolvedSnapshot.filter { relaunchEvidenceKeys.contains($0.key) }
+        relaunchEvidence["error_is_empty"] = stringValue(relaunchedResolvedSnapshot["error_text"]).isEmpty
+        XCTAssertTrue(restoredChosenVersion,
+                      "The chosen writer version did not restore cleanly after relaunch: \(relaunchEvidence)")
+
+        let relaunchedProject = try await requestJSON(
+            baseURL: baseURL,
+            path: "/screenplay/projects/\(fixture.projectID)",
+            method: "GET",
+            headers: ownerHeaders,
+            body: nil,
+            queryItems: [
+                URLQueryItem(name: "include_drafts", value: "1"),
+                URLQueryItem(name: "version_limit", value: "24"),
+            ]
+        )
+        try assertHTTP(relaunchedProject, context: "resolved screenplay project after relaunch")
+        let relaunchedEnvelope = relaunchedProject.payload["payload"] as? [String: Any] ?? relaunchedProject.payload
+        let relaunchedBody = relaunchedEnvelope["project"] as? [String: Any] ?? relaunchedEnvelope
+        let relaunchedVersions = relaunchedBody["versions"] as? [[String: Any]] ?? []
+        XCTAssertEqual(relaunchedVersions.count, 3, "Relaunch must not create another saved version.")
+        XCTAssertEqual(
+            Set(relaunchedVersions.map { stringValue($0["id"]) }),
+            expectedResolvedVersionIDs,
+            "Relaunch must retain exactly seed, competitor and the chosen writer version."
+        )
+        XCTAssertEqual(
+            stringValue(relaunchedBody["active_version_id"] ?? relaunchedBody["activeVersionId"]),
+            localVersionID
         )
     }
 

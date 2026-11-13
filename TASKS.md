@@ -5,6 +5,13 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### Original979 immutable recovery-chain test contract — T-1469 (2026-11-13)
+
+- **Owner:** Einstein, bounded source/artifact investigation and explicitly assigned test-only candidate; only new `codex/T-1469-recovery-chain-contract`, exact published7b base. Root retains execution/publication and both held merges.
+- **Verified red:**979required recovery1/1/0 at stale-conflict readiness: queued1/parked0→queued0/parked2, same87-character writer fingerprint/full-preview hash and selected/loaded/conflict project. No individual outbox-entry metadata; no proved second-copy origin, writer loss or duplicate race. Keep Mine was not reached.
+- **Contract:** honor preserved accepted527c58d6's nonempty-chain/stronger-version principle; existing actor test deliberately preserves2same-byte immutable intents. Change only the current failing method: whole fingerprint/count/project/head checks, exact2prechoice/3postchoice version sets, preserve zero unchosen uploads and all exact-one chosen/fulltext/idempotency/active/cleanup assertions, then one clean chosen-version relaunch with metadata-only new failure evidence. Existing deadlines/tap unchanged; all41 test IDs retained.
+- **Proof/limits:** syntaxparse/diff0; canonical D009 exact71fivezero; all other source/methods unchanged7b. No native/backend/npm/provider/GitHub action or fresh actual401-refresh claim. Evidence: `docs/original-979-recovery-chain-contract-2026-11-13.md`; root must review before tests/publication. Production held; READY FOR CONTINUE.
+
 ### Original979 on landed recovery main — T-1465 (2026-11-12)
 
 - **Owner:** Einstein, bounded preserving integration assigned by Jarvis; only new `codex/T-1465-979-recovery-main-sync` worktree. Merge6f7913c6 preserves original9796c + protected main71; six conflict stages/two outputs backed up before three contextual hunks.
