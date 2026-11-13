@@ -4,6 +4,10 @@ enum StudioUITestInspectorTabPhase: String {
     case appeared, entered, applied, observed, routed
 }
 
+enum StudioUITestSidebarTogglePhase: String {
+    case entered, applied
+}
+
 #if DEBUG && canImport(UIKit)
 import UIKit
 import ObjectiveC
@@ -41,6 +45,11 @@ enum StudioUITestInputDiagnostics {
         guard requested else { return }
         record(["kind": "inspector_tab", "phase": phase.rawValue,
                 "requested": requestedTab.rawValue, "selection": selection.rawValue])
+    }
+
+    static func sidebarToggle(_ phase: StudioUITestSidebarTogglePhase, visible: Bool) {
+        guard requested else { return }
+        record(["kind": "sidebar_toggle", "phase": phase.rawValue, "visible": visible])
     }
 
     fileprivate static func capture(_ event: UIEvent) {
@@ -124,6 +133,7 @@ struct StudioUITestInputDiagnosticsView: UIViewRepresentable {
 #else
 @MainActor
 enum StudioUITestInputDiagnostics {
+    static func sidebarToggle(_ phase: StudioUITestSidebarTogglePhase, visible: Bool) {}
     static func installIfRequested() {}
     static func inspectorFrame(tab: ScreenplayStudioScreen.DirectionOneRightPanelTab, frame: CGRect) {}
     static func inspectorTab(
@@ -135,5 +145,28 @@ enum StudioUITestInputDiagnostics {
 struct StudioUITestInputDiagnosticsView: View {
     var identifier = "studio.debug.input.trace"
     var body: some View { EmptyView() }
+}
+#endif
+
+#if DEBUG
+/// Keep UI-test observations available when either compact drawer is closed.
+struct StudioUITestDiagnosticsOverlay: View {
+    let restoreSnapshot: String
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            Text(restoreSnapshot)
+                .font(.system(size: 1))
+                .frame(width: 1, height: 1)
+                .opacity(0.01)
+                .accessibilityIdentifier("studio.restore.snapshot")
+            StudioUITestInputDiagnosticsView()
+                .frame(width: 12, height: 12)
+                .allowsHitTesting(false)
+        }
+        .onAppear {
+            StudioUITestInputDiagnostics.installIfRequested()
+        }
+    }
 }
 #endif

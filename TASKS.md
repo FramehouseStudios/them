@@ -5,6 +5,14 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### Current original923 one-tap observation — T-1458 (2026-11-12)
+
+- **Owner:** Jarvis preserving integration/observation/proof; Howard bounded proposal/source review. Original4b+parent4f preserved at b155, oneTASKS conflict/bothblocks retained; original twoNode test files unchanged.
+- **Unresolved:** old923hosted writer0/1/0 had one validtap(24,77), no drawer. Cause remains unestablished; this is observation, not a claimed product repair.
+- **Change:** existing bounded DEBUG/UIopt-in owner records sidebar entered/applied visibility. Extract original snapshotText into stable overlay with currentString inside originalUIguard; keep identifier/size/opacity. Writerfixture explicitly opts trace, captures after unchanged titlewait/before originalassertion, guarded absentendpoint. Sameone tap/deadlines/handlers, no newproductstate; Studio−2.
+- **Proof:** signed/erasedowned81F canonical writer1/0/0; retained complete5event trace proves localhandler false→true with originaltouch. Changed snapshot consumers recovery2/0/0 separately; Macbuild0; actualidentities/sourcehashes verified, authfixturePID/noncechecked, knownAPIguard0blocked. D009Studio−2/other4zero; parse/diffpass. No unchanged fullbackend/fullunits or paidcalls.
+- **Limits/GitHub:** local instrumented green does not explain frozen hostedred, prove live mic/model/phone or exportpayload externalopen. Preserve originalPRs and let current964/904checks finish; normal scoped backup publication only if explicitly recorded, then originalbranches bottom-up. Sharednavguard being carried toearliest904owner separately. Evidence: docs/original-923-drawer-observation-2026-11-12.md. Productionheld; READY FOR CONTINUE.
+
 ### Current original923 proof-contract checkpoint — T-1450 (2026-11-12)
 
 - **Owner:** Jarvis; Luna bounded source/topology review. Einstein inspecting distinct973 transport boundary; no human review substituted.

@@ -397,11 +397,7 @@ struct ScreenplayStudioScreen: View {
             .overlay(alignment: .topLeading) {
                 #if DEBUG
                 if IOThemRuntime.isRunningUITests {
-                    Text(uiTestStudioRestoreSnapshotJSON)
-                        .font(.system(size: 1))
-                        .frame(width: 1, height: 1)
-                        .opacity(0.01)
-                        .accessibilityIdentifier("studio.restore.snapshot")
+                    StudioUITestDiagnosticsOverlay(restoreSnapshot: uiTestStudioRestoreSnapshotJSON)
                 }
                 #endif
             }
@@ -12376,6 +12372,7 @@ Return revised screenplay lines only.
     }
 
     private func toggleDirectionOneSidebarVisibility() {
+        StudioUITestInputDiagnostics.sidebarToggle(.entered, visible: isDirectionOneSidebarVisible)
         withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
             let nextIsVisible = !isDirectionOneSidebarVisible
             isDirectionOneSidebarVisible = nextIsVisible
@@ -12383,6 +12380,7 @@ Return revised screenplay lines only.
                 isDirectionOneRightRailExpanded = false
             }
         }
+        StudioUITestInputDiagnostics.sidebarToggle(.applied, visible: isDirectionOneSidebarVisible)
         vm.infoText = isDirectionOneSidebarVisible
             ? "Sidebar shown."
             : "Sidebar hidden."

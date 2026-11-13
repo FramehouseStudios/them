@@ -484,9 +484,12 @@ final class V1SmokeUITests: XCTestCase {
         let marker = "WRITER LOOP DRAFT \(uniqueSuffix)"
         let expectedMarkdownFilename = "Writer-Loop-\(uniqueSuffix).md"
 
+        var writerLaunchEnvironment = fixture.appLaunchEnvironment
+        // This fixture explicitly opts in; ordinary app launches keep tracing off.
+        writerLaunchEnvironment["THEM_UITEST_TRACE_INPUT"] = "1"
         var app = launchApp(
             openStudio: true,
-            launchEnvironment: fixture.appLaunchEnvironment
+            launchEnvironment: writerLaunchEnvironment
         )
         defer { app.terminate() }
         XCTAssertTrue(
@@ -500,8 +503,17 @@ final class V1SmokeUITests: XCTestCase {
             leftDrawerToggle.tap()
         }
         let projectTitleField = app.textFields["New project title"]
+        let titleFieldIsHittable = waitForHittability(
+            of: projectTitleField, timeout: writerLoopWait(8)
+        )
+        let trace = element(identifier: "studio.debug.input.trace", in: app)
+        let traceValue = trace.exists ? (trace.value as? String) : nil
+        let attachment = XCTAttachment(string: traceValue ?? "Native input trace unavailable")
+        attachment.name = "Writer drawer after original project-title wait"
+        attachment.lifetime = .keepAlways
+        add(attachment)
         XCTAssertTrue(
-            waitForHittability(of: projectTitleField, timeout: writerLoopWait(8)),
+            titleFieldIsHittable,
             "The Projects drawer did not expose its project title field."
         )
         projectTitleField.tap()
@@ -677,7 +689,7 @@ final class V1SmokeUITests: XCTestCase {
         app = launchApp(
             openStudio: true,
             resetState: false,
-            launchEnvironment: fixture.appLaunchEnvironment
+            launchEnvironment: writerLaunchEnvironment
         )
         XCTAssertTrue(
             element(identifier: "studio.surface", in: app).waitForExistence(timeout: writerLoopWait(15)),
