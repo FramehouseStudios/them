@@ -5,6 +5,16 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### Current original904 recovery checkpoint — T-1447 (2026-11-12)
+
+- **Owner:** Codex (Jarvis); scoped Luna package/topology work and Zora recovery investigation. Original909, foundation831, history975 and all incoming commits preserved through no-ff merges. No replacement PR/main mutation.
+- **Source:** runtime/UI7adcf46e on `codex/T-1447-904-history-handoff`; merge5fa67e1f + documentation merged087e34c. Nine conflicts/21hunks reconciled from preserved stages, not wholesale file replacement. Both original histories and all prior test cases retained.
+- **Fixed/connected:** original904 durable queued hydration, unreadable-manifest stop, explicit conflict/recovered-copy authority and export/navigation work coexist with incoming editor/inspector/history fixes. DEBUG process-default ack0 override removed; two cases require the actual acknowledgement, retaining whole-draft/exactly-one assertions.
+- **Proof:** signed fullunits676/0/0 atd087 with exact app/unit/package/project source identity at7ad; canonical recovery2/0/0; fullV1 35/0/6 (41total); authenticated writer1/0/0, explicitSavefallback0; Node20backend2758/0/2, sourceunchanged; Mac compile0; D009Studio−19/Bridge−37/other3zero, diffpass. Parent8f offlinecanon stays inherited, fresh hostedQuality mandatory. No unchanged fullunit/voice duplicate or paid call.
+- **Failure retained:** initial runner contracts60/9/0 lacked snapshotdependencies; affected corrected file10/0/0 and subsequent fullbackendpassed. Six UI/two backend skips are explicitly listed in proof; no simulated-response/phone/production completion claim.
+- **GitHub boundary:** normal original964→975 and original904→proven descendant only; parent975's own offline0/2/0 is not child success. Require new hosted checks and genuine review before any landing. Production held; APIhealth302parking at01:56UTC.
+- **Next:** original919 T1449 preserves510+7ad with one unresolved additive TASKS conflict. T1448 Unicode receipt/publisher patch is private/uncommitted/static-only; review and native proof still required. Evidence: `docs/original-904-integrated-recovery-2026-11-12.md`. READY FOR CONTINUE.
+
 ### Current history-sync handoff — T-1446 (2026-11-12)
 
 - **Owner:** Codex (Jarvis); actual Zora recovery investigation and Luna topology/source challenge. Einstein/Howard/Alfred idle; no human review substituted.
