@@ -1,44 +1,13 @@
 import SwiftUI
 import ScreenplayStudio
-#if os(iOS)
-import UIKit
-
-extension IOSCursorInsertTextEditor.Coordinator {
-    func publishEditorText(_ text: String) {
-        guard parent.text != text else { return }
-        pendingEditorPublications.record(text)
-        parent.text = text
-    }
-
-    func shouldApplyModelText(
-        incomingText: String,
-        to textView: UITextView,
-        documentDidChange: Bool
-    ) -> Bool {
-        // A Binding reads today's model, even when held by yesterday's parent.
-        // Keep the previous render's value independently of that live binding.
-        defer { lastRenderedModelText = incomingText }
-        if documentDidChange {
-            pendingEditorPublications.reset()
-        } else if pendingEditorPublications.acknowledge(incomingText) {
-            return false
-        }
-        return ScreenplayEditorTextBindingPolicy.shouldApplyModelText(
-            incomingText: incomingText,
-            currentEditorText: textView.text ?? "",
-            lastRenderedModelText: lastRenderedModelText,
-            isEditorFocused: textView.isFirstResponder,
-            documentDidChange: documentDidChange
-        )
-    }
-}
-#endif
-
 /// Keeps editor composition out of the live-draft bridge while forwarding the
 /// iPhone keyboard save affordance to the native screenplay editor.
 struct CursorInsertTextEditor: View {
     @Binding var text: String
     var documentID: String = ""
+    var externalMutationRevision: UInt64 = 0
+    var currentModelAuthority: (() -> ScreenplayEditorModelAuthority)? = nil
+    var currentReplacementSubmissionID: (() -> String)? = nil
     @Binding var activeScreenplayElement: ScreenplayEditorElement
     @Binding var insertionRequest: ScreenplayInsertionRequest?
     @Binding var lineJumpRequest: ScreenplayLineJumpRequest?
@@ -76,9 +45,56 @@ struct CursorInsertTextEditor: View {
             onUserEdit: onUserEdit
         )
 #elseif os(iOS)
+        nativeIOSEditor
+#else
+        EmptyView()
+#endif
+    }
+}
+
+@MainActor
+extension CursorInsertTextEditor {
+    static func modelTextBinding(for model: ScreenplayStudioViewModel) -> Binding<String> {
+        Binding(get: { model.fountainDraft }, set: { model.publishNativeEditorDraft($0) })
+    }
+
+    init(model: ScreenplayStudioViewModel, bridge: ScreenplayLiveDraftBridge,
+         onSaveDraft: @escaping () -> Void) {
+        let state = ObservedObject(wrappedValue: bridge).projectedValue
+        self.init(
+            text: Self.modelTextBinding(for: model), documentID: model.selectedProjectID,
+            externalMutationRevision: model.editorExternalDraftMutationRevision,
+            currentModelAuthority: {
+                ScreenplayEditorModelAuthority(documentID: model.selectedProjectID,
+                    externalMutationRevision: model.editorExternalDraftMutationRevision)
+            },
+            currentReplacementSubmissionID: { bridge.replacementSubmissionID },
+            activeScreenplayElement: state.activeScreenplayElement,
+            insertionRequest: state.pendingInsertion, lineJumpRequest: state.pendingLineJump,
+            lineHighlightRequest: state.pendingLineHighlight,
+            anchoredTextRectRequest: state.pendingAnchoredTextRectRequest,
+            anchoredTextRectSnapshot: state.anchoredTextRectSnapshot,
+            editorFocusRequest: state.pendingEditorFocus, editorActionRequest: state.pendingEditorAction,
+            editorSelection: state.editorSelection, currentCursorLine: state.currentCursorLine,
+            lastCommittedWrite: state.lastCommittedWrite,
+            pendingReplacementTarget: state.pendingReplacementTarget,
+            submittedReplacementTarget: state.submittedReplacementTarget,
+            onUserEdit: model.noteManualDraftEdit, canSaveDraft: model.selectedProject != nil &&
+                model.hasUnsavedDraftChanges && !model.isSaving && !model.fountainDraft.isEmpty,
+            onSaveDraft: onSaveDraft
+        )
+    }
+}
+
+#if os(iOS)
+extension CursorInsertTextEditor {
+    var nativeIOSEditor: IOSCursorInsertTextEditor {
         IOSCursorInsertTextEditor(
             text: $text,
             documentID: documentID,
+            externalMutationRevision: externalMutationRevision,
+            currentModelAuthority: currentModelAuthority,
+            currentReplacementSubmissionID: currentReplacementSubmissionID,
             activeScreenplayElement: $activeScreenplayElement,
             insertionRequest: $insertionRequest,
             lineJumpRequest: $lineJumpRequest,
@@ -96,8 +112,6 @@ struct CursorInsertTextEditor: View {
             canSaveDraft: canSaveDraft,
             onSaveDraft: onSaveDraft
         )
-#else
-        EmptyView()
-#endif
     }
 }
+#endif

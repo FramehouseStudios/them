@@ -2874,22 +2874,7 @@ private var directionOneScriptEditor: some View {
                 isCommitNoticeVisible: isPageCommitNoticeVisible
             ) {
                 CursorInsertTextEditor(
-                    text: $vm.fountainDraft, documentID: vm.selectedProjectID,
-                    activeScreenplayElement: $liveDraftBridge.activeScreenplayElement,
-                    insertionRequest: $liveDraftBridge.pendingInsertion,
-                    lineJumpRequest: $liveDraftBridge.pendingLineJump,
-                    lineHighlightRequest: $liveDraftBridge.pendingLineHighlight,
-                    anchoredTextRectRequest: $liveDraftBridge.pendingAnchoredTextRectRequest,
-                    anchoredTextRectSnapshot: $liveDraftBridge.anchoredTextRectSnapshot,
-                    editorFocusRequest: $liveDraftBridge.pendingEditorFocus,
-                    editorActionRequest: $liveDraftBridge.pendingEditorAction,
-                    editorSelection: $liveDraftBridge.editorSelection,
-                    currentCursorLine: $liveDraftBridge.currentCursorLine,
-                    lastCommittedWrite: $liveDraftBridge.lastCommittedWrite,
-                    pendingReplacementTarget: $liveDraftBridge.pendingReplacementTarget,
-                    submittedReplacementTarget: $liveDraftBridge.submittedReplacementTarget,
-                    onUserEdit: vm.noteManualDraftEdit, canSaveDraft: vm.selectedProject != nil &&
-                        vm.hasUnsavedDraftChanges && !vm.isSaving && !vm.fountainDraft.isEmpty,
+                    model: vm, bridge: liveDraftBridge,
                     onSaveDraft: { triggerStudioManualSave() }
                 )
                 .overlay(alignment: .topLeading) {
