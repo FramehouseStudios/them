@@ -5,6 +5,14 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### Current original923 proof-contract checkpoint — T-1450 (2026-11-12)
+
+- **Owner:** Jarvis; Luna bounded source/topology review. Einstein inspecting distinct973 transport boundary; no human review substituted.
+- **Source:** preserving merge `2da572ef` retains original9230ea/1f04 plus published9199b. Only two original test files differ from parent; all app/production/runner/workflow sources byte-identical.
+- **Proof:** Node20.20.2/networknone initial13/5/0 (11helpers passed; fake-tools blocked by container noexec), corrected affected runner7/0/0 without source/assertion change or unchanged helper rerun. Exact snapshot1414files hash-verified; syntax/diff/D009 five0 pass. Native714/0/0, V1 36/0/6, writer1/0/0, Mac0 and backend2758/0/2 are inherited919 results, not new executions.
+- **GitHub/limits:** original923 normal preserving advancement only; fresh hosted checks/genuine review required. Main78b unchanged, no paid/phone/production proof, production held.
+- **Next:** original973aa729 transport integration, preserve and diagnose its actual old hosted missing-inspector-tab failure; add production talk-delegate redirect proof if missing. Evidence: `docs/original-923-proof-contracts-2026-11-12.md`. READY FOR CONTINUE.
+
 ### Current original919 byte/conflict checkpoint — T-1449 (2026-11-12)
 
 - **Owner:** Jarvis; Zora bounded recovery review and Luna current topology/CI evidence. Einstein/Howard/Alfred idle; no human approval substituted.
