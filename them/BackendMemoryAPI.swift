@@ -33,108 +33,8 @@ nonisolated private func postBackendNotificationOnMain(
     }
 }
 
-nonisolated enum BackendUserDefaultsStore {
-    private static let liveUIKeys: Set<String> = [
-        "auth_signed_in",
-        "auth_user_email",
-        "auth_user_verified",
-        "auth_session_token_deletion_pending",
-    ]
-
-    @discardableResult
-    static func set(
-        _ value: Any,
-        forKey key: String,
-        defaults: UserDefaults = .standard
-    ) -> Bool {
-#if os(iOS)
-        if defaults === UserDefaults.standard {
-            if valuesAreEqual(defaults.object(forKey: key), value) {
-                return CFPreferencesAppSynchronize(kCFPreferencesCurrentApplication)
-            }
-            CFPreferencesSetAppValue(
-                key as CFString,
-                value as CFPropertyList,
-                kCFPreferencesCurrentApplication
-            )
-            guard CFPreferencesAppSynchronize(kCFPreferencesCurrentApplication) else {
-                return false
-            }
-            publishLiveUIChangeIfNeeded(forKey: key)
-            return true
-        }
-#endif
-        defaults.set(value, forKey: key)
-        return defaults.synchronize()
-    }
-
-    @discardableResult
-    static func removeObject(
-        forKey key: String,
-        defaults: UserDefaults = .standard
-    ) -> Bool {
-#if os(iOS)
-        if defaults === UserDefaults.standard {
-            if defaults.object(forKey: key) == nil {
-                return CFPreferencesAppSynchronize(kCFPreferencesCurrentApplication)
-            }
-            CFPreferencesSetAppValue(
-                key as CFString,
-                nil,
-                kCFPreferencesCurrentApplication
-            )
-            guard CFPreferencesAppSynchronize(kCFPreferencesCurrentApplication) else {
-                return false
-            }
-            publishLiveUIChangeIfNeeded(forKey: key)
-            return true
-        }
-#endif
-        defaults.removeObject(forKey: key)
-        return defaults.synchronize()
-    }
-
-    @discardableResult
-    static func synchronize(_ defaults: UserDefaults = .standard) -> Bool {
-#if os(iOS)
-        if defaults === UserDefaults.standard {
-            return CFPreferencesAppSynchronize(kCFPreferencesCurrentApplication)
-        }
-#endif
-        return defaults.synchronize()
-    }
-
-    private static func valuesAreEqual(_ lhs: Any?, _ rhs: Any?) -> Bool {
-        switch (lhs, rhs) {
-        case (nil, nil):
-            return true
-        case let (left as NSObject, right as NSObject):
-            return left.isEqual(right)
-        default:
-            return false
-        }
-    }
-
-    private static func publishLiveUIChangeIfNeeded(forKey key: String) {
-        guard liveUIKeys.contains(key) else { return }
-        BackendAuthClient.publishLiveUserDefaultsChangeAfterAuthMutation()
-    }
-}
-
-nonisolated enum BackendLiveDefaultsNotificationScheduler {
-    static func enqueue(
-        after mutationQueue: DispatchQueue,
-        deliveryQueue: DispatchQueue = .main,
-        publish: @escaping @Sendable () -> Void
-    ) {
-        mutationQueue.async {
-            deliveryQueue.async(execute: publish)
-        }
-    }
-}
-
 nonisolated extension BackendAuthClient {
-    fileprivate static func publishLiveUserDefaultsChangeAfterAuthMutation() {
+    static func publishLiveUserDefaultsChangeAfterAuthMutation() {
         // Live SwiftUI defaults observers may synchronously read auth state.
         // Hop through the mutation queue so they cannot run until the current
         // crash-safe Keychain/defaults transaction has released that queue.
@@ -2159,7 +2059,7 @@ nonisolated struct BackendLocalDemoAccount: Equatable, Sendable {
 }
 #endif
 
-nonisolated struct BackendAuthEmailDelivery: Decodable, Hashable {
+nonisolated struct BackendAuthEmailDelivery: Decodable, Hashable, Sendable {
     let status: String?
     let action: String?
     let transport: String?
@@ -2167,7 +2067,7 @@ nonisolated struct BackendAuthEmailDelivery: Decodable, Hashable {
     let error: String?
 }
 
-nonisolated struct BackendAuthEnvelope: Decodable {
+nonisolated struct BackendAuthEnvelope: Decodable, Sendable {
     let ok: Bool
     let user: BackendAuthUser?
     let token: String?
@@ -2322,7 +2222,7 @@ actor BackendAuthRefreshCoordinator {
     }
 }
 
-nonisolated struct BackendPasswordResetResult: Equatable {
+nonisolated struct BackendPasswordResetResult: Equatable, Sendable {
     let sessionState: BackendAuthSessionState
     let canonicalEmail: String
     let rememberedLoginResult: BackendRememberedLoginMutationResult
@@ -2352,18 +2252,18 @@ nonisolated struct BackendPasswordResetIntent: Equatable, Sendable {
     let sessionEpoch: Int
 }
 
-nonisolated enum BackendAuthEnvelopeCommitOutcome: Equatable {
+nonisolated enum BackendAuthEnvelopeCommitOutcome: Equatable, Sendable {
     case committed
     case superseded
     case storageFailed
 }
 
-nonisolated struct BackendEmailAuthenticationResult: Equatable {
+nonisolated struct BackendEmailAuthenticationResult: Equatable, Sendable {
     let sessionState: BackendAuthSessionState
     let rememberedLoginResult: BackendRememberedLoginMutationResult
 }
 
-nonisolated enum BackendInteractiveAuthCommitResult: Equatable {
+nonisolated enum BackendInteractiveAuthCommitResult: Equatable, Sendable {
     case committed(BackendEmailAuthenticationResult)
     case superseded
     case storageFailed
@@ -4627,55 +4527,57 @@ nonisolated enum BackendAuthClient {
         password: String,
         rememberEmail: Bool,
         savePassword: Bool
-    ) -> BackendInteractiveAuthCommitResult {
-        authSessionStateQueue.sync {
-            guard authSessionIntentGeneration(defaults: .standard) == intent.sessionGeneration else {
-                return .superseded
-            }
-            return rememberedLoginCredentialQueue.sync {
-                let rememberedIntentIsCurrent = rememberedLoginIntentGeneration(defaults: .standard)
-                    == intent.rememberedLoginGeneration
-                if rememberedIntentIsCurrent {
-                    // Hide the prior remembered credential before publishing
-                    // a new account session. A crash can never expose Session
-                    // B beside Account A's previously saved password.
-                    beginRememberedLoginCredentialMutation(defaults: .standard)
+    ) async -> BackendInteractiveAuthCommitResult {
+        await BackendAuthMutationExecutor.run {
+            authSessionStateQueue.sync {
+                guard authSessionIntentGeneration(defaults: .standard) == intent.sessionGeneration else {
+                    return .superseded
                 }
-                guard persistAuthEnvelope(payload) else {
+                return rememberedLoginCredentialQueue.sync {
+                    let rememberedIntentIsCurrent = rememberedLoginIntentGeneration(defaults: .standard)
+                        == intent.rememberedLoginGeneration
+                    if rememberedIntentIsCurrent {
+                        // Hide the prior remembered credential before publishing
+                        // a new account session. A crash can never expose Session
+                        // B beside Account A's previously saved password.
+                        beginRememberedLoginCredentialMutation(defaults: .standard)
+                    }
+                    guard persistAuthEnvelope(payload) else {
+                        _ = reserveAuthSessionIntent(defaults: .standard)
+                        _ = advanceAuthSessionEpoch(defaults: .standard)
+                        postBackendNotificationOnMain(
+                            name: .themBackendIdentityPartitionChanged,
+                            userInfo: [:]
+                        )
+                        return .storageFailed
+                    }
                     _ = reserveAuthSessionIntent(defaults: .standard)
                     _ = advanceAuthSessionEpoch(defaults: .standard)
-                    postBackendNotificationOnMain(
-                        name: .themBackendIdentityPartitionChanged,
-                        userInfo: [:]
+                    let rememberedResult: BackendRememberedLoginMutationResult
+                    if rememberedIntentIsCurrent {
+                        rememberedResult = persistRememberedLoginCredentialsIfCurrent(
+                            email: email,
+                            password: password,
+                            rememberEmail: rememberEmail,
+                            savePassword: savePassword,
+                            expectedGeneration: intent.rememberedLoginGeneration,
+                            defaults: .standard,
+                            writeKeychain: writeRememberedLoginKeychainString,
+                            deleteKeychain: deleteKeychainString
+                        )
+                    } else {
+                        // Remember/save toggles are intentionally independent of
+                        // session intent. A newer toggle may suppress credential
+                        // persistence without discarding an otherwise valid login.
+                        rememberedResult = .superseded
+                    }
+                    return .committed(
+                        BackendEmailAuthenticationResult(
+                            sessionState: currentAuthSessionStateLocked(defaults: .standard),
+                            rememberedLoginResult: rememberedResult
+                        )
                     )
-                    return .storageFailed
                 }
-                _ = reserveAuthSessionIntent(defaults: .standard)
-                _ = advanceAuthSessionEpoch(defaults: .standard)
-                let rememberedResult: BackendRememberedLoginMutationResult
-                if rememberedIntentIsCurrent {
-                    rememberedResult = persistRememberedLoginCredentialsIfCurrent(
-                        email: email,
-                        password: password,
-                        rememberEmail: rememberEmail,
-                        savePassword: savePassword,
-                        expectedGeneration: intent.rememberedLoginGeneration,
-                        defaults: .standard,
-                        writeKeychain: writeRememberedLoginKeychainString,
-                        deleteKeychain: deleteKeychainString
-                    )
-                } else {
-                    // Remember/save toggles are intentionally independent of
-                    // session intent. A newer toggle may suppress credential
-                    // persistence without discarding an otherwise valid login.
-                    rememberedResult = .superseded
-                }
-                return .committed(
-                    BackendEmailAuthenticationResult(
-                        sessionState: currentAuthSessionStateLocked(defaults: .standard),
-                        rememberedLoginResult: rememberedResult
-                    )
-                )
             }
         }
     }
@@ -4701,7 +4603,7 @@ nonisolated enum BackendAuthClient {
             "password": password,
         ], options: [])
         let payload = try await run(request, as: BackendAuthEnvelope.self)
-        switch commitEmailAuthenticationEnvelope(
+        switch await commitEmailAuthenticationEnvelope(
             payload,
             intent: intent,
             email: email,
@@ -4736,7 +4638,7 @@ nonisolated enum BackendAuthClient {
             "password": password,
         ], options: [])
         let payload = try await run(request, as: BackendAuthEnvelope.self)
-        switch commitEmailAuthenticationEnvelope(
+        switch await commitEmailAuthenticationEnvelope(
             payload,
             intent: intent,
             email: email,
@@ -4783,7 +4685,7 @@ nonisolated enum BackendAuthClient {
         var request = try makeAuthWriteRequest(path: "/auth/apple")
         request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
         let payload = try await run(request, as: BackendAuthEnvelope.self)
-        switch persistInteractiveAuthEnvelopeIfCurrent(
+        switch await persistInteractiveAuthEnvelopeIfCurrent(
             payload,
             expectedGeneration: expectedSessionGeneration
         ) {
@@ -4861,12 +4763,14 @@ nonisolated enum BackendAuthClient {
         do {
             payload = try await run(request, as: BackendAuthEnvelope.self)
         } catch {
-            if isTerminalRefreshRejection(error), invalidateAuthSessionIfLeaseCurrent(lease) {
-                await BackendMemoryAPI.shared.invalidateResolvedSessionCaches()
+            if isTerminalRefreshRejection(error) {
+                if await invalidateAuthSessionIfLeaseCurrent(lease) {
+                    await BackendMemoryAPI.shared.invalidateResolvedSessionCaches()
+                }
             }
             throw error
         }
-        switch persistRefreshAuthEnvelopeIfCurrent(payload, lease: lease) {
+        switch await persistRefreshAuthEnvelopeIfCurrent(payload, lease: lease) {
         case .committed:
             break
         case .superseded:
@@ -4878,9 +4782,11 @@ nonisolated enum BackendAuthClient {
             throw BackendMemoryAPIError.server(status: 500, message: "auth_session_storage_failed")
         }
 #if DEBUG
-        BackendUserDefaultsStore.removeObject(forKey: "auth_debug_access_token")
-        BackendUserDefaultsStore.removeObject(forKey: "auth_debug_access_token_enabled")
-        BackendUserDefaultsStore.removeObject(forKey: "auth_debug_refresh_token")
+        await BackendAuthMutationExecutor.run {
+            BackendUserDefaultsStore.removeObject(forKey: "auth_debug_access_token")
+            BackendUserDefaultsStore.removeObject(forKey: "auth_debug_access_token_enabled")
+            BackendUserDefaultsStore.removeObject(forKey: "auth_debug_refresh_token")
+        }
 #endif
         return currentAuthSessionState()
     }
@@ -4915,24 +4821,26 @@ nonisolated enum BackendAuthClient {
         }
     }
 
-    private static func invalidateAuthSessionIfLeaseCurrent(_ lease: BackendAuthSessionLease) -> Bool {
-        authSessionStateQueue.sync {
-            guard authSessionLeaseIsCurrent(
-                lease,
-                defaults: .standard,
-                currentAccessToken: { accessTokenLocked(defaults: .standard) },
-                currentRefreshToken: { refreshTokenLocked(defaults: .standard) }
-            ) else {
-                return false
+    private static func invalidateAuthSessionIfLeaseCurrent(_ lease: BackendAuthSessionLease) async -> Bool {
+        await BackendAuthMutationExecutor.run {
+            authSessionStateQueue.sync {
+                guard authSessionLeaseIsCurrent(
+                    lease,
+                    defaults: .standard,
+                    currentAccessToken: { accessTokenLocked(defaults: .standard) },
+                    currentRefreshToken: { refreshTokenLocked(defaults: .standard) }
+                ) else {
+                    return false
+                }
+                _ = clearAuthSession(advanceGeneration: true)
+                return true
             }
-            _ = clearAuthSession(advanceGeneration: true)
-            return true
         }
     }
 
     static func restorePersistedAuthSessionIfNeeded() async throws -> BackendAuthSessionState {
         if authSessionTokenDeletionIsPending() {
-            _ = retryPendingAuthSessionTokenDeletion()
+            _ = await BackendAuthMutationExecutor.run { retryPendingAuthSessionTokenDeletion() }
             return currentAuthSessionState()
         }
         let current = currentAuthSessionState()
@@ -4942,14 +4850,16 @@ nonisolated enum BackendAuthClient {
     }
 
     static func logout() async throws -> Bool {
-        let local = authSessionStateQueue.sync { () -> (access: String, refresh: String, deleted: Bool) in
-            let access = accessTokenLocked(defaults: .standard) ?? ""
-            let refresh = refreshTokenLocked(defaults: .standard) ?? ""
-            let deleted = clearAuthSession(
-                advanceGeneration: true,
-                invalidateInteractiveIntents: true
-            )
-            return (access, refresh, deleted)
+        let local = await BackendAuthMutationExecutor.run {
+            authSessionStateQueue.sync { () -> (access: String, refresh: String, deleted: Bool) in
+                let access = accessTokenLocked(defaults: .standard) ?? ""
+                let refresh = refreshTokenLocked(defaults: .standard) ?? ""
+                let deleted = clearAuthSession(
+                    advanceGeneration: true,
+                    invalidateInteractiveIntents: true
+                )
+                return (access, refresh, deleted)
+            }
         }
 
         let capturedRequest: Result<URLRequest?, Error>
@@ -5069,11 +4979,13 @@ nonisolated enum BackendAuthClient {
         token: String,
         newPassword: String
     ) async throws -> BackendPasswordResetResult {
-        let resetIntent = authSessionStateQueue.sync {
-            BackendPasswordResetIntent(
-                authIntentGeneration: reserveAuthSessionIntent(defaults: .standard),
-                sessionEpoch: authSessionEpoch(defaults: .standard)
-            )
+        let resetIntent = await BackendAuthMutationExecutor.run {
+            authSessionStateQueue.sync {
+                BackendPasswordResetIntent(
+                    authIntentGeneration: reserveAuthSessionIntent(defaults: .standard),
+                    sessionEpoch: authSessionEpoch(defaults: .standard)
+                )
+            }
         }
         try await prepareVerifiedBackendForAuth()
         var request = try makeAuthWriteRequest(path: "/auth/reset_password")
@@ -5090,51 +5002,53 @@ nonisolated enum BackendAuthClient {
             )
         }
 
-        let committed = authSessionStateQueue.sync { () -> (BackendPasswordResetResult, Bool) in
-            let currentUser = storedAuthUserPayload(defaults: .standard)
-            let currentIntentGeneration = authSessionIntentGeneration(defaults: .standard)
-            let currentSessionEpoch = authSessionEpoch(defaults: .standard)
-            // A login that merely started (and may later fail) cannot protect
-            // the revoked old session. A newer login that actually committed
-            // advances both the interactive intent and the session epoch.
-            let preserveCurrentSession = passwordResetShouldPreserveCurrentSession(
-                intent: resetIntent,
-                currentAuthIntentGeneration: currentIntentGeneration,
-                currentSessionEpoch: currentSessionEpoch,
-                sessionStorageIsReadable: authSessionStorageIsReadable(defaults: .standard),
-                canonicalUser: canonicalUser,
-                currentUser: currentUser
-            )
-            let shouldClearSession = currentUser != nil && !preserveCurrentSession
-            if shouldClearSession {
-                _ = clearAuthSession(advanceGeneration: true)
-            }
+        let committed = await BackendAuthMutationExecutor.run {
+            authSessionStateQueue.sync { () -> (BackendPasswordResetResult, Bool) in
+                let currentUser = storedAuthUserPayload(defaults: .standard)
+                let currentIntentGeneration = authSessionIntentGeneration(defaults: .standard)
+                let currentSessionEpoch = authSessionEpoch(defaults: .standard)
+                // A login that merely started (and may later fail) cannot protect
+                // the revoked old session. A newer login that actually committed
+                // advances both the interactive intent and the session epoch.
+                let preserveCurrentSession = passwordResetShouldPreserveCurrentSession(
+                    intent: resetIntent,
+                    currentAuthIntentGeneration: currentIntentGeneration,
+                    currentSessionEpoch: currentSessionEpoch,
+                    sessionStorageIsReadable: authSessionStorageIsReadable(defaults: .standard),
+                    canonicalUser: canonicalUser,
+                    currentUser: currentUser
+                )
+                let shouldClearSession = currentUser != nil && !preserveCurrentSession
+                if shouldClearSession {
+                    _ = clearAuthSession(advanceGeneration: true)
+                }
 
-            return rememberedLoginCredentialQueue.sync {
-                let canonicalEmail = canonicalUser?.email
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                    .lowercased() ?? ""
-                let rememberedResult: BackendRememberedLoginMutationResult
-                if preserveCurrentSession {
-                    rememberedResult = .unchanged
-                } else {
-                    rememberedResult = reconcileRememberedLoginAfterPasswordReset(
-                        email: canonicalEmail,
-                        newPassword: newPassword,
-                        defaults: .standard,
-                        readKeychain: readKeychainStringResult,
-                        writeKeychain: writeRememberedLoginKeychainString,
-                        deleteKeychain: deleteKeychainString
+                return rememberedLoginCredentialQueue.sync {
+                    let canonicalEmail = canonicalUser?.email
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                        .lowercased() ?? ""
+                    let rememberedResult: BackendRememberedLoginMutationResult
+                    if preserveCurrentSession {
+                        rememberedResult = .unchanged
+                    } else {
+                        rememberedResult = reconcileRememberedLoginAfterPasswordReset(
+                            email: canonicalEmail,
+                            newPassword: newPassword,
+                            defaults: .standard,
+                            readKeychain: readKeychainStringResult,
+                            writeKeychain: writeRememberedLoginKeychainString,
+                            deleteKeychain: deleteKeychainString
+                        )
+                    }
+                    return (
+                        passwordResetResult(
+                            canonicalUser: canonicalUser,
+                            sessionState: currentAuthSessionStateLocked(defaults: .standard),
+                            rememberedLoginResult: rememberedResult
+                        ),
+                        shouldClearSession
                     )
                 }
-                return (
-                    passwordResetResult(
-                        canonicalUser: canonicalUser,
-                        sessionState: currentAuthSessionStateLocked(defaults: .standard),
-                        rememberedLoginResult: rememberedResult
-                    ),
-                    shouldClearSession
-                )
             }
         }
         if committed.1 {
@@ -5187,7 +5101,7 @@ nonisolated enum BackendAuthClient {
         request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
         let payload = try await run(request, as: BackendAuthEnvelope.self)
         if let lease {
-            _ = commitEmailVerificationMetadataIfCurrent(payload, lease: lease)
+            _ = await commitEmailVerificationMetadataIfCurrent(payload, lease: lease)
         }
         return payload
     }
@@ -5201,7 +5115,7 @@ nonisolated enum BackendAuthClient {
         ], options: [])
         let payload = try await run(request, as: BackendAuthEnvelope.self)
         if let lease {
-            _ = commitEmailVerificationMetadataIfCurrent(payload, lease: lease)
+            _ = await commitEmailVerificationMetadataIfCurrent(payload, lease: lease)
         }
         return currentAuthSessionState()
     }
@@ -5210,40 +5124,42 @@ nonisolated enum BackendAuthClient {
     private static func commitEmailVerificationMetadataIfCurrent(
         _ payload: BackendAuthEnvelope,
         lease: BackendAuthSessionLease
-    ) -> Bool {
-        authSessionStateQueue.sync {
-            guard let responseUser = payload.user,
-                  emailVerificationMetadataCommitIsAllowed(
-                    lease: lease,
-                    responseUserID: responseUser.userId,
-                    defaults: .standard,
-                    currentAccessToken: { accessTokenLocked(defaults: .standard) },
-                    currentRefreshToken: { refreshTokenLocked(defaults: .standard) },
-                    currentUserID: { storedAuthUserPayload(defaults: .standard)?.userId }
-                  ) else {
-                return false
-            }
+    ) async -> Bool {
+        await BackendAuthMutationExecutor.run {
+            authSessionStateQueue.sync {
+                guard let responseUser = payload.user,
+                      emailVerificationMetadataCommitIsAllowed(
+                        lease: lease,
+                        responseUserID: responseUser.userId,
+                        defaults: .standard,
+                        currentAccessToken: { accessTokenLocked(defaults: .standard) },
+                        currentRefreshToken: { refreshTokenLocked(defaults: .standard) },
+                        currentUserID: { storedAuthUserPayload(defaults: .standard)?.userId }
+                      ) else {
+                    return false
+                }
 
-            let currentSessionId = (payload.currentSessionId ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if !currentSessionId.isEmpty {
-                BackendUserDefaultsStore.set(currentSessionId, forKey: DefaultsKey.authCurrentSessionId)
+                let currentSessionId = (payload.currentSessionId ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !currentSessionId.isEmpty {
+                    BackendUserDefaultsStore.set(currentSessionId, forKey: DefaultsKey.authCurrentSessionId)
+                }
+                let currentFamilyId = (payload.currentFamilyId ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !currentFamilyId.isEmpty {
+                    BackendUserDefaultsStore.set(currentFamilyId, forKey: DefaultsKey.authCurrentFamilyId)
+                }
+                guard persistAuthUser(responseUser) else { return false }
+                BackendUserDefaultsStore.set(
+                    payload.pendingEmailVerification ?? !responseUser.emailVerified,
+                    forKey: DefaultsKey.authPendingEmailVerification
+                )
+                BackendUserDefaultsStore.set(
+                    payload.verificationRequired ?? !responseUser.emailVerified,
+                    forKey: DefaultsKey.authVerificationRequired
+                )
+                return true
             }
-            let currentFamilyId = (payload.currentFamilyId ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if !currentFamilyId.isEmpty {
-                BackendUserDefaultsStore.set(currentFamilyId, forKey: DefaultsKey.authCurrentFamilyId)
-            }
-            guard persistAuthUser(responseUser) else { return false }
-            BackendUserDefaultsStore.set(
-                payload.pendingEmailVerification ?? !responseUser.emailVerified,
-                forKey: DefaultsKey.authPendingEmailVerification
-            )
-            BackendUserDefaultsStore.set(
-                payload.verificationRequired ?? !responseUser.emailVerified,
-                forKey: DefaultsKey.authVerificationRequired
-            )
-            return true
         }
     }
 
@@ -5387,50 +5303,54 @@ nonisolated enum BackendAuthClient {
     private static func persistInteractiveAuthEnvelopeIfCurrent(
         _ payload: BackendAuthEnvelope,
         expectedGeneration: Int
-    ) -> BackendAuthEnvelopeCommitOutcome {
-        authSessionStateQueue.sync {
-            guard authSessionIntentGeneration(defaults: .standard) == expectedGeneration,
-                  !authSessionTokenDeletionIsPending(defaults: .standard) else {
-                return .superseded
-            }
-            guard persistAuthEnvelope(payload) else {
+    ) async -> BackendAuthEnvelopeCommitOutcome {
+        await BackendAuthMutationExecutor.run {
+            authSessionStateQueue.sync {
+                guard authSessionIntentGeneration(defaults: .standard) == expectedGeneration,
+                      !authSessionTokenDeletionIsPending(defaults: .standard) else {
+                    return .superseded
+                }
+                guard persistAuthEnvelope(payload) else {
+                    _ = reserveAuthSessionIntent(defaults: .standard)
+                    _ = advanceAuthSessionEpoch(defaults: .standard)
+                    postBackendNotificationOnMain(
+                        name: .themBackendIdentityPartitionChanged,
+                        userInfo: [:]
+                    )
+                    return .storageFailed
+                }
                 _ = reserveAuthSessionIntent(defaults: .standard)
                 _ = advanceAuthSessionEpoch(defaults: .standard)
-                postBackendNotificationOnMain(
-                    name: .themBackendIdentityPartitionChanged,
-                    userInfo: [:]
-                )
-                return .storageFailed
+                return .committed
             }
-            _ = reserveAuthSessionIntent(defaults: .standard)
-            _ = advanceAuthSessionEpoch(defaults: .standard)
-            return .committed
         }
     }
 
     private static func persistRefreshAuthEnvelopeIfCurrent(
         _ payload: BackendAuthEnvelope,
         lease: BackendAuthSessionLease
-    ) -> BackendAuthEnvelopeCommitOutcome {
-        authSessionStateQueue.sync {
-            guard authSessionLeaseIsCurrent(
-                lease,
-                defaults: .standard,
-                currentAccessToken: { accessTokenLocked(defaults: .standard) },
-                currentRefreshToken: { refreshTokenLocked(defaults: .standard) }
-            ) else {
-                return .superseded
-            }
-            guard persistAuthEnvelope(payload) else {
+    ) async -> BackendAuthEnvelopeCommitOutcome {
+        await BackendAuthMutationExecutor.run {
+            authSessionStateQueue.sync {
+                guard authSessionLeaseIsCurrent(
+                    lease,
+                    defaults: .standard,
+                    currentAccessToken: { accessTokenLocked(defaults: .standard) },
+                    currentRefreshToken: { refreshTokenLocked(defaults: .standard) }
+                ) else {
+                    return .superseded
+                }
+                guard persistAuthEnvelope(payload) else {
+                    _ = advanceAuthSessionEpoch(defaults: .standard)
+                    postBackendNotificationOnMain(
+                        name: .themBackendIdentityPartitionChanged,
+                        userInfo: [:]
+                    )
+                    return .storageFailed
+                }
                 _ = advanceAuthSessionEpoch(defaults: .standard)
-                postBackendNotificationOnMain(
-                    name: .themBackendIdentityPartitionChanged,
-                    userInfo: [:]
-                )
-                return .storageFailed
+                return .committed
             }
-            _ = advanceAuthSessionEpoch(defaults: .standard)
-            return .committed
         }
     }
 

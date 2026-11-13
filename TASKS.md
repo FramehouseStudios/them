@@ -5,6 +5,14 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### Captured auth / SwiftUI lock inversion — T1477 (2026-11-13)
+
+- **Owner:** Jarvis review/runtime; Zora canonical async-auth boundary; Einstein preserved real-login fixture. New isolated codex/T-1477-auth-render-lock-cycle from07af; originals untouched.
+- **Before VERIFIED:** same real-login/Keychain ordinary recovery0/1/0, main-thread busy30s; actual save401→refresh200 with captured SwiftUI-graph↔authqueue/native-KVO lock cycle.1408source/3303dependency entries unchanged/restored. Original private headerfalse is retained with separate exact redaction-aware custody proof. No interrupt signal sent.
+- **Fix candidate:** whole async auth transactions enter MainActor before unchanged serial transaction. Lease/generation/token-order/rollback authority preserved. Defaults capability extracted losslessly; BackendMemoryAPI shrinks80 lines; no debug-observer removal or stale authority cache. Normal sign-in recovery strengthens existing ordinary case, all42IDs/other41bodies unchanged.
+- **Static:** canonical exact-main71 D009 pass, parse/diff pass. Semantic/unit/native after proof PENDING at this commit; backend2783/0/2 inherited unchanged07af only. Synchronous bootstrap/deletion/identity paths remain explicit residual review, not blanket confinement.
+- **Next:** one signed unit checkpoint and same actual401 recovery after source fix; then Mac compile. Human979review deferred, no repeated request/merge/deploy/paid calls. See docs/auth-render-lock-cycle-2026-11-13.md. READY FOR CONTINUE.
+
 ### Root-verified core-fixes integration — T-1475 (2026-11-13)
 
 - **Completed:** source456b27b8 combines preserved original919/979/621/625 and writer pipe drain. Full signed units723/0/0, Node20 backend2783/0/2, writer1/0/0, keyboard1/0/0, recovery2/0/0, voice-fault1/0/0 and macOS build pass; canonical D009 five zero deltas vs exactmain71.

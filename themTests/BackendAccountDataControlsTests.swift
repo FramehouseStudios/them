@@ -1924,6 +1924,121 @@ final class BackendCredentialMigrationTests: XCTestCase {
         XCTAssertEqual(attemptedAccounts.count, 5)
     }
 
+    func testAuthMutationHopsToMainBeforeWholeSerializedTokenTransaction() async throws {
+        let suite = "io.them.AuthMutationBoundary.\(UUID().uuidString)"
+        let result = await Task.detached {
+            let callerWasOnMain = Thread.isMainThread
+            let committed = await BackendAuthMutationExecutor.run {
+                let defaults = UserDefaults(suiteName: suite)!
+                defer { defaults.removePersistentDomain(forName: suite) }
+                let queue = DispatchQueue(label: "io.them.tests.auth-commit-boundary")
+                return queue.sync {
+                    dispatchPrecondition(condition: .onQueue(queue))
+                    var callbacks: [String] = []
+                    var callbackThreads: [Bool] = []
+                    var keychain: [String: String] = [:]
+                    let stored = BackendAuthClient.persistAuthTokenPair(
+                        accessToken: "boundary-access",
+                        refreshToken: "boundary-refresh",
+                        defaults: defaults,
+                        writeKeychain: { value, account in
+                            callbackThreads.append(Thread.isMainThread)
+                            callbacks.append(account)
+                            XCTAssertTrue(defaults.bool(forKey: "auth_session_token_deletion_pending"))
+                            XCTAssertFalse(defaults.bool(forKey: "auth_signed_in"))
+                            keychain[account] = value
+                            return true
+                        },
+                        deleteKeychain: { account in
+                            callbackThreads.append(Thread.isMainThread)
+                            keychain.removeValue(forKey: account)
+                            return true
+                        },
+                        persistMetadata: {
+                            callbackThreads.append(Thread.isMainThread)
+                            callbacks.append("metadata")
+                            XCTAssertEqual(keychain["auth_access_token"], "boundary-access")
+                            XCTAssertEqual(keychain["auth_refresh_token"], "boundary-refresh")
+                            XCTAssertTrue(defaults.bool(forKey: "auth_session_token_deletion_pending"))
+                            XCTAssertFalse(defaults.bool(forKey: "auth_signed_in"))
+                            return true
+                        }
+                    )
+                    return (
+                        stored: stored,
+                        callbackThreads: callbackThreads,
+                        callbacks: callbacks,
+                        readable: BackendAuthClient.authSessionTokenReadsAreAllowed(defaults: defaults)
+                    )
+                }
+            }
+            return (callerWasOnMain: callerWasOnMain, committed: committed)
+        }.value
+
+        XCTAssertFalse(result.callerWasOnMain)
+        XCTAssertTrue(result.committed.stored)
+        XCTAssertFalse(result.committed.callbackThreads.isEmpty)
+        XCTAssertTrue(result.committed.callbackThreads.allSatisfy { $0 })
+        XCTAssertEqual(result.committed.callbacks, ["auth_access_token", "auth_refresh_token", "metadata"])
+        XCTAssertTrue(result.committed.readable)
+    }
+
+    func testAuthMutationRetainsWholeRollbackOnMainAfterMetadataFailure() async throws {
+        let suite = "io.them.AuthMutationRollback.\(UUID().uuidString)"
+        let result = await Task.detached {
+            await BackendAuthMutationExecutor.run {
+                let defaults = UserDefaults(suiteName: suite)!
+                defer { defaults.removePersistentDomain(forName: suite) }
+                let queue = DispatchQueue(label: "io.them.tests.auth-rollback-boundary")
+                return queue.sync {
+                    dispatchPrecondition(condition: .onQueue(queue))
+                    var keychain: [String: String] = [:]
+                    var callbackThreads: [Bool] = []
+                    var metadataAttempted = false
+                    let stored = BackendAuthClient.persistAuthTokenPair(
+                        accessToken: "boundary-access",
+                        refreshToken: "boundary-refresh",
+                        defaults: defaults,
+                        writeKeychain: { value, account in
+                            callbackThreads.append(Thread.isMainThread)
+                            keychain[account] = value
+                            return true
+                        },
+                        deleteKeychain: { account in
+                            callbackThreads.append(Thread.isMainThread)
+                            keychain.removeValue(forKey: account)
+                            return true
+                        },
+                        persistMetadata: {
+                            callbackThreads.append(Thread.isMainThread)
+                            metadataAttempted = true
+                            BackendUserDefaultsStore.set("partial-user", forKey: "auth_user_email", defaults: defaults)
+                            return false
+                        }
+                    )
+                    return (
+                        stored: stored,
+                        metadataAttempted: metadataAttempted,
+                        callbackThreads: callbackThreads,
+                        remainingTokenCount: keychain.count,
+                        hasEmail: defaults.string(forKey: "auth_user_email") != nil,
+                        readable: BackendAuthClient.authSessionTokenReadsAreAllowed(defaults: defaults),
+                        deletionPending: defaults.bool(forKey: "auth_session_token_deletion_pending")
+                    )
+                }
+            }
+        }.value
+
+        XCTAssertFalse(result.stored)
+        XCTAssertTrue(result.metadataAttempted)
+        XCTAssertFalse(result.callbackThreads.isEmpty)
+        XCTAssertTrue(result.callbackThreads.allSatisfy { $0 })
+        XCTAssertEqual(result.remainingTokenCount, 0)
+        XCTAssertFalse(result.hasEmail)
+        XCTAssertFalse(result.readable)
+        XCTAssertFalse(result.deletionPending)
+    }
+
     func testAuthTokenPairPublishesOnlyAfterCrashSafeWrites() {
         defaults.set(true, forKey: "auth_signed_in")
         defaults.set("old-user", forKey: "auth_user_email")

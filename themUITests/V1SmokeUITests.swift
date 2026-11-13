@@ -1875,6 +1875,8 @@ final class V1SmokeUITests: XCTestCase {
         }
 
         let fixture = try await seedBackendRestoreContractFixture(baseURL: baseURL)
+        let recoveryEnvironment = fixture.keychainRecoveryLaunchEnvironment
+        try signInToRecoveryFixture(fixture, launchEnvironment: recoveryEnvironment)
         let marker = "SAVE-OUTBOX-\(UUID().uuidString.uppercased())"
         let expectedQueuedDraft = "\(fixture.expectedDraft)\n\n\(marker)"
         var app = launchApp(
@@ -1883,7 +1885,8 @@ final class V1SmokeUITests: XCTestCase {
             restoreProjectID: fixture.projectID,
             restoreVersionID: fixture.versionID,
             restoreLoadToken: fixture.loadToken,
-            launchEnvironment: fixture.appLaunchEnvironment
+            resetState: false,
+            launchEnvironment: recoveryEnvironment
         )
 
         XCTAssertTrue(app.otherElements["studio.surface"].waitForExistence(timeout: 12))
@@ -1913,8 +1916,9 @@ final class V1SmokeUITests: XCTestCase {
 
         app = launchApp(
             openStudio: true,
+            screenplaySaveExpireAuthOnce: true,
             resetState: false,
-            launchEnvironment: fixture.appLaunchEnvironment
+            launchEnvironment: recoveryEnvironment
         )
         defer { app.terminate() }
 
@@ -4744,6 +4748,11 @@ final class V1SmokeUITests: XCTestCase {
         )
     }
 
+    private struct RecoveryFixtureSignIn {
+        let email: String
+        let password: String
+    }
+
     private struct RestoreContractFixture {
         let projectID: String
         let versionID: String
@@ -4759,6 +4768,92 @@ final class V1SmokeUITests: XCTestCase {
         let expectedCanonCorrectionText: String
         let expectedRetiredCanonFacts: [String]
         let appLaunchEnvironment: [String: String]
+        let recoverySignIn: RecoveryFixtureSignIn?
+
+        var keychainRecoveryLaunchEnvironment: [String: String] {
+            // Observer credentials remain available to requestJSON, but the app
+            // must read its mutable bearer and user from normal Keychain login.
+            appLaunchEnvironment.filter { key, _ in
+                key != "THEM_UITEST_USER_ID" && !key.hasPrefix("THEM_UITEST_AUTH_")
+            }
+        }
+    }
+
+    @MainActor
+    private func signInToRecoveryFixture(
+        _ fixture: RestoreContractFixture,
+        launchEnvironment: [String: String]
+    ) throws {
+        let credentials = try XCTUnwrap(fixture.recoverySignIn,
+            "Only the generated localhost recovery account may use this sign-in helper.")
+        let baseURL = try XCTUnwrap(URL(string: launchEnvironment["THEM_UITEST_BACKEND_BASE_URL"] ?? ""))
+        guard ["127.0.0.1", "localhost", "::1"].contains(baseURL.host ?? "") else {
+            throw NSError(domain: "themUITests.recovery", code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Recovery sign-in requires a loopback backend."])
+        }
+        XCTAssertNil(launchEnvironment["THEM_UITEST_USER_ID"])
+        XCTAssertFalse(launchEnvironment.keys.contains { $0.hasPrefix("THEM_UITEST_AUTH_") })
+        let app = launchApp(launchEnvironment: launchEnvironment)
+        defer { app.terminate() }
+        let account = app.buttons["home.open-account"]
+        let homeRail = app.scrollViews["home.surface"]
+        guard homeRail.waitForExistence(timeout: 8), account.exists else {
+            throw NSError(domain: "themUITests.recovery", code: 5,
+                userInfo: [NSLocalizedDescriptionKey: "The normal home Account shortcut is missing."])
+        }
+        func accountIsFullyVisible() -> Bool {
+            let viewport = homeRail.frame.intersection(app.windows.firstMatch.frame)
+            return !viewport.isEmpty && !account.frame.isEmpty && viewport.contains(account.frame)
+        }
+        for _ in 0..<4 {
+            if accountIsFullyVisible() { break }
+            if account.frame.midX > homeRail.frame.midX {
+                homeRail.swipeLeft(velocity: .slow)
+            } else {
+                homeRail.swipeRight(velocity: .slow)
+            }
+        }
+        guard accountIsFullyVisible() else {
+            throw NSError(domain: "themUITests.recovery", code: 6,
+                userInfo: [NSLocalizedDescriptionKey: "Horizontal navigation did not reveal the Account shortcut."])
+        }
+        XCTAssertTrue(waitForHittability(of: account, timeout: 8))
+        account.tap()
+        let email = element(identifier: "profile-auth-email", in: app)
+        let password = element(identifier: "profile-auth-password", in: app)
+        XCTAssertTrue(email.waitForExistence(timeout: 6))
+        XCTAssertTrue(scrollFullyIntoWindow(email, in: app))
+        email.tap()
+        guard dismissKeyboardTypingTutorialIfPresent(in: app) else {
+            throw NSError(domain: "themUITests.recovery", code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "The keyboard tutorial prevented fixture sign-in."])
+        }
+        email.typeText(credentials.email)
+        XCTAssertTrue(scrollFullyIntoWindow(password, in: app))
+        password.tap()
+        password.typeText(credentials.password + "\n")
+
+        // The mode picker also contains a Sign In button. Exclude that actual
+        // segmented-control element and the home shortcut, rather than tapping
+        // an arbitrary label match or hard-coded screen coordinate.
+        let modeButtons = app.segmentedControls.buttons.matching(identifier: "Sign In").allElementsBoundByIndex
+        let submitButtons = app.buttons.matching(identifier: "Sign In").allElementsBoundByIndex.filter { candidate in
+            candidate.identifier != "home.open-account"
+                && !modeButtons.contains { $0.frame == candidate.frame }
+        }
+        guard submitButtons.count == 1, let submit = submitButtons.first else {
+            throw NSError(domain: "themUITests.recovery", code: 3,
+                userInfo: [NSLocalizedDescriptionKey: "The normal email sign-in action is ambiguous or missing."])
+        }
+        XCTAssertTrue(scrollFullyIntoWindow(submit, in: app))
+        XCTAssertTrue(waitForHittability(of: submit, timeout: 5))
+        submit.tap()
+        guard app.staticTexts["Signed In"].waitForExistence(timeout: 15),
+              app.staticTexts["Refresh Ready"].waitForExistence(timeout: 5),
+              app.staticTexts[credentials.email].waitForExistence(timeout: 5) else {
+            throw NSError(domain: "themUITests.recovery", code: 4,
+                userInfo: [NSLocalizedDescriptionKey: "Normal sign-in did not persist the generated owner's refreshable session."])
+        }
     }
 
     /// Live typing between devices: this simulator and the macOS scaffold
@@ -4963,7 +5058,8 @@ final class V1SmokeUITests: XCTestCase {
                 "THEM_UITEST_STUDIO_ASK_NOTE_HISTORY_JSON": askHistoryJSON,
                 "THEM_UITEST_STUDIO_DIFF_ACKNOWLEDGED_JSON": acknowledgedJSON,
                 "THEM_UITEST_STUDIO_DIFF_ACKNOWLEDGED_WRITEIDS_JSON": acknowledgedWriteIDsJSON,
-            ]
+            ],
+            recoverySignIn: nil
         )
     }
 
@@ -5207,14 +5303,18 @@ final class V1SmokeUITests: XCTestCase {
         ]
         let acknowledgedFingerprint = normalizedScreenplayText(secondText).lowercased()
 
+        let signIn = RecoveryFixtureSignIn(
+            email: "studio-ios-restore-\(stamp)@example.test",
+            password: "ThemRestore-\(stamp)-aA1!"
+        )
         let signup = try await requestJSON(
             baseURL: baseURL,
             path: "/auth/signup",
             method: "POST",
             headers: ["X-APP-TOKEN": appToken],
             body: [
-                "email": "studio-ios-restore-\(stamp)@example.test",
-                "password": "ThemRestore-\(stamp)-aA1!",
+                "email": signIn.email,
+                "password": signIn.password,
                 "display_name": "Studio iOS Restore Contract",
             ]
         )
@@ -5400,7 +5500,8 @@ final class V1SmokeUITests: XCTestCase {
                 "THEM_UITEST_STUDIO_ASK_NOTE_HISTORY_JSON": askHistoryJSON,
                 "THEM_UITEST_STUDIO_DIFF_ACKNOWLEDGED_JSON": acknowledgedJSON,
                 "THEM_UITEST_STUDIO_DIFF_ACKNOWLEDGED_WRITEIDS_JSON": acknowledgedWriteIDsJSON,
-            ]
+            ],
+            recoverySignIn: signIn
         )
     }
 
