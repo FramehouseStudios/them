@@ -79,3 +79,30 @@ POST/session cadence, pending-question UI and physical-phone claims are
 unverified; publication and any broader proof remain root-owned.
 
 Preparation receipts: `/private/tmp/them-t1473-idle-session-preservation/`.
+
+## Root execution at exact01cafa41
+
+VERIFIED: controlled native counterfactual retains this candidate's test and
+caller source while substituting only original621's exact Outbox implementation.
+The new equal-aggregate row-change case failed as expected:0 passed/1 failed/
+0 skipped, nativeexit65, at the missing-notification expectation. No other
+source changed during that phase. The owned clean-source copy was restored by
+byte comparison before the corrected run, without Git reset/stash/clean.
+
+Corrected canonical signed OfflineTalkOutboxTests cohort on erased owned81F,
+iOS26.2/Xcode26.3:10 passed/0 failed/0 skipped, nativeexit0. It covers original
+idle/enqueue behavior, full-row notification, durable relaunch, active-question
+IDs, cross-account replay, backoff and provider/client-error parking. All1408
+tracked source hashes were verified in each phase; after-copy restored exactly
+and final Git state clean. No backend/model/native-microphone call or full
+unchanged unit/backend suite was run. This does not re-prove the historical
+live5s route count or actual pending-question server/cache integration. Forced
+real-event refresh semantics remain those of main71; source avoids introducing
+the original port's stale-cache adoption path.
+
+Receipts and native bundles: /private/tmp/them-t1473-native-proof/.
+The current parent is actualmain71, not unmerged9792ea. Preserve the eventual
+actual updated main before advancing original621; then require fresh hosted
+checks and genuine non-author review. Normal scoped branch backup only for
+now. No original PR replacement, main merge or production change.
+READY FOR CONTINUE.

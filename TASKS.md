@@ -5496,3 +5496,9 @@ rebase on current main after #273, rerun backend auth tests, and keep
 `do-not-merge`/tier-3 until human auth-route clearance.
 
 <!-- END AUTOGEN active-tasks -->
+
+### T-1473 root execution — idle-session preservation
+
+- **Owner:** Jarvis; Howard prepared preserved original621 plus entry-aware coalescing and main-compatible forced real-event refresh.
+- **Proof:** original-guard new-case counterfactual signed0/1/0 expected; corrected entireoutboxclass10/0/0, erasedowned81F, normal signing. All1408 tracked inputs verified, controlled source restored and clean. No full unchanged suite/model/live idle-route claim.
+- **Next:** scoped verified branch backup; preserve eventual actual main before original621 advancement and fresh hosted review/check gates. Main Autosave/auth-freeze and production hold persist. See docs/idle-session-preservation-2026-11-13.md. READY FOR CONTINUE.
