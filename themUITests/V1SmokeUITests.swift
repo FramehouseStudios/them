@@ -771,7 +771,7 @@ final class V1SmokeUITests: XCTestCase {
         defer { app.terminate() }
         let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
         let tab = app.buttons["studio.right-panel.draft"]
-        guard tab.waitForExistence(timeout: 8), tab.isHittable else {
+        guard waitForHittability(of: tab, timeout: 8) else {
             XCTFail("The inspector navigation must be visible before scrolling.")
             return
         }
@@ -1883,7 +1883,8 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(
             waitForRestoreSnapshot(in: app, timeout: 60) { snapshot in
                 queuedSnapshot = snapshot
-                return stringValue(snapshot["selected_project_id"]).lowercased() == fixture.projectID.lowercased()
+                return intValue(snapshot["load_project_ack_token"]) == fixture.loadToken
+                    && stringValue(snapshot["selected_project_id"]).lowercased() == fixture.projectID.lowercased()
                     && stringValue(snapshot["loaded_draft_project_id"]).lowercased() == fixture.projectID.lowercased()
                     && stringValue(snapshot["draft_tail_preview"]) == String(expectedQueuedDraft.suffix(260))
                     && intValue(snapshot["draft_character_count"]) == expectedQueuedDraft.count
@@ -2013,7 +2014,8 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(
             waitForRestoreSnapshot(in: app, timeout: 60) { snapshot in
                 queuedSnapshot = snapshot
-                return stringValue(snapshot["selected_project_id"]).lowercased() == fixture.projectID.lowercased()
+                return intValue(snapshot["load_project_ack_token"]) == fixture.loadToken
+                    && stringValue(snapshot["selected_project_id"]).lowercased() == fixture.projectID.lowercased()
                     && stringValue(snapshot["loaded_draft_project_id"]).lowercased() == fixture.projectID.lowercased()
                     && stringValue(snapshot["draft_tail_preview"]) == String(expectedQueuedDraft.suffix(260))
                     && intValue(snapshot["draft_character_count"]) == expectedQueuedDraft.count

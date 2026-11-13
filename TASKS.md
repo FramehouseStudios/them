@@ -13,6 +13,23 @@
 - **GitHub/limits:** original923 normal preserving advancement only; fresh hosted checks/genuine review required. Main78b unchanged, no paid/phone/production proof, production held.
 - **Next:** original973aa729 transport integration, preserve and diagnose its actual old hosted missing-inspector-tab failure; add production talk-delegate redirect proof if missing. Evidence: `docs/original-923-proof-contracts-2026-11-12.md`. READY FOR CONTINUE.
 
+### Current original919 parent integration — T-1457 (2026-11-12)
+
+- **Owner:** Jarvis integration/runtime proof; Zora bounded recovery review; Luna parent-source review. Howard preparing923single-tap characterization; Alfred verifying existing979security repair. No agent substitutes for human approval.
+- **Source:** preserving c6(9199b+navfix) with prepared904parent039(76/prose807+96432). TASKS bothblocks retained; two UI conflicts join actualACK with selected/loaded project, exacttail/fullcount. Only two initial predicates differ from c6UI; outerACK/fulltext/exactly-one/navigation assertions preserved. Production919recovery sources unchanged; incomingDEBUGconfig/regression exact039.
+- **Proof:** canonical signed/erasedowned81F authenticated31337recovery2/0/0, native/controller0, exactidentities/sourcehashes verified, PID+noncechecked beforeXcode. HostNode24.19.0 fixture, dummyprovider, knownAPIguard0blocked. D009five0 vs actual90476 and identical prepared039protectedblobs; parse/diffpass. No repeated unchanged broadbackend/units/Mac or priornav/scene runs.
+- **Retained failure:** first generic-return verification matched4instead of2 and stopped beforeUIwrite; premature parse rejected remainingconflictmarkers. Narrow fullpredicate prefixes corrected; no runtime failure hidden. ASCIIfixture is not arbitraryUTF8 proof.
+- **GitHub/next:** local preserving merge pending normalpushreceipt; original904mustadvancebefore919, fresh exacthead hostedchecks/genuine review mandatory. Main78unchanged, no paidcalls/productionchange/realphoneclaim. Then resolve923actualvalidtap/no drawer using metadata; existing979ownsMulteradvisoryrepair. Evidence: docs/original-919-parent-integration-2026-11-12.md. READY FOR CONTINUE.
+
+### Current original919 navigation readiness — T-1455 (2026-11-12)
+
+- **Owner:** Jarvis implementation; Howard bounded native-artifact/source diagnosis. Luna completed separate923drawer characterization; Einstein current protection/review verification and isolated973fixture startup work. Zora/Alfred idle; no human review substituted.
+- **First red:** exact9199b run43354749486 V1 32/1/9 at line775, before scrolling. Tab existed/selected but activation point{-1,-1} while drawer remained offscreen; aligned native/video times retained in verified artifact14008761418. No permanent drawer/pinning defect established.
+- **Fix:** existing waitForHittability with same configured8seconds replaces existence then one immediate hit read. No added action/retry or production change; every subsequent scroll/frame/panel assertion unchanged.
+- **Proof:** exact focused signed workflow1/0/0, erased owned81F/iOS26.2, native/controller0; final case identity/source hashes verified. Actual904parent76 D009five0; parse/diff pass. No unchanged broad unit/backend/Mac rerun or paid calls; hosted26.5 still required.
+- **GitHub/next:** local scoped fix only; preserve new original96432 and90476/prose807 through actual bases before publishing the combined original919 head. Existing main78 unchanged; pending hosted gates and genuine current-head review remain mandatory. Then trace923's single valid Projects tap/no drawer, without an extra-tap workaround;973candidate remains held.
+- **Limits:** fixture navigation proof is not real microphone/model/phone/intended-backend/export-open proof; production held. Evidence: docs/original-919-navigation-readiness-2026-11-12.md. READY FOR CONTINUE.
+
 ### Current original919 byte/conflict checkpoint — T-1449 (2026-11-12)
 
 - **Owner:** Jarvis; Zora bounded recovery review and Luna current topology/CI evidence. Einstein/Howard/Alfred idle; no human approval substituted.
@@ -21,6 +38,22 @@
 - **Proof:** original five actual failures0/5/0 before; unchanged bodies pass within full signed units714/0/0; full V1 36/0/6 (42total, both recovery/relaunch and keyboard-focus cases pass); canonical authenticated writer1/0/0; Mac compile0; actual904 D009 five0; diff/parse pass. Backend sources identical to904's Node20.20.2 result2758/0/2, inherited rather than rerun. No paid calls or physical-phone/production claim.
 - **GitHub:** normal original919 advancement only after checkpoint; fresh hosted checks/review required. Parents964975 and904ce remain draft with Quality in progress at last observation; review absent/dismissed, main78b unchanged. Production held; public API health302parking at02:32UTC.
 - **Next:** preserve actual child #9230ea0a2ed recovery contracts, then inspect separate #973aa729e79 transport boundary. Physical-phone/intended-backend/live-model/export-open proof still missing. Evidence: `docs/original-919-recovery-byte-authority-2026-11-12.md`. READY FOR CONTINUE.
+
+### Current original904 parent preservation — T-1456 (2026-11-12)
+
+- **Owner:** Jarvis preserving integration/proof; Luna bounded source-scope review.
+- **Source:** no-ff merge of original90476 plus local prose correction807 with original96432. One TASKS conflict, stages preserved and both blocks retained. Config/new regression byte-identical32; entire original904UI byte-identical807, including both ACK predicates/full-draft/exactly-one checks. No production recovery/backend change.
+- **Proof:** one focused signed erasedowned81F checkpoint3/0/0, finalized exact identities/sourcehashes verified; original synthetic scene case uses typed input, not a microphone. Actual96432 D009Studio−4/Bridge−2/other3zero; diff/parse pass. Both loopback services503, no provider keys/paid calls.
+- **Attribution:** no unchanged fullbackend/fullunits/Mac/recovery rerun. Hosted90476 Node20backend2758/0/2 inherited with identical JS; old ACK-focused recovery2/0/0 stays76 proof. Fresh parent hosted gates stillrunning at observation, no blanket green claim.
+- **GitHub/next:** local preserving commit only until publication receipt; carry parent through original919 plus c6 navigation guard, check combined recovery, then normal original-branch updates in order. Main78 unchanged; genuine review required. Evidence: docs/original-904-parent-preservation-2026-11-12.md. Productionheld; real-phone journey unproved. READY FOR CONTINUE.
+
+### Current original904 hosted-ACK repair — T-1452 (2026-11-12)
+
+- **Owner:** Jarvis; Luna independent hosted/native artifact inspection. Einstein reviewed parked973 wire seam; no human approval substituted.
+- **First red:** original904ce run43349363467 required recovery0/2/0 on iOS26.5: both initial ACK0 assertions. Full tree also runnerexit75 before conflict case finished; downstream assertions/cause not assumed. Verified artifact14005523220 SHAae266429 retained; old run stays red.
+- **Repair:** add exact actual loadACK to both existing60s initial queued-state predicates; keep outerACK/fulltext/exactly-one assertions and removed CLI override. No app/timeout/action retry change.
+- **Proof:** canonical signed/erased owned81F recovery2/0/0 on iOS26.2; sourceunchanged, actualauthrequired fixture/PID/nonce and no paid call. App/backend/unit sources identicalce; inherited676units/2758backend(2skips), no unchanged broad rerun. Actual975 D009Studio−4/Bridge−2/other3zero; diff pass. Local proof does not clear hosted26.5/runner75.
+- **GitHub/next:** original904 normal preserving advancement only, fresh checks/genuine review; propagate parent into919/923 before further973 publication. Original9234b published;973bb local+2dirtyfiles held (721units/8Macwire pass, fixture startup needs bound). Main78b unchanged, production held; phone journey unproved. Evidence: `docs/original-904-load-ack-readiness-2026-11-12.md`. READY FOR CONTINUE.
 
 ### Current original904 recovery checkpoint — T-1447 (2026-11-12)
 
@@ -31,6 +64,14 @@
 - **Failure retained:** initial runner contracts60/9/0 lacked snapshotdependencies; affected corrected file10/0/0 and subsequent fullbackendpassed. Six UI/two backend skips are explicitly listed in proof; no simulated-response/phone/production completion claim.
 - **GitHub boundary:** normal original964→975 and original904→proven descendant only; parent975's own offline0/2/0 is not child success. Require new hosted checks and genuine review before any landing. Production held; APIhealth302parking at01:56UTC.
 - **Next:** original919 T1449 preserves510+7ad with one unresolved additive TASKS conflict. T1448 Unicode receipt/publisher patch is private/uncommitted/static-only; review and native proof still required. Evidence: `docs/original-904-integrated-recovery-2026-11-12.md`. READY FOR CONTINUE.
+
+### Current foundation scene fixture repair — T-1453 (2026-11-12)
+
+- **Owner:** Jarvis; Howard bounded source/scope review, Luna hosted evidence and next drawer triage. No human approval substituted.
+- **First red:** original964975 run43349264675 V1 28/1/9 at synthetic kitchen-heading wait; artifact14005643881 SHA1bd55272 retained. Failure hierarchy has exact scene/173chars; video shows loading before page. No lost-text/microphone claim.
+- **Fix:** explicit valid stub-only Page auto-submit uses existing initial Studio hydration bypass; live/backend/voice/malformed/restore requests and legacy fixture rules preserved. No production loading/editor or original V1 assertion/deadline change.
+- **Proof:** initialbuild65/type-inference failure preserved; corrected mixed selection ran unchanged UI1/0/0 but countguard rejected missingunit selectors; actualclass units-only2/0/0 passed, UI notrerun. Signed erasedowned81F, deliberate503loopback, no providers. Actualmain D009Studio−15/Bridge−35/other3zero; diff/parse pass. No unchanged broadbackend/unit/Mac rerun; fresh hosted required.
+- **GitHub/next:** original964 normal preserving advancement only, base/draft retained; main78 unchanged and genuine review stillrequired. Observe freshfirstgate then preserveparentthrough904/919/923. Inspect #9234b writer Projectsdrawer title-field failure before any data-loss/timing assumption;973held. Evidence: `docs/foundation-page-fixture-isolation-2026-11-12.md`. Productionheld, phonejourney unproved. READY FOR CONTINUE.
 
 ### Current history-sync handoff — T-1446 (2026-11-12)
 

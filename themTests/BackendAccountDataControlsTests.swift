@@ -1555,6 +1555,43 @@ final class BackendCredentialMigrationTests: XCTestCase {
         )
     }
 
+    func testStubPageSubmissionHydrationBypassRequiresExplicitIsolatedFixture() {
+        let prompt = ["--ui-auto-submit-page-prompt", "Write a kitchen scene."]
+        let ui = ["them", "--ui-testing"]
+        let mode = ["-studio_debug_submit_transport_mode", "stub"]
+        let fixture = ui + mode + prompt
+        for transport in ["stub", " STUB ", "structural-quality-stub"] {
+            XCTAssertTrue(UITestLaunchConfiguration.shouldBypassStudioHydration(
+                arguments: ui + [mode[0], transport] + prompt))
+        }
+        for transport in ["backend", "live-backend", "live-submit", "live", "unknown", ""] {
+            XCTAssertFalse(UITestLaunchConfiguration.shouldBypassStudioHydration(
+                arguments: ui + [mode[0], transport] + prompt), transport)
+        }
+        let rejectedArguments: [[String]] = [
+            ["them"] + mode + prompt,
+            ui + prompt,
+            ui + prompt + [mode[0]],
+            ui + mode,
+            ui + mode + [prompt[0]],
+            ui + mode + [prompt[0], "   "],
+            ui + mode + [prompt[0], "--ui-open-studio"],
+            ui + mode + ["--ui-auto-submit-voice-pin-prompt", "An idea"],
+            ui + mode + ["--ui-auto-submit-voice-source-prompt", "An idea"],
+        ]
+        for arguments in rejectedArguments {
+            XCTAssertFalse(UITestLaunchConfiguration.shouldBypassStudioHydration(arguments: arguments))
+        }
+        for key in ["id", "version_id", "token", "ack_token"] {
+            let restore = ["-studio_debug_load_project_" + key, "requested"]
+            XCTAssertFalse(UITestLaunchConfiguration.shouldBypassStudioHydration(arguments: fixture + restore))
+            XCTAssertFalse(UITestLaunchConfiguration.shouldBypassStudioHydration(arguments: fixture + [restore[0]]))
+            XCTAssertTrue(UITestLaunchConfiguration.shouldBypassStudioHydration(
+                arguments: ui + ["--ui-show-draft-conflict"] + restore),
+                "The new exclusion must not change existing fixture rules.")
+        }
+    }
+
     func testUITestLaunchConfigurationSeedsBackendRestoreDefaultsFromEnvironment() throws {
         let suiteName = "io.them.tests.ui-launch-\(UUID().uuidString)"
         let suiteDefaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
