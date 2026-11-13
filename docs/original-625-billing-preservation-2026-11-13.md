@@ -232,3 +232,41 @@ or cleared by this billing merge. No product completion claim.
 Continue status: READY FOR CONTINUE — Jarvis reviews the preserving candidate
 and scoped follow-up, obtains the new-negative before result, then runs the
 focused after/real-handler proof before publication.
+
+## Root runtime proof — pinned Node20.20.2, network disabled
+
+VERIFIED controlled BEFORE on current9792ea production runtime with the new
+regression module: selected empty-output case0passed/1failed/13name-filtered,
+exit1, at the incorrect wallet proposal. All inputs unchanged.
+Separate BEFORE on preserved original625 runtime654c with that same new test
+module: selected owner-rejection case0passed/1failed/13name-filtered, exit1,
+at the rejected-prose committer boundary. These are real runTalkGenerate calls
+with deterministic provider transport, not live paid requests.
+
+Initial aftered9 focused result23passed/1failed/0skipped is retained. The only
+red was the NEW positive-control assumption that generateOfflineShortFilmDraft
+was quality-accepted without repair. Root did not weaken production thresholds
+or success/persistence assertions. Follow-upe3d8c086 changes only that new test's
+data to exact canonical VALID_PAGE and a matching one-page request; production,
+original tests and the new negative are unchanged. Static fixture equivalence
+was checked separately; actual acceptance is established by the passing control.
+
+Exacte3d8c086 after:24focused passed/0failed/0skipped, including real authenticated
+HTTP preserve/restart cases and response-lifecycle settlement. One full backend
+suite:2782passed/0failed/2skipped,2784total, cancelled0/todo0. Skips remain the
+unconfigured livePostgres test and existing talk preview-header case. Each phase
+used the cached pinned Node20.20.2 image with networknone, no host ports, dummy
+provider settings, isolated writable data and read-only verified exact-lock
+modules. All1419 tracked snapshot inputs and all module hashes remained unchanged.
+No npm installation, live model, native or physical-phone execution occurred.
+
+Proof roots: /private/tmp/them-t1474-node20-proof/ retains both BEFOREs and initial
+23/1; /private/tmp/them-t1474-node20-after-fixture/ retains the corrected focus,
+full suite and source/command/hash receipts. The name-filtered BEFORE skips are
+selection evidence, not executed regression coverage. Full backend logs prove
+current code; historical native counts above remain inherited, not fresh here.
+
+Normal verified task-branch backup only. Keep original625 PR/head until actual
+parent preservation, fresh required hosted gates and genuine review. Production,
+main Autosave and actual-auth-freeze holds remain; owner-hook delivery atomicity
+and the real-phone journey remain unproved. READY FOR CONTINUE.

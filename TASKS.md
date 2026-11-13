@@ -5610,3 +5610,9 @@ rebase on current main after #273, rerun backend auth tests, and keep
 `do-not-merge`/tier-3 until human auth-route clearance.
 
 <!-- END AUTOGEN active-tasks -->
+
+### T-1474 root billing execution
+
+- **Owner:** Jarvis execution/review; Zora preserved original625 and added the narrow quality-accepted owner guard/correct success fixture.
+- **Proof:** current-parent empty-output and original625 rejected-owner counterfactuals each0/1expected +13namefiltered. Initialed9focus23/1 retained; e3test-data-only correction focused24/0/0 and one full offlineNode20suite2782/0/2, all1419inputs/modules unchanged. No threshold/assertion weakening, paid calls or fresh native claim.
+- **Next:** scoped backup and coherent critical-fix integration; preserve original625 until actualparent/fresh gates/review. Known conditional owner-hook and delivery-atomicity limits documented. Main/prodholds remain. READY FOR CONTINUE.
