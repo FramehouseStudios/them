@@ -674,14 +674,17 @@ final class BackendAccountDataControlsTests: XCTestCase {
         let original = UserDefaults.standard.object(forKey: key)
         let expected = "thread-check-\(UUID().uuidString)@io.them.invalid"
         let notified = expectation(description: "live auth defaults notification")
-        var notificationWasOnMain = false
+        // UserDefaults notifications are not one-per-write: pending changes
+        // can also arrive while this value is current. This test asserts
+        // delivery and thread affinity, not an exactly-once event contract.
+        notified.assertForOverFulfill = false
         let observer = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
             object: UserDefaults.standard,
             queue: nil
         ) { _ in
             guard UserDefaults.standard.string(forKey: key) == expected else { return }
-            notificationWasOnMain = Thread.isMainThread
+            XCTAssertTrue(Thread.isMainThread)
             notified.fulfill()
         }
         defer {
@@ -698,7 +701,6 @@ final class BackendAccountDataControlsTests: XCTestCase {
         }
         wait(for: [notified], timeout: 2)
 
-        XCTAssertTrue(notificationWasOnMain)
         XCTAssertEqual(UserDefaults.standard.string(forKey: key), expected)
 #endif
     }
