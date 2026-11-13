@@ -146,3 +146,12 @@ Receipts:
    original PR landing through actual bases when genuine review is available.
 7. **Continue status:** READY FOR CONTINUE. Production hold and phone/live-model/
    export-outside gaps remain; do not call THEM complete.
+
+### Final publication check
+
+A final committed-range diff check found one extra blank line at the new helper's
+EOF. Removed that one newline; Swift tokens and behavior are unchanged from the
+executed sourcea3df. Kept the initial failed check and exact preimage in private
+evidence, then rechecked the full committed range. No runtime suite was repeated
+for whitespace/docs. The initial scoped backup ecd4 was independently verified
+on GitHub; subsequent publication uses only a preserving fast-forward.
