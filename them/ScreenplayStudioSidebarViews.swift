@@ -35,6 +35,8 @@ struct ScreenplayStudioSidebarModeTabs: View {
 }
 
 struct ScreenplayStudioProjectsSidebar<FeatureSpine: View>: View {
+    @FocusState private var isProjectTitleFocused: Bool
+
     let projects: [BackendScreenplayProjectSummary]
     let selectedProjectID: String
     let hasSelectedProject: Bool
@@ -58,6 +60,9 @@ struct ScreenplayStudioProjectsSidebar<FeatureSpine: View>: View {
             HStack(spacing: 8) {
                 TextField("New project title", text: $newProjectTitle)
                     .textFieldStyle(.plain)
+                    .focused($isProjectTitleFocused)
+                    .submitLabel(.done)
+                    .onSubmit(createProjectAndDismissKeyboard)
                     .font(IOThemTypography.UI.captionMedium)
                     .foregroundStyle(Color.white.opacity(0.94))
                     .padding(.horizontal, 10)
@@ -66,7 +71,7 @@ struct ScreenplayStudioProjectsSidebar<FeatureSpine: View>: View {
                         RoundedRectangle(cornerRadius: 6, style: .continuous)
                             .fill(Color.black.opacity(0.86))
                     )
-                Button("Create", action: onCreate)
+                Button("Create", action: createProjectAndDismissKeyboard)
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
                     .disabled(newProjectTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving)
@@ -102,6 +107,11 @@ struct ScreenplayStudioProjectsSidebar<FeatureSpine: View>: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    private func createProjectAndDismissKeyboard() {
+        isProjectTitleFocused = false
+        onCreate()
     }
 
     private func sectionLabel(_ title: String) -> some View {

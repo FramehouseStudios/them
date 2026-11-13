@@ -70,6 +70,13 @@ function fixture() {
   for (const directory of ["bin", "scripts", "backend"]) mkdirSync(path.join(root, directory));
   for (const script of ["quality_gate.sh", "ops_alert_check.sh"])
     copyFileSync(new URL(`./${script}`, import.meta.url), path.join(root, "scripts", script));
+  // Newer stack gates also execute the canonical recovery-runner contract.
+  // Copy its real scripts when present; that contract owns fake native tools.
+  for (const script of ["run_screenplay_save_network_fault_smokes.test.mjs",
+    "run_screenplay_save_network_fault_smokes.sh", "run_v1_ui_smoke.sh", "resolve_ios_simulator.mjs"]) {
+    const source = new URL(`./${script}`, import.meta.url);
+    if (existsSync(source)) copyFileSync(source, path.join(root, "scripts", script));
+  }
   const capture = path.join(root, "startup.json");
   writeFileSync(path.join(root, "bin/npm"), `#!${process.execPath}\n`
     + `const fs = require('node:fs');\n`
