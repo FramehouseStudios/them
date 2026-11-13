@@ -5,6 +5,12 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### Original919 editor focused checkpoint — T-1467
+
+- **Owner:** Jarvis, isolated codex/T-1467-919-editor-proof from66597641; preserve original9b/1c/c2 history.
+- **Proof:** one signed erasedowned81F checkpoint12/0/0:10realUIKit viewport/coordinator cases plus2exactUnicode regressions; exact identities/sourceunchanged; controlled503/no requests, no providers. Pure preserving main71 merge9b7e63ff leaves entire tested treeexact665. Actual-main D009fivezero/diffpass.
+- **Boundary:** component proof only; no combined721unit/essentialUI/phone claim. Original919remote9b and PRbase unchanged. Preserve actualmain after979's protected boundary before further publication; no unchanged rerun for history/docs. Separate authfreeze unresolved. See docs/original-919-focused-editor-checkpoint.md. READY FOR CONTINUE.
+
 ### Original919 conflict-parent preparation — T-1463 (2026-11-12)
 
 - **Owner:** Einstein, bounded root-authorized reconciliation in only new `codex/T-1463-919-conflict-parent-sync` worktree. No publication or readiness claim.
