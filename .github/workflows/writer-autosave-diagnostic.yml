@@ -21,8 +21,9 @@ jobs:
       CLEMENTINE_MUSE_ENABLED: "0"
       KNOWLEDGE_RAG_WARMUP_ON_BOOT: "0"
       KNOWLEDGE_RAG_EMBEDDINGS_ENABLED: "0"
-      ARTIFACT_DIR: ${{ runner.temp }}/writer-autosave-diagnostic
     steps:
+      - name: Set task artifact directory
+        run: printf 'ARTIFACT_DIR=%s/writer-autosave-diagnostic\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:

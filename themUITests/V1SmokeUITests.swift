@@ -473,7 +473,7 @@ final class V1SmokeUITests: XCTestCase {
         var app = launchApp(
             openStudio: true,
             launchEnvironment: fixture.appLaunchEnvironment.merging(
-                ["THEM_UITEST_TRACE_INPUT": "1"], uniquingKeysWith: { _, trace in trace }
+                ["THEM_UITEST_TRACE_INPUT": "1", "THEM_UITEST_TRACE_AUTOSAVE": "1"], uniquingKeysWith: { _, trace in trace }
             )
         )
         defer { app.terminate() }
@@ -3441,9 +3441,10 @@ final class V1SmokeUITests: XCTestCase {
     private func waitForWriterLoopSwitch(
         _ element: XCUIElement,
         toBeOn expected: Bool,
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        deadline explicitDeadline: Date? = nil
     ) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
+        let deadline = explicitDeadline ?? Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if writerLoopSwitchState(element) == expected {
                 return true
@@ -3474,7 +3475,7 @@ final class V1SmokeUITests: XCTestCase {
     }
 
     private func attachWriterLoopAutosaveInput(in app: XCUIApplication, name: String) {
-        let trace = element(identifier: "studio.debug.autosave.input.trace", in: app)
+        let trace = element(identifier: "studio.debug.input.trace", in: app)
         let attachment = XCTAttachment(string: trace.exists
             ? (trace.value as? String ?? "Native input trace unavailable")
             : "Native input trace endpoint unavailable")
@@ -3494,8 +3495,9 @@ final class V1SmokeUITests: XCTestCase {
         guard waitForHittability(of: element, timeout: max(1, timeout / 4)),
               let initial = writerLoopSwitchState(element), initial != expected else { return false }
         element.tap()
+        let deadline = Date().addingTimeInterval(timeout)
         afterAction?()
-        return waitForWriterLoopSwitch(element, toBeOn: expected, timeout: timeout)
+        return waitForWriterLoopSwitch(element, toBeOn: expected, timeout: timeout, deadline: deadline)
     }
 
     private func dismissWriterLoopProjectKeyboard(in app: XCUIApplication) -> Bool {

@@ -9,12 +9,15 @@ The writer launch opts into the existing metadata-only native input trace. A
 DEBUG/UIKit-only wrapper records the Autosave binding setter's previous/requested/
 applied Bool, preserving its SwiftUI Transaction. Without the opt-in it returns the
 original binding unchanged; Release and macOS use the original binding directly.
-The existing noninteractive trace view exposes canonical autosave state independently
-of native AX state. No screenplay, auth, token or personal data is added to it.
+The original input trace endpoint exposes canonical autosave state independently
+of native AX state, with a dedicated second opt-in THEM_UITEST_TRACE_AUTOSAVE=1.
+No extra view or accessible child is added; other trace sessions keep their array
+schema and original binding. No screenplay, auth, token or personal data is added to it.
 
-Attachments immediately after the single action and after the original native-state
-wait retain these observations. The known-on guard, single tap, native off predicate,
-original deadline and full downstream writer assertions remain. No required workflow
+Attachments immediately after the single action and after the native-state wait
+retain these observations. An absolute deadline is captured immediately after tap
+and passed through the AX attachment callback into the original polling helper. The known-on guard, single tap, native off predicate,
+original post-tap time budget and full downstream writer assertions remain. No required workflow
 or protected god file changes. This is evidence scaffolding, not an activation repair.
 
 The earlier trace-only local writer passed1/0/0. Its ended touch loses touch.view
@@ -46,3 +49,16 @@ Further main merges are held for this activation failure and979's parked-chain
 predicate failure. Render's live Auto-DeployOff/repository identity was verified
 read-only after human sign-in; no production or environment values changed.
 No paid model, microphone, real-phone or external-file-open proof. READY FOR CONTINUE.
+
+Howard's read-only review of55fc found that its immediate attachment callback ran
+before the old helper constructed its deadline, and its extra overlay changed the
+Toggle AX subtree. These diagnostic observer effects were real. The corrected
+candidate captures the absolute deadline before the callback and reuses the existing
+trace endpoint;55fc's local1/0/0 is not attributed to this updated source.
+
+The first branch push run43397375249 failed workflow validation before any job.
+The temporary workflow had used runner.temp in job-level env, where that context
+is unavailable. Artifact-directory setup now runs as a step using RUNNER_TEMP.
+Official context restrictions: https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#context-availability.
+The corrected push is a new source head, not a retry of executed native tests;
+no hosted native case has run yet. Required workflow files remain byte-identicalmain.

@@ -13,6 +13,9 @@ import ObjectiveC
 enum StudioUITestInputDiagnostics {
     static let requested = ProcessInfo.processInfo.arguments.contains("--ui-testing") &&
         ProcessInfo.processInfo.environment["THEM_UITEST_TRACE_INPUT"] == "1"
+    private static let autosaveRequested = requested &&
+        ProcessInfo.processInfo.environment["THEM_UITEST_TRACE_AUTOSAVE"] == "1"
+    private static var autosaveState: (() -> Bool)?
     private static var installed = false
     private static var records: [[String: Any]] = []
 
@@ -86,7 +89,8 @@ enum StudioUITestInputDiagnostics {
     }
 
     static func autosaveBinding(_ original: Binding<Bool>) -> Binding<Bool> {
-        guard requested else { return original }
+        guard autosaveRequested else { return original }
+        autosaveState = { original.wrappedValue }
         return Binding(get: { original.wrappedValue }, set: { value, transaction in
             record(["kind": "autosave_setter", "phase": "entered",
                     "previous": original.wrappedValue, "requested": value])
@@ -97,11 +101,12 @@ enum StudioUITestInputDiagnostics {
         })
     }
 
-    static var snapshot: String? { serialize(records) }
-
-    static func snapshot(autosaveEnabled: Bool?) -> String? {
-        guard let autosaveEnabled else { return snapshot }
-        return serialize(["autosave_enabled": autosaveEnabled, "events": records])
+    static var snapshot: String? {
+        guard autosaveRequested else { return serialize(records) }
+        var value: [String: Any] = ["events": records]
+        if let enabled = autosaveState?() { value["autosave_enabled"] = enabled }
+        else { value["autosave_unavailable"] = true }
+        return serialize(value)
     }
 
     private static func serialize(_ entries: Any) -> String? {
@@ -119,29 +124,24 @@ private extension UIApplication {
 }
 
 private final class StudioInputTraceView: UIView {
-    var autosaveState: (() -> Bool)?
 
     override var accessibilityValue: String? {
-        get { StudioUITestInputDiagnostics.snapshot(autosaveEnabled: autosaveState?()) }
+        get { StudioUITestInputDiagnostics.snapshot }
         set {}
     }
 }
 
 struct StudioUITestInputDiagnosticsView: UIViewRepresentable {
     var identifier = "studio.debug.input.trace"
-    var autosaveState: (() -> Bool)? = nil
     func makeUIView(context: Context) -> UIView {
         let view = StudioInputTraceView()
-        view.autosaveState = autosaveState
         view.isUserInteractionEnabled = false
         view.isAccessibilityElement = StudioUITestInputDiagnostics.requested
         view.accessibilityIdentifier = identifier
         view.accessibilityLabel = "Studio input delivery diagnostics"
         return view
     }
-    func updateUIView(_ view: UIView, context: Context) {
-        (view as? StudioInputTraceView)?.autosaveState = autosaveState
-    }
+    func updateUIView(_ view: UIView, context: Context) {}
 }
 #else
 @MainActor

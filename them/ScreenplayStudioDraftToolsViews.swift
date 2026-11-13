@@ -390,19 +390,6 @@ private struct ScreenplayStudioDraftDocumentControls: View {
                     .controlSize(.small)
                     .accessibilityIdentifier("studio.draft.document.autosave")
                     .accessibilityHint("Automatically saves screenplay changes while you write")
-#if DEBUG && canImport(UIKit)
-                    .overlay(alignment: .topTrailing) {
-                        if StudioUITestInputDiagnostics.requested {
-                            StudioUITestInputDiagnosticsView(
-                                identifier: "studio.debug.autosave.input.trace",
-                                autosaveState: { autosaveEnabled }
-                            )
-                            .frame(width: 1, height: 1)
-                            .opacity(0.01)
-                            .allowsHitTesting(false)
-                        }
-                    }
-#endif
             }
 
             HStack(alignment: .top, spacing: 9) {
