@@ -771,7 +771,7 @@ final class V1SmokeUITests: XCTestCase {
         defer { app.terminate() }
         let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
         let tab = app.buttons["studio.right-panel.draft"]
-        guard tab.waitForExistence(timeout: 8), tab.isHittable else {
+        guard waitForHittability(of: tab, timeout: 8) else {
             XCTFail("The inspector navigation must be visible before scrolling.")
             return
         }

@@ -5,6 +5,15 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### Current original919 navigation readiness — T-1455 (2026-11-12)
+
+- **Owner:** Jarvis implementation; Howard bounded native-artifact/source diagnosis. Luna completed separate923drawer characterization; Einstein current protection/review verification and isolated973fixture startup work. Zora/Alfred idle; no human review substituted.
+- **First red:** exact9199b run43354749486 V1 32/1/9 at line775, before scrolling. Tab existed/selected but activation point{-1,-1} while drawer remained offscreen; aligned native/video times retained in verified artifact14008761418. No permanent drawer/pinning defect established.
+- **Fix:** existing waitForHittability with same configured8seconds replaces existence then one immediate hit read. No added action/retry or production change; every subsequent scroll/frame/panel assertion unchanged.
+- **Proof:** exact focused signed workflow1/0/0, erased owned81F/iOS26.2, native/controller0; final case identity/source hashes verified. Actual904parent76 D009five0; parse/diff pass. No unchanged broad unit/backend/Mac rerun or paid calls; hosted26.5 still required.
+- **GitHub/next:** local scoped fix only; preserve new original96432 and90476/prose807 through actual bases before publishing the combined original919 head. Existing main78 unchanged; pending hosted gates and genuine current-head review remain mandatory. Then trace923's single valid Projects tap/no drawer, without an extra-tap workaround;973candidate remains held.
+- **Limits:** fixture navigation proof is not real microphone/model/phone/intended-backend/export-open proof; production held. Evidence: docs/original-919-navigation-readiness-2026-11-12.md. READY FOR CONTINUE.
+
 ### Current original919 byte/conflict checkpoint — T-1449 (2026-11-12)
 
 - **Owner:** Jarvis; Zora bounded recovery review and Luna current topology/CI evidence. Einstein/Howard/Alfred idle; no human approval substituted.
