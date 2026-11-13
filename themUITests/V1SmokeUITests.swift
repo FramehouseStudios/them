@@ -542,11 +542,14 @@ final class V1SmokeUITests: XCTestCase {
             revealInStudioDrawer(autosave, drawer: rightDrawer, scrollingUp: true, maxSwipes: 12),
             "The writer-loop could not reach the Autosave switch."
         )
-        XCTAssertTrue(writerLoopSwitchIsOn(autosave), "Autosave was unexpectedly off before the writer-loop began.")
-        XCTAssertTrue(
-            toggleWriterLoopSwitch(autosave, toBeOn: false, timeout: writerLoopWait(4)),
-            "Autosave did not turn off, so Save Now would not be the sole version-producing action."
-        )
+        guard writerLoopSwitchState(autosave) == true else {
+            XCTFail("Autosave's initial on state was not confirmed before the writer-loop began.")
+            return
+        }
+        guard toggleWriterLoopSwitch(autosave, toBeOn: false, timeout: writerLoopWait(4)) else {
+            XCTFail("Autosave did not turn off, so Save Now would not be the sole version-producing action.")
+            return
+        }
 
         XCTAssertTrue(waitForHittability(of: rightDrawerToggle, timeout: writerLoopWait(5)))
         rightDrawerToggle.tap()
@@ -939,6 +942,54 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(saveButton.waitForExistence(timeout: 4))
         XCTAssertFalse(saveButton.isEnabled)
         XCTAssertTrue(staticText(containing: "Select or create a project", in: app).exists)
+    }
+
+    func test_them_inspector_tab_right_edge_selects_its_panel() throws {
+#if os(iOS)
+        let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true,
+            launchEnvironment: ["THEM_UITEST_TRACE_INPUT": "1"])
+        defer { app.terminate() }
+
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        let themTab = app.buttons["studio.right-panel.them"]
+        let draftTab = app.buttons["studio.right-panel.draft"]
+        guard drawer.waitForExistence(timeout: 8),
+              waitForHittability(of: themTab, timeout: 8),
+              waitForSelection(of: draftTab, timeout: 3) else {
+            XCTFail("The edge-hit fixture must begin with the Draft inspector and a reachable Them tab.")
+            return
+        }
+        let frame = themTab.frame
+        guard !frame.isEmpty, frame.width > 2, frame.height > 2,
+              drawer.frame.contains(frame),
+              !themTab.isSelected, (themTab.value as? String) != "Selected" else {
+            XCTFail("The Them tab must have a contained frame and be unselected before the one edge touch.")
+            return
+        }
+
+        // Exercise the semantic control's visible rectangle, not its icon/text
+        // center. The original tap-based rail workflow remains unchanged.
+        let point = CGPoint(x: frame.maxX - 1, y: frame.midY)
+        XCTContext.runActivity(named: "Single Them right-interior touch at \(point.x), \(point.y)") { _ in
+            themTab.coordinate(withNormalizedOffset: .zero)
+                .withOffset(CGVector(dx: frame.width - 1, dy: frame.height / 2)).tap()
+        }
+        let trace = element(identifier: "studio.debug.inspector.input.trace", in: app)
+        let attachment = XCTAttachment(string: trace.value as? String ?? "Native input trace unavailable")
+        attachment.name = "Inspector immediately after one edge touch"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        XCTAssertTrue(
+            waitForSelection(of: themTab, timeout: 3),
+            "One touch inside the Them tab's right edge must select Them."
+        )
+        XCTAssertTrue(
+            app.descendants(matching: .any)["studio.them.panel"].waitForExistence(timeout: 4),
+            "The selected Them tab must expose its actual inspector panel."
+        )
+#else
+        throw XCTSkip("The semantic edge-hit regression specifically covers the iPhone inspector.")
+#endif
     }
 
     func test_them_rail_routes_to_passive_overview_and_surface_mix() {
@@ -1845,6 +1896,10 @@ final class V1SmokeUITests: XCTestCase {
             },
             "Offline screenplay save was not durably queued before termination. Snapshot: \(queuedSnapshot)"
         )
+        XCTAssertEqual(
+            intValue(queuedSnapshot["load_project_ack_token"]), fixture.loadToken,
+            "The initial project load must acknowledge its actual request before offline recovery."
+        )
         app.terminate()
 
         app = launchApp(
@@ -1968,6 +2023,10 @@ final class V1SmokeUITests: XCTestCase {
                     && stringValue(snapshot["error_text"]).isEmpty
             },
             "Offline screenplay save was not queued before stale-version setup. Snapshot: \(queuedSnapshot)"
+        )
+        XCTAssertEqual(
+            intValue(queuedSnapshot["load_project_ack_token"]), fixture.loadToken,
+            "The initial project load must acknowledge its actual request before offline recovery."
         )
         app.terminate()
 
@@ -3107,8 +3166,6 @@ final class V1SmokeUITests: XCTestCase {
         }
         if let restoreLoadToken {
             arguments.append(contentsOf: [
-                "-studio_debug_load_project_ack_token",
-                "0",
                 "-studio_debug_load_project_token",
                 "\(restoreLoadToken)"
             ])
@@ -3397,9 +3454,13 @@ final class V1SmokeUITests: XCTestCase {
         return occurrenceCount(of: marker, in: accessibleDraftText(in: app)) == 1
     }
 
-    private func writerLoopSwitchIsOn(_ element: XCUIElement) -> Bool {
-        let value = String(describing: element.value ?? "").lowercased()
-        return value == "1" || value == "true" || value == "on"
+    private func writerLoopSwitchState(_ element: XCUIElement) -> Bool? {
+        guard element.exists else { return nil }
+        switch String(describing: element.value ?? "").lowercased() {
+        case "1", "true", "on": return true
+        case "0", "false", "off": return false
+        default: return nil
+        }
     }
 
     private func waitForWriterLoopSwitch(
@@ -3409,12 +3470,12 @@ final class V1SmokeUITests: XCTestCase {
     ) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if writerLoopSwitchIsOn(element) == expected {
+            if writerLoopSwitchState(element) == expected {
                 return true
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
-        return writerLoopSwitchIsOn(element) == expected
+        return writerLoopSwitchState(element) == expected
     }
 
     // The required writer-loop gate runs alone on a GitHub macos runner where
@@ -3437,25 +3498,17 @@ final class V1SmokeUITests: XCTestCase {
         base * Self.writerLoopWaitScale
     }
 
-    /// Taps a switch and waits for its value to change. A tap issued right
-    /// after the inspector drawer settles from a swipe can be swallowed by the
-    /// scroll view, so if the value has not moved after the first quarter of
-    /// the budget the tap is repeated once — only while the value is still the
-    /// pre-tap value, so a late-arriving first tap is never undone.
+    /// Requires known native states before and after one action. Missing or
+    /// unrecognized accessibility values cannot prove that Autosave is off.
     private func toggleWriterLoopSwitch(
         _ element: XCUIElement,
         toBeOn expected: Bool,
         timeout: TimeInterval
     ) -> Bool {
-        _ = waitForHittability(of: element, timeout: max(1, timeout / 4))
+        guard waitForHittability(of: element, timeout: max(1, timeout / 4)),
+              let initial = writerLoopSwitchState(element), initial != expected else { return false }
         element.tap()
-        if waitForWriterLoopSwitch(element, toBeOn: expected, timeout: max(1, timeout / 4)) {
-            return true
-        }
-        if writerLoopSwitchIsOn(element) != expected, element.exists, element.isHittable {
-            element.tap()
-        }
-        return waitForWriterLoopSwitch(element, toBeOn: expected, timeout: max(1, timeout * 3 / 4))
+        return waitForWriterLoopSwitch(element, toBeOn: expected, timeout: timeout)
     }
 
     private func dismissWriterLoopProjectKeyboard(in app: XCUIApplication) -> Bool {
@@ -3531,12 +3584,14 @@ final class V1SmokeUITests: XCTestCase {
     ) -> Bool {
         func isVisible() -> Bool {
             guard target.exists else { return false }
-            if requiresHittability, !target.isHittable { return false }
-            guard fullyVisible else { return true }
-            let frame = target.frame
-            let viewport = studioDrawerContentViewport(drawer)
-            return !frame.isEmpty && frame.minY >= viewport.minY + 8
-                && frame.maxY <= viewport.maxY - 24
+            if fullyVisible {
+                let frame = target.frame
+                let viewport = studioDrawerContentViewport(drawer)
+                // Reveal offscreen lazy controls before resolving activation.
+                guard !frame.isEmpty, frame.minY >= viewport.minY + 8,
+                      frame.maxY <= viewport.maxY - 24 else { return false }
+            }
+            return !requiresHittability || target.isHittable
         }
         if isVisible() { return true }
         for _ in 0..<maxSwipes {

@@ -1472,7 +1472,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
     @Published var infoText: String = ""
 
     @Published var projects: [BackendScreenplayProjectSummary] = []
-    @Published var selectedProjectID: String = ""
+    @Published var selectedProjectID: String = "" {
+        didSet {
+            if !selectedProjectID.utf8.elementsEqual(oldValue.utf8) {
+                editorExternalDraftMutationRevision &+= 1
+            }
+        }
+    }
     @Published var selectedProject: BackendScreenplayProjectSummary?
     @Published var outline: BackendScreenplayOutline = .empty
     @Published var outlineRevision: Int = 0
@@ -1612,7 +1618,26 @@ final class ScreenplayStudioViewModel: ObservableObject {
     @Published var newBeatActID: String = ""
     @Published var editingBeatID: String = ""
 
-    @Published var fountainDraft: String = ""
+    // Native publications and explicit model replacements have separate authority.
+    private var pendingNativeEditorDraft: String?
+    @Published private(set) var editorExternalDraftMutationRevision: UInt64 = 0
+    @Published var fountainDraft: String = "" {
+        didSet {
+            let isNativePublication = pendingNativeEditorDraft.map {
+                $0.utf8.elementsEqual(fountainDraft.utf8)
+            } ?? false
+            pendingNativeEditorDraft = nil
+            if !isNativePublication, !fountainDraft.utf8.elementsEqual(oldValue.utf8) {
+                editorExternalDraftMutationRevision &+= 1
+            }
+        }
+    }
+
+    func publishNativeEditorDraft(_ draft: String) {
+        pendingNativeEditorDraft = draft
+        fountainDraft = draft
+        pendingNativeEditorDraft = nil
+    }
     @Published var latestVersionID: String = ""
     @Published var studioWriteAnchors: [BackendScreenplayWriteAnchor] = []
     @Published var screenplayBindings: [BackendScreenplayBindingRecord] = []
