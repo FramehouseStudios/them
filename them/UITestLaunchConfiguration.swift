@@ -133,6 +133,20 @@ nonisolated enum UITestLaunchConfiguration {
             || arguments.contains("--ui-show-pending-screenplay-question")
             || arguments.contains("--ui-seed-companion-signal")
             || hasStructuralStudioFixture(arguments: arguments)
+            || hasIsolatedPageSubmitFixture(arguments: arguments)
+    }
+
+    private static func hasIsolatedPageSubmitFixture(arguments: [String]) -> Bool {
+        // A synthetic page must not wait behind unrelated project-network hydration.
+        // Explicit restore requests and backend submissions still use real hydration.
+        guard !arguments.contains(where: { $0.hasPrefix("-studio_debug_load_project") }),
+              let promptIndex = arguments.firstIndex(of: "--ui-auto-submit-page-prompt"),
+              arguments.indices.contains(promptIndex + 1),
+              let modeIndex = arguments.firstIndex(of: "-studio_debug_submit_transport_mode"),
+              arguments.indices.contains(modeIndex + 1) else { return false }
+        let prompt = arguments[promptIndex + 1].trimmingCharacters(in: .whitespacesAndNewlines)
+        let mode = arguments[modeIndex + 1].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return !prompt.isEmpty && !prompt.hasPrefix("-") && ["stub", "structural-quality-stub"].contains(mode)
     }
 
     static func shouldRunAuthRefreshSmoke(

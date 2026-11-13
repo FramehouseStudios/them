@@ -2,6 +2,59 @@ import XCTest
 @testable import them
 
 final class ScreenplayDraftSaveOutboxTests: XCTestCase {
+    func testHeldSaveIsPersistedSeparatelyFromAnIdenticalRunnableSave() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let active = makeEntry(id: "active", draft: "Exact writer words", createdAt: 100)
+        var held = makeEntry(id: "held", draft: active.draft, createdAt: 101)
+        held.status = .parked
+        held.nextAttemptAt = 0
+        held.lastError = "Writer choice required"
+        try await queue.enqueue(active)
+        try await queue.enqueue(held)
+
+        let reopened = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let stored = try await reopened.entriesForTesting()
+        XCTAssertEqual(stored, [active, held], "Same text is not permission to drop a separate held intent.")
+        let next = try await reopened.beginNext(projectId: active.projectId, ownerUserId: active.ownerUserId, force: true)
+        XCTAssertEqual(next?.id, active.id)
+        try await reopened.remove(id: active.id)
+        let replay = try await reopened.beginNext(projectId: held.projectId, ownerUserId: held.ownerUserId, force: true)
+        XCTAssertNil(replay, "Even force-reconnect must not automatically submit held writer words.")
+    }
+
+    func testExistingIdentifierCanBeHeldInOneDurableWrite() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        var held = makeEntry(id: "existing")
+        try await queue.enqueue(held)
+        held.status = .parked
+        held.nextAttemptAt = 0
+        held.lastError = "Writer choice required"
+        try await queue.enqueue(held)
+        let reopened = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let stored = try await reopened.entriesForTesting()
+        XCTAssertEqual(stored, [held])
+        let replay = try await reopened.beginNext(projectId: held.projectId, ownerUserId: held.ownerUserId, force: true)
+        XCTAssertNil(replay)
+    }
+
+    func testFailedHeldWriteDoesNotLeaveAnInMemorySaveThatWasNeverPersisted() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let active = makeEntry(id: "active")
+        try await queue.enqueue(active)
+        let manifest = storageDirectory.appendingPathComponent("queue.json")
+        // Break only this test's owned destination; exercise a real write failure.
+        try FileManager.default.removeItem(at: manifest)
+        try FileManager.default.createDirectory(at: manifest, withIntermediateDirectories: false)
+        var held = makeEntry(id: "held", draft: "Held writer words")
+        held.status = .parked
+        do {
+            try await queue.enqueue(held)
+            XCTFail("A failed disk write must not report durable retention.")
+        } catch {}
+        let stored = try await queue.entriesForTesting()
+        XCTAssertEqual(stored, [active], "Memory must roll back when durable admission fails.")
+    }
+
     private var storageDirectory: URL!
 
     override func setUp() {
