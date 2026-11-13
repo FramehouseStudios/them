@@ -47,6 +47,12 @@
 - **GitHub:** normal original919 advancement only after checkpoint; fresh hosted checks/review required. Parents964975 and904ce remain draft with Quality in progress at last observation; review absent/dismissed, main78b unchanged. Production held; public API health302parking at02:32UTC.
 - **Next:** preserve actual child #9230ea0a2ed recovery contracts, then inspect separate #973aa729e79 transport boundary. Physical-phone/intended-backend/live-model/export-open proof still missing. Evidence: `docs/original-919-recovery-byte-authority-2026-11-12.md`. READY FOR CONTINUE.
 
+### Shared navigation readiness at original904 — T-1459 (2026-11-12)
+
+- **Owner:** Jarvis. The original919failed navigation case also exists in904 (not964); carry its exact c6guard to that earliest owner while preserving c6in919history.
+- **Fix/proof:** same configured8seconds via canonical waitForHittability; entirecase byte-identicalc6, later assertions untouched. Focused signed/erasedowned81F parent1/0/0, native/controller0, exactidentity/sourcehashes verified, deliberate503loopback/no providers. Parse/diffpass; no production change or unchanged broadcohort rerun. No claimed new904hosted repro.
+- **Next:** preserve this parent through919/923; executable identities must remain unchanged there. Currenthostedruns leftintact, normal scopedbackup only until originalhead updates are recorded. Main78/productionhold preserved. Evidence: docs/original-904-shared-navigation-readiness-2026-11-12.md. READY FOR CONTINUE.
+
 ### Current original904 parent preservation — T-1456 (2026-11-12)
 
 - **Owner:** Jarvis preserving integration/proof; Luna bounded source-scope review.
