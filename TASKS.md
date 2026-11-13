@@ -5,6 +5,14 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### Current foundation scene fixture repair — T-1453 (2026-11-12)
+
+- **Owner:** Jarvis; Howard bounded source/scope review, Luna hosted evidence and next drawer triage. No human approval substituted.
+- **First red:** original964975 run43349264675 V1 28/1/9 at synthetic kitchen-heading wait; artifact14005643881 SHA1bd55272 retained. Failure hierarchy has exact scene/173chars; video shows loading before page. No lost-text/microphone claim.
+- **Fix:** explicit valid stub-only Page auto-submit uses existing initial Studio hydration bypass; live/backend/voice/malformed/restore requests and legacy fixture rules preserved. No production loading/editor or original V1 assertion/deadline change.
+- **Proof:** initialbuild65/type-inference failure preserved; corrected mixed selection ran unchanged UI1/0/0 but countguard rejected missingunit selectors; actualclass units-only2/0/0 passed, UI notrerun. Signed erasedowned81F, deliberate503loopback, no providers. Actualmain D009Studio−15/Bridge−35/other3zero; diff/parse pass. No unchanged broadbackend/unit/Mac rerun; fresh hosted required.
+- **GitHub/next:** original964 normal preserving advancement only, base/draft retained; main78 unchanged and genuine review stillrequired. Observe freshfirstgate then preserveparentthrough904/919/923. Inspect #9234b writer Projectsdrawer title-field failure before any data-loss/timing assumption;973held. Evidence: `docs/foundation-page-fixture-isolation-2026-11-12.md`. Productionheld, phonejourney unproved. READY FOR CONTINUE.
+
 ### Current history-sync handoff — T-1446 (2026-11-12)
 
 - **Owner:** Codex (Jarvis); actual Zora recovery investigation and Luna topology/source challenge. Einstein/Howard/Alfred idle; no human review substituted.
