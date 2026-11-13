@@ -5,6 +5,14 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### Original919 editor/security handoff preparation — T-1470 (2026-11-13)
+
+- **Owner:** Einstein, bounded local-only integration in new `codex/T-1470-editor-security-handoff`; root retains first-red work, execution/publication and human-review boundary.
+- **History/conflict:** preserving merge3ec873c9 has exact parents prepared919b24 + published9794af, mergebase main71. One TASKS conflict only; all3 stages/full working/index/automatic V1 preserved and rehashed, both blocks retained verbatim; no manual Swift change.
+- **Source:** complete1,427-path proof/zero mismatch. Runtime+unit sources exactb24; backend/dependencies exact4af. Combined V1 exact4af plus exact original919 keyboard case and unchanged tutorial-helper relocation:42 unique union (all41incoming+keyboard). Latest conflict-chain method/inspector helper and all original919 editor/Unicode work retained; no T1468 diagnostics.
+- **Proof/limits:** parse/diff0, canonical exact-main71 D009fivezero with tempref removed; actual static Node24.19.0. No native/backend/npm/provider run on combined tree. Original91912/0/0 and original9792/0/0 remain separate inherited root checkpoints, not combined proof or actual401-refresh proof.
+- **Next:** root reviews local candidate, then preserve actualmain after979 before any original919 publication. GitHub/publicheads unchanged; Autosave first-red/heldmerges/productionhold remain. See docs/original-919-editor-security-handoff-2026-11-13.md; private exact receipts `/private/tmp/them-t1470-editor-security-handoff`. READY FOR CONTINUE.
+
 ### Original919 editor focused checkpoint — T-1467
 
 - **Owner:** Jarvis, isolated codex/T-1467-919-editor-proof from66597641; preserve original9b/1c/c2 history.
