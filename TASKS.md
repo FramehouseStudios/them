@@ -34,6 +34,13 @@
 - **Proof/limits:** source parse/diff pass; D009 vs exact c2 all five zero, task-local base ref removed. Static Node 26.7.0. Parent 709 units / 2 recovery / 1 writer / Mac exit 0 are inherited root proof (fixture/controller Node 26.7), not child reruns. No native/backend/npm/model/ports or shared worktree action.
 - **Next:** root first-red/auth-fixture work remains priority, then combined verification and original-branch review/advancement. Evidence: `docs/original-919-conflict-parent-sync-2026-11-12.md`. Main/GitHub/productionheld; child not ready. READY FOR CONTINUE.
 
+### T-1471 — Keep the writer runner draining its backend pipes
+
+- **Owner:** Jarvis; Howard original4386 capability backport, Einstein frozen Node20 proof preparation.
+- **Fixed:** synchronous native wait starved the supervisor's backend-pipe listeners. Preserve all native assertions/paths; await close asynchronously and stream bounded diagnostic tails.
+- **Proof:** original exact3s pressure timeout0/1/0 → async1/0/0 onNode20 (fakeApple only). Separate unchanged signed writer1/0/0 on erasedowned81F; exact identity/source hashes/PIDnonce verified, no paidcalls. Initial noexec-fixture0/1 setup failure retained separately. Fresh fullNode20 ond8992759/0/2 (2761total), all1412inputs/modulesunchanged; no externalnetwork. Exactmain71 D009fivezero, syntax/diffpass.
+- **Next/limits:** scoped history-preserving branch backup; leave original9792ea CI intact, no main merge/deploy. Autosave originalfirstred and separate authfreeze remain unresolved; realphone journey unproved. See docs/writer-pipe-backport-proof-2026-11-13.md. READY FOR CONTINUE.
+
 ### Original #979 fixture hydration boundary — T-1472 (2026-11-13)
 
 - **Owner:** Jarvis; Zora bounded read-only source challenge.
