@@ -5,6 +5,14 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### Original904 conflict recovery authority — T-1460 (2026-11-12)
+
+- **Owner:** Jarvis runtime/proof; Zora bounded artifact/source challenge; Einstein separate original979 security integration, no shared file ownership.
+- **First red:** hosted90476 recovery1/1/0: complete queued writer text before termination, server text on first relaunch, unchosen save then disappearing conflict. Exact first overwrite callback and complete disk state unproved; official artifact hash preserved.
+- **Repair:** reuse reviewed919 immutable conflict retention/queued restoration/exact metadata CAS/debounce guards; adapt original962 decision-generation/late-ack/discard ownership to existing save slot. Park ordinary Save during choice, retain captured-owner interrupted work, preserve explicit Keep Mine base. No new queue/framework/backend change.
+- **Proof:** root before0/1/0; retention43/0/0; actual ordinary-save/late-callback before0/2/0; combined signed fullunits709/0/0 incl48outboxcases, sourceunchanged. Authenticated recovery2/0/0, writer1/0/0 and Maccompile0; all terminal and sourceunchanged. D009 vs actual mergedmainbc: Studio-4/Bridge-2/other3zero; parse/diffpass. No paid calls.
+- **GitHub:** original96432 personally approved +3requiredchecks passed, preservingmergedmainbc2b38c0; main push checks running. Original904 retargetmain76 unchangedred. Candidate prepared for normal preserving advancement; exact publication recorded on original PR after validation. Productionhold/real-phone/auth-refresh/current-head-serverchoice gaps explicit in docs/original-904-conflict-authority-2026-11-12.md. READY FOR CONTINUE.
+
 ### Shared navigation readiness at original904 — T-1459 (2026-11-12)
 
 - **Owner:** Jarvis. The original919failed navigation case also exists in904 (not964); carry its exact c6guard to that earliest owner while preserving c6in919history.
