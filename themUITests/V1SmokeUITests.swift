@@ -1879,6 +1879,10 @@ final class V1SmokeUITests: XCTestCase {
             },
             "Offline screenplay save was not durably queued before termination. Snapshot: \(queuedSnapshot)"
         )
+        XCTAssertEqual(
+            intValue(queuedSnapshot["load_project_ack_token"]), fixture.loadToken,
+            "The initial project load must acknowledge its actual request before offline recovery."
+        )
         app.terminate()
 
         app = launchApp(
@@ -1998,6 +2002,10 @@ final class V1SmokeUITests: XCTestCase {
                     && stringValue(snapshot["error_text"]).isEmpty
             },
             "Offline screenplay save was not queued before stale-version setup. Snapshot: \(queuedSnapshot)"
+        )
+        XCTAssertEqual(
+            intValue(queuedSnapshot["load_project_ack_token"]), fixture.loadToken,
+            "The initial project load must acknowledge its actual request before offline recovery."
         )
         app.terminate()
 
@@ -3121,8 +3129,6 @@ final class V1SmokeUITests: XCTestCase {
         }
         if let restoreLoadToken {
             arguments.append(contentsOf: [
-                "-studio_debug_load_project_ack_token",
-                "0",
                 "-studio_debug_load_project_token",
                 "\(restoreLoadToken)"
             ])
