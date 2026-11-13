@@ -394,6 +394,7 @@ nonisolated enum LiveDraftSyncPolicy {
         isRunningTests: Bool
     ) -> Bool {
         if isRunningTests { return false }
+        if arguments.contains("--ui-screenplay-save-network-fault") { return false }
         let optIn = (environment[automationOptInEnvironmentKey] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if optIn == "1" || optIn.lowercased() == "true" { return true }
         if IOThemRuntime.isStudioAutomationArguments(arguments) || IOThemRuntime.isStudioEvalArguments(arguments) {
@@ -461,9 +462,14 @@ protocol LiveDraftEditorBinding: AnyObject {
     var liveDraftTextPublisher: AnyPublisher<String, Never> { get }
     @discardableResult
     func applyRemoteLiveDraft(_ text: String, projectID: String, sourceDeviceID: String) -> Bool
+    func preserveLocalDraftForLiveSyncRecovery(_ text: String, projectID: String)
     func adoptRemoteLiveVersion(_ versionID: String, projectID: String, draftChecksum: String)
     /// Bring the line another device is typing on into view.
     func revealRemoteEditLine(_ line: Int)
+}
+
+extension LiveDraftEditorBinding {
+    func preserveLocalDraftForLiveSyncRecovery(_ text: String, projectID: String) {}
 }
 
 extension ScreenplayStudioViewModel: LiveDraftEditorBinding {
@@ -508,6 +514,9 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
     private var mirrorText = ""
     private var mirrorSeq: Int?
     private var mirrorChecksum = ""
+    /// The editor text whose checksum opened the current stream. A hello
+    /// without text confirms this text, not whatever the editor holds by then.
+    private var streamOpenedText = ""
     private var isApplyingRemote = false
     private var isPublishInFlight = false
     private var isConnected = false
@@ -649,7 +658,8 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
     private func runStreamLoop(projectID: String) async {
         while !Task.isCancelled, projectID == activeProjectID {
             status = .connecting
-            let checksum = LiveDraftText.checksum(editor?.liveDraftText ?? "")
+            streamOpenedText = editor?.liveDraftText ?? ""
+            let checksum = LiveDraftText.checksum(streamOpenedText)
             let stream = transport.openStream(projectID: projectID, deviceID: deviceID, checksum: checksum)
             var delay = LiveDraftSyncPolicy.reconnectDelay(attempt: reconnectAttempt)
             do {
@@ -741,9 +751,15 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
         status = .live(peerCount: peerDeviceIDs.count)
         switch resolution {
         case .inSync:
-            mirrorText = localText
-            mirrorSeq = payload.seq
-            mirrorChecksum = LiveDraftText.checksum(localText)
+            // Without text the server confirmed the checksum we opened with.
+            // Taking the current editor text instead made the first op after
+            // launch fail with checksum_mismatch whenever the page loaded in
+            // between (seen live 2026-09-28), and that edit was never sent.
+            let agreed = payload.text ?? streamOpenedText
+            setMirror(text: agreed, seq: payload.seq, checksum: LiveDraftText.checksum(agreed))
+            if localText != agreed {
+                schedulePublish(after: LiveDraftSyncPolicy.publishCoalesceInterval)
+            }
         case .adoptRemote:
             reconcileRemote(
                 text: payload.text ?? "",
@@ -823,14 +839,28 @@ final class ScreenplayLiveDraftSyncService: ObservableObject {
     ) {
         let previousMirror = mirrorText
         let localText = editor?.liveDraftText ?? previousMirror
+        // A rebase needs a base both sides agreed on. A fresh mirror (no seq
+        // yet, e.g. on launch) is "", so the cached draft and the channel
+        // both looked like inserts at 0 and the rebase appended one to the
+        // other: the whole page doubled and was published (seen live
+        // 2026-09-28). Without a base, or when local already matches, there
+        // is nothing to merge; the channel wins, as for overlapping edits.
+        let hasAgreedBase = mirrorSeq != nil
         setMirror(text: remoteText, seq: seq, checksum: checksum)
         var merged: String?
-        if localText != previousMirror,
+        if hasAgreedBase, localText != previousMirror, localText != remoteText,
            let localOp = LiveDraftText.diff(from: previousMirror, to: localText) {
             merged = LiveDraftText.rebase(localOp: localOp, base: previousMirror, remoteText: remoteText)
             if merged == nil {
                 logger.notice("live draft: overlapping edits, channel text kept")
             }
+        }
+        // Do not discard local words when the channel wins. This includes
+        // both a fresh mirror (no agreed base) and overlapping edits that
+        // cannot be safely rebased. The editor only persists text that is
+        // actually dirty against its last saved fingerprint.
+        if merged == nil, localText != remoteText {
+            editor?.preserveLocalDraftForLiveSyncRecovery(localText, projectID: projectID)
         }
         applyToEditor(merged ?? remoteText, projectID: projectID, sourceDeviceID: sourceDeviceID)
         if let revealLine, merged == nil {

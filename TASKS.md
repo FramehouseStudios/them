@@ -5,11 +5,464 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### Original904 conflict recovery authority — T-1460 (2026-11-12)
+
+- **Owner:** Jarvis runtime/proof; Zora bounded artifact/source challenge; Einstein separate original979 security integration, no shared file ownership.
+- **First red:** hosted90476 recovery1/1/0: complete queued writer text before termination, server text on first relaunch, unchosen save then disappearing conflict. Exact first overwrite callback and complete disk state unproved; official artifact hash preserved.
+- **Repair:** reuse reviewed919 immutable conflict retention/queued restoration/exact metadata CAS/debounce guards; adapt original962 decision-generation/late-ack/discard ownership to existing save slot. Park ordinary Save during choice, retain captured-owner interrupted work, preserve explicit Keep Mine base. No new queue/framework/backend change.
+- **Proof:** root before0/1/0; retention43/0/0; actual ordinary-save/late-callback before0/2/0; combined signed fullunits709/0/0 incl48outboxcases, sourceunchanged. Authenticated recovery2/0/0, writer1/0/0 and Maccompile0; all terminal and sourceunchanged. D009 vs actual mergedmainbc: Studio-4/Bridge-2/other3zero; parse/diffpass. No paid calls.
+- **GitHub:** original96432 personally approved +3requiredchecks passed, preservingmergedmainbc2b38c0; main push checks running. Original904 retargetmain76 unchangedred. Candidate prepared for normal preserving advancement; exact publication recorded on original PR after validation. Productionhold/real-phone/auth-refresh/current-head-serverchoice gaps explicit in docs/original-904-conflict-authority-2026-11-12.md. READY FOR CONTINUE.
+
+### Shared navigation readiness at original904 — T-1459 (2026-11-12)
+
+- **Owner:** Jarvis. The original919failed navigation case also exists in904 (not964); carry its exact c6guard to that earliest owner while preserving c6in919history.
+- **Fix/proof:** same configured8seconds via canonical waitForHittability; entirecase byte-identicalc6, later assertions untouched. Focused signed/erasedowned81F parent1/0/0, native/controller0, exactidentity/sourcehashes verified, deliberate503loopback/no providers. Parse/diffpass; no production change or unchanged broadcohort rerun. No claimed new904hosted repro.
+- **Next:** preserve this parent through919/923; executable identities must remain unchanged there. Currenthostedruns leftintact, normal scopedbackup only until originalhead updates are recorded. Main78/productionhold preserved. Evidence: docs/original-904-shared-navigation-readiness-2026-11-12.md. READY FOR CONTINUE.
+
+### Current original904 parent preservation — T-1456 (2026-11-12)
+
+- **Owner:** Jarvis preserving integration/proof; Luna bounded source-scope review.
+- **Source:** no-ff merge of original90476 plus local prose correction807 with original96432. One TASKS conflict, stages preserved and both blocks retained. Config/new regression byte-identical32; entire original904UI byte-identical807, including both ACK predicates/full-draft/exactly-one checks. No production recovery/backend change.
+- **Proof:** one focused signed erasedowned81F checkpoint3/0/0, finalized exact identities/sourcehashes verified; original synthetic scene case uses typed input, not a microphone. Actual96432 D009Studio−4/Bridge−2/other3zero; diff/parse pass. Both loopback services503, no provider keys/paid calls.
+- **Attribution:** no unchanged fullbackend/fullunits/Mac/recovery rerun. Hosted90476 Node20backend2758/0/2 inherited with identical JS; old ACK-focused recovery2/0/0 stays76 proof. Fresh parent hosted gates stillrunning at observation, no blanket green claim.
+- **GitHub/next:** local preserving commit only until publication receipt; carry parent through original919 plus c6 navigation guard, check combined recovery, then normal original-branch updates in order. Main78 unchanged; genuine review required. Evidence: docs/original-904-parent-preservation-2026-11-12.md. Productionheld; real-phone journey unproved. READY FOR CONTINUE.
+
+### Current original904 hosted-ACK repair — T-1452 (2026-11-12)
+
+- **Owner:** Jarvis; Luna independent hosted/native artifact inspection. Einstein reviewed parked973 wire seam; no human approval substituted.
+- **First red:** original904ce run43349363467 required recovery0/2/0 on iOS26.5: both initial ACK0 assertions. Full tree also runnerexit75 before conflict case finished; downstream assertions/cause not assumed. Verified artifact14005523220 SHAae266429 retained; old run stays red.
+- **Repair:** add exact actual loadACK to both existing60s initial queued-state predicates; keep outerACK/fulltext/exactly-one assertions and removed CLI override. No app/timeout/action retry change.
+- **Proof:** canonical signed/erased owned81F recovery2/0/0 on iOS26.2; sourceunchanged, actualauthrequired fixture/PID/nonce and no paid call. App/backend/unit sources identicalce; inherited676units/2758backend(2skips), no unchanged broad rerun. Actual975 D009Studio−4/Bridge−2/other3zero; diff pass. Local proof does not clear hosted26.5/runner75.
+- **GitHub/next:** original904 normal preserving advancement only, fresh checks/genuine review; propagate parent into919/923 before further973 publication. Original9234b published;973bb local+2dirtyfiles held (721units/8Macwire pass, fixture startup needs bound). Main78b unchanged, production held; phone journey unproved. Evidence: `docs/original-904-load-ack-readiness-2026-11-12.md`. READY FOR CONTINUE.
+
+### Current original904 recovery checkpoint — T-1447 (2026-11-12)
+
+- **Owner:** Codex (Jarvis); scoped Luna package/topology work and Zora recovery investigation. Original909, foundation831, history975 and all incoming commits preserved through no-ff merges. No replacement PR/main mutation.
+- **Source:** runtime/UI7adcf46e on `codex/T-1447-904-history-handoff`; merge5fa67e1f + documentation merged087e34c. Nine conflicts/21hunks reconciled from preserved stages, not wholesale file replacement. Both original histories and all prior test cases retained.
+- **Fixed/connected:** original904 durable queued hydration, unreadable-manifest stop, explicit conflict/recovered-copy authority and export/navigation work coexist with incoming editor/inspector/history fixes. DEBUG process-default ack0 override removed; two cases require the actual acknowledgement, retaining whole-draft/exactly-one assertions.
+- **Proof:** signed fullunits676/0/0 atd087 with exact app/unit/package/project source identity at7ad; canonical recovery2/0/0; fullV1 35/0/6 (41total); authenticated writer1/0/0, explicitSavefallback0; Node20backend2758/0/2, sourceunchanged; Mac compile0; D009Studio−19/Bridge−37/other3zero, diffpass. Parent8f offlinecanon stays inherited, fresh hostedQuality mandatory. No unchanged fullunit/voice duplicate or paid call.
+- **Failure retained:** initial runner contracts60/9/0 lacked snapshotdependencies; affected corrected file10/0/0 and subsequent fullbackendpassed. Six UI/two backend skips are explicitly listed in proof; no simulated-response/phone/production completion claim.
+- **GitHub boundary:** normal original964→975 and original904→proven descendant only; parent975's own offline0/2/0 is not child success. Require new hosted checks and genuine review before any landing. Production held; APIhealth302parking at01:56UTC.
+- **Next:** original919 T1449 preserves510+7ad with one unresolved additive TASKS conflict. T1448 Unicode receipt/publisher patch is private/uncommitted/static-only; review and native proof still required. Evidence: `docs/original-904-integrated-recovery-2026-11-12.md`. READY FOR CONTINUE.
+
+### Current foundation scene fixture repair — T-1453 (2026-11-12)
+
+- **Owner:** Jarvis; Howard bounded source/scope review, Luna hosted evidence and next drawer triage. No human approval substituted.
+- **First red:** original964975 run43349264675 V1 28/1/9 at synthetic kitchen-heading wait; artifact14005643881 SHA1bd55272 retained. Failure hierarchy has exact scene/173chars; video shows loading before page. No lost-text/microphone claim.
+- **Fix:** explicit valid stub-only Page auto-submit uses existing initial Studio hydration bypass; live/backend/voice/malformed/restore requests and legacy fixture rules preserved. No production loading/editor or original V1 assertion/deadline change.
+- **Proof:** initialbuild65/type-inference failure preserved; corrected mixed selection ran unchanged UI1/0/0 but countguard rejected missingunit selectors; actualclass units-only2/0/0 passed, UI notrerun. Signed erasedowned81F, deliberate503loopback, no providers. Actualmain D009Studio−15/Bridge−35/other3zero; diff/parse pass. No unchanged broadbackend/unit/Mac rerun; fresh hosted required.
+- **GitHub/next:** original964 normal preserving advancement only, base/draft retained; main78 unchanged and genuine review stillrequired. Observe freshfirstgate then preserveparentthrough904/919/923. Inspect #9234b writer Projectsdrawer title-field failure before any data-loss/timing assumption;973held. Evidence: `docs/foundation-page-fixture-isolation-2026-11-12.md`. Productionheld, phonejourney unproved. READY FOR CONTINUE.
+
+### Current history-sync handoff — T-1446 (2026-11-12)
+
+- **Owner:** Codex (Jarvis); actual Zora recovery investigation and Luna topology/source challenge. Einstein/Howard/Alfred idle; no human review substituted.
+- **Source:** runtime `8e4518c2`, branch `codex/T-1446-history-hydration-handoff`, preserving combined parent `8fbb15bf` and every original #964/editor/inspector commit. Original PR/main unchanged.
+- **Fixed:** history observer attempted server persistence before acknowledgement hydration cleared its deferral flags. Move the existing call after the refresh; same captured values/key, local write, canonical scheduler and24-entry cap. No new state/framework or god-file growth.
+- **Verified:** unchanged real authenticated backend project-restore UI **1/0/0**, signed/erased owned81F. Parent checkpoint full backend Node20 **2752/0/2**, signed units **655/0/0**, writer **1/0/0**, offline quality pass (retained initial missing-curl tooling failure), CI-safety **18/0/0**, Mac compile0. These broad results belong to8f, not a full rerun on8e.
+- **Still red:** parent full V1 **29/3/6**; focused remaining save cases on8e **0/2/0**, both initial durable-queue setup. No retry loop/weak assertion or paid call. DEBUG launch ack masking verified separately; no shipping-path cause inferred from that probe.
+- **GitHub/deployment:** main78b8c94f; original964831 still draft/Quality red/review dismissed; original904909 still draft/conflicted. Strict3checks+genuine review/admin protection intact. TLS api.them.io health still302parking. Production held; real-phone/intended-backend journey unproved.
+- **Next:** original904 preserving rehearsal at `codex-T1447-904-history-handoff` has HEADb2/MERGE_HEAD8e/base831, nine explicit conflicts/21hunks and23 preserved stage blobs. Reconcile these, do not reimplement or overwrite original work. Evidence: `docs/foundation-history-hydration-handoff-2026-11-12.md`. READY FOR CONTINUE.
+
+### Current combined foundation checkpoint — T-1445 (2026-11-12)
+
+- **Owner:** Codex (Jarvis). Preserving merge of inspector8688 and editorc6ec7720; both scoped published parents and all original commits retained. No main/original PR/rehearsal-backup change.
+- **Status:** completed checkpoint at8f is RED: full V1 29/3/6 exposed restored-history and offline-queue failures; backend2752/0/2, signed units655/0/0 and writer1/0/0 passed. Original individual parent proof remains separately attributable. T1446 above fixes only the reproduced history-sync handoff.
+- **Next:** inspect the canonical CI invocation and run full Node20 backend, signed full themTests on erased owned81F, required writer/essential UI and Mac/god-file gates on this combined foundation before any original964 advancement. No paid calls, review bypass, new replacement PR or production change.
+- **Limits:** inherited direct completion/immediate-owner/persistence-byte paths remain open; physical-phone/intended-backend journey unproved. READY FOR CONTINUE.
+
+### Current parent checkpoint — T-1438 / T-1441 (2026-11-12)
+
+- **Owner:** Codex (Jarvis); actual Luna evidence/source handoff. Other roles and credit limits are recorded in the proof. No human review substituted.
+- **Branch/source:** `codex/T-1438-foundation-hitbox-proof`, runtimec04886f9, parent original964831. This older parent repair is separate from the broader custody backup5f; do not conflate their test counts or source trees.
+- **Fixed:** a touch centred inside Them directly activated Saved. Typed native receipts and settled geometry established the boundary. Pointer centres now select the unique visible child rectangle; semantic Buttons retain their actions. No fixed screen coordinates, guessed radius or new god-view state.
+- **Proof:** retained5 failing edge runs → routed1/0/0 → final edge plus original ordinary inspector/scroll2/0/0. Signed focused units5/0/0 on identical final product/unit/UI source; Mac scaffold build0; actual831 D009 five0. Invalid local preflight/build invocation is retained, not counted as proof.
+- **Original work:** exact909 rectangle and511 rows preserved; original UI bodies untouched. Diagnostic APIs proved unused were removed; only bounded metadata remains. Backend/package/auth sources unchanged; no repeated full backend/unit suite or paid call.
+- **GitHub:** original964831 still red and draft; original904909 and997f68 unchanged. No main change or review bypass. Scoped verified branch publication only; exact push receipt lives in private proof. Production hold remains.
+- **Next:** preserve-merge this into the full rehearsal. Finish explicit external-mutation ownership before publishing private416; its equal-pending restore ambiguity is real. Private account-formcbd needs verified-origin authority. Physical phone/intended-backend core loop remains unproved; broader main/release gates and genuine review still required.
+- **Evidence/files:** `docs/foundation-inspector-edge-hit-2026-11-12.md`; private `_proof/T-1441-inspector-pointer-routing-20261112/proof.json`. READY FOR CONTINUE.
+
+### Current parent checkpoint — T-1444 editor ownership (2026-11-12)
+
+- **Owner:** Codex (Jarvis), actual bounded Luna source review. **Branch:** `codex/T-1444-foundation-editor-receipt`; runtime65319db1 extends preserved416, based on original964831. No main/original-head change.
+- **Fixed:** explicit restore matching pending native text, deferred A→C→A/project round-trip writes, operation-owned interrupted-target retirement, exact-byte binding comparisons and reproduced generated BackendClient release crash. One production native-editor factory; no fake constant control bindings in real-model cases.
+- **Proof:** final signed54/0/0, unchanged original direct typingUI1/0/0, Mac scaffold compile0, D009 Screen−15/Bridge−35/other3zero versus fetched831. Earlier pure policy12/0 on identical final bodies; no unchanged broad rerun or paid call. All initial48/1 crash, import build65, intermediate52/0 and bad-fixture53/1 results retained honestly.
+- **Limits:** hosted964 still red at831; no live/phone claim. Legacy no-op/immediate cross-owner/persistence byte paths and direct finish-target callbacks remain open. Root/whole-backend/workflows/projects unchanged; original416 and broader rehearsalb5 retained.
+- **Next:** preserving foundation integration with inspector8688, then complete required foundation gates before original964 advancement/review. Evidence, exact files and publication receipt: `docs/foundation-editor-ownership-proof-2026-11-12.md`. Production held; READY FOR CONTINUE.
+
+### T-1069 — Keep iPhone export format choices on the document
+
+- **Owner:** codex. **Branch:** `codex/T-1069-inline-iphone-export`.
+- **Status:** review. **Pillar:** dependable mobile export.
+- **Boundary:** original #904baaf39e3. Prior0209a126 hosted39474084172
+  fails writer Markdown feedback after a correctly bounded recorded tap;
+  native menu remains open, previous Draft saved feedback unchanged.
+- **Target:** inline expandable iPhone chooser in existing Document controls,
+  same formats/disabled capabilities/handlers; retain native Mac menu. No
+  retries, altered export bytes, new Root/Studio state or paid calls.
+- **Proof:** native chooser containment/collapse, signed units and actual
+  authenticated writer/save/export/relaunch; final hosted proof still required.
+- **Evidence:** `docs/iphone-export-chooser-2026-10-20.md`.
+- **Verified:** full signed units654/0/0 on identical app/unit source;
+  first UI cohort1/1/0 (bad Fountain-fixture assumption retained), final
+  capability-aware chooser/stronger artifact UI2/0/0; authenticated writer
+  1/0/0, macOS0, actual-base D009/diff pass. Fresh hosted proof required.
+
+### T-1068 — Stop hydration when local saves cannot be read
+
+- **Owner:** codex. **Branch:** `codex/T-1068-unreadable-save-queue`.
+- **Status:** review. **Pillar:** writer data safety and recovery.
+- **Boundary:** original #9040209a126, preserve all prior work and base.
+  Existing restoration swallows a queue read error as though no save exists;
+  its caller then hydrates remote text. Extend that canonical owner.
+- **Binary outcome:** actual corrupt-manifest model reproduces replacement
+  before; after, hydration returns false, visible raw words/base and manifest
+  bytes remain unchanged with a useful warning. A valid retry can load, and
+  clears only this warning. Normal queued recovery remains functional.
+- **Evidence:** `docs/unreadable-save-queue-2026-10-20.md`. No paid calls,
+  automatic manifest reset, new persistence layer, main or production change.
+- **Verified:** actual-model before0/1/0; after signed full units654/0/0,
+  authenticated recovery2/0/0, macOS0, actual-base D009/diff pass. Backend
+  unchanged, prior proof reused explicitly. Preserve original #904 on push.
+
+### T-1067 — Restore queued writer authority at every parent hydration entry
+
+- **Owner:** codex. **Branch:** `codex/T-1067-parent-queued-hydration`.
+- **Status:** review. **Pillar:** dependable offline writing/recovery.
+- **Boundary:** original #90410167e3, preserve every commit and original base.
+  Hosted39461247037: units652/0/0, V1 UI30/0/9, recovery1/1/0.
+  The failed auth/conflict case shows collaborator text, clean state, queue0.
+- **Fix target:** reuse original #928's single guarded queued-hydration owner
+  on both independent detail/outline entry points; #925's injection seam
+  only as needed to prove actual-model behavior. Preserve later durable
+  conflict/parked-copy semantics rather than importing their whole PRs.
+- **Binary proof:** actual queued model red before restoration, unchanged
+  assertion green after; signed units plus authenticated native recovery,
+  actual-base D009/diff. No paid model, production or main change.
+- **Evidence:** `docs/parent-queued-hydration-2026-10-20.md`.
+- **Verified:** actual-model before0/1/0, after signed units653/0/0,
+  authenticated recovery2/0/0 and writer/export/relaunch1/0/0; macOS0,
+  actual-base D009/diff pass. Backend unchanged; prior Node20 proof reused
+  explicitly. Update original #904 normally; fresh hosted/review required.
+
+### T-1064 — Preserve unresolved writer choice at the original parent
+
+- **Owner:** codex. **Branch:** `codex/T-1064-conflict-choice-parent`.
+- **Status:** review (local proof passed). **Pillar:** exact words and writer control.
+- **Boundary:** #90489ed4c2; preserve original #924cead667 source/provenance.
+- **Target:** reject live text/version adoption during an unresolved same-
+  project conflict, then allow following after an explicit Load Server.
+- **Proof:** existing actual-model regressions before/after, signed units,
+  actual authenticated recovery, D009/diff; no unchanged hosted retry.
+- **Limits:** hosted cause not fully traced; later durable-retention fixes,
+  production and real-phone journey remain separate unfinished work.
+- **Evidence:** `docs/conflict-choice-parent-2026-10-20.md`.
+- **Verified:** actual-model before1/2/0; final signed full units652/0/0,
+  unchanged authenticated recovery2/0/0, Node20 backend2753/0/2, macOS0.
+  D009/diff pass. Reuse exact #924 five-line guard, not later retention work.
+  Normally advance original parent then preserve-merge child; hosted/review
+  and real-phone proof remain required. No main or production change.
+
+### T-1062 — Put the proven text-ownership guard on the red parent
+
+- **Owner:** codex. **Branch:** `codex/T-1062-parent-editor-echo`.
+- **Status:** review (local parent proof passed). **Pillar:** exact words.
+- **Verified red:** original #9043e96d43, hosted39439684023 V1 UI28/1/9:
+  typing chunk2 expects She counts, native editor/model contain She ounts.
+  The inspector callback now passes; do not retry or weaken the typing test.
+- **Source:** parent still unconditionally assigns differing model text into
+  UIKit; it does not contain child #919's proven canonical ownership guard.
+  Native delayed-echo overwrite is captured on the separate T1059 tree;
+  this hosted run has no input/model trace, so exact causal attribution is
+  not claimed solely from a matching symptom.
+- **Plan:** preserve parent3e96d43; port the existing #919 ownership and
+  live-line formatting owners to this lower boundary, not the entire child
+  (which would create a dependency-cycle/absorb its unrelated viewport work).
+  Keep its genuine model, project, insertion and generation contracts.
+- **Done when:** actual signed full units, exact typing/callback/recovery,
+  Node20, macOS, real-base D009/diff pass; then normally advance same #904
+  and preserve-merge its updated head back into original #919. Fresh hosted
+  checks/reviews still required; no new PR, main merge or paid call.
+- **Evidence:** `docs/parent-editor-echo-2026-10-20.md`.
+- **Checkpoint:** canonical #919 ownership/formatting sources ported, not
+  its manual caret/lifecycle work. First frozenf472135: full Node20
+  2749/0/2; signed units649/0/0, UI28/2/9. Both typing cases pass; two
+  prompt workflows fail behind the keyboard (native recordings viewed).
+  Reuse the existing two keyboard-safe-area settings; unchanged two
+  workflows after2/0/0. Final signed units649/0/0 + V1 UI30/0/9, total679/0/9.
+  Reuse #972's producer-only retention; final source7e755cd helper10/0/0,
+  Node20 backend2753/0/2. Actual writer1/0/0, recovery2/0/0, macOS native0.
+  Fresh actual base81b05e44 D009 passes. Normally advance same #904, then
+  preserving-merge into original #919; hosted/review still required.
+  No main/production change, paid model or physical-phone completion claim.
+
+### T-1060 — Reuse the proven inspector reveal owner on original #904
+
+- **Owner:** codex. **Branch:** `codex/T-1060-inspector-reveal-owner`.
+- **Status:** review. **Pillar:** real reachable writer controls.
+- **Verified red:** original #90404a993f, hosted39427452552 fails To Page
+  full visibility. Combined signed rehearsal955e7f0 reproduces that exact
+  failure (V1 UI29/2/9); its separate text-loss failure remains T1059.
+- **Fix:** copy original #625d493c515 canonical bounded/viewport-aware
+  reveal owner, including minimum pan and all three wrappers. Reuse original
+  d82b3757 inline clear-confirmation reveals. No app/auth/billing change,
+  repeated tap, new timeout or weakened expected side effect.
+- **Done when:** signed full units plus callback/all-six-tab/pinned-header
+  UI pass on the erased owned narrow SE; D009/diff; preserve/advance same
+  original #904 with fresh hosted gates/review, no replacement or main merge.
+- **Evidence:** `docs/inspector-reveal-owner-2026-10-20.md`.
+- **Verified:** signed erased owned SE/iOS26.2 full units634/0/0 +
+  callback/six-panel/pinned UI3/0/0, total637/0/0, native0. D009 Studio-4,
+  other deltas0, diff clean. Test-only change; fresh hosted/review still
+  required. Normally advance original #904; no main merge or data claim.
+
+### T-1054 — Keep original #904 inspector navigation reachable
+
+- **Owner:** codex. **Branch:** `codex/T-1054-parent-inspector-navigation`.
+- **Status:** review. **Pillar:** mobile-first writer controls.
+- **Verified red:** original #904 `a6a36260`, hosted run39419339905,
+  Quality job118616089203: story-obligation relaunch workflow cannot resolve
+  a hittable Clementine inspector tab. Do not call this recovery-data loss
+  or infrastructure-only failure without the actual UI evidence.
+- **Plan:** reproduce hidden navigation on the erased owned 375-point SE;
+  reuse the narrow pinned-navigation correction already preserved in #625,
+  not its unrelated billing changes. Preserve original #904 history/base.
+- **Done when:** navigation stays visible while panels scroll; switching
+  panels resets their position; unchanged story-obligation/relaunch and six
+  panel workflows pass; signed units, macOS, D009 and diff checks pass.
+  Record fresh hosted checks and independent approval separately.
+- **Evidence:** `docs/parent-inspector-navigation-2026-10-20.md`.
+- **Verified:** before0/1/0; after3/0/0 UI; full signed units634/0/0,
+  erased owned SE/iOS26.2. Node20 backend2749/0/2; macOS native exit0;
+  real-base D009 Studio-4/other deltas0; diff clean. No paid calls or main
+  merge. Fresh exact-head hosted proof and independent review remain required.
+
+### T-1051 — Repair original #904 before its editor child
+
+- **Owner:** codex. **Branch:** `codex/T-1051-parent-recovery-authority`.
+- **Status:** review. **Pillar:** exact words and recovery control.
+- **Verified red:** original #904 `2a10365f`, hosted39406112568, same
+  expired-auth/stale-conflict recovery failure as #919. Do not merge the
+  child over this red parent or replace either original PR.
+- **Fix:** exact two-file T1049 correction, source90ba102 (port4abd517):
+  reuse preserved0c1afb1 guard, manual-edit authority on explicit recovery.
+  ViewModel/recovery-test sources were identical across both old heads.
+- **Done when:** signed parent units/recovery, macOS/D009/diff pass; normal
+  original #904 push, preserving original head. Then merge updated parent
+  into original #919 with all histories retained; require hosted/review.
+- **Evidence:** `docs/parent-recovery-authority-2026-10-20.md`.
+- **Verified:** independent signed parent units634/0/0 and recovery2/0/0,
+  same erased owned SE/iOS26.2. macOS native exit0; real-base D009 Studio
+  -4, others0; diff clean. Hosted26.5 cause/fix still requires fresh proof.
+
+### T-986 — Preserve and verify original #904 recovery
+
+- **Owner:** codex. **Branch:** `codex/T-986-original-904-recovery`.
+- **Status:** review. **Pillar:** writer words survive recovery.
+- **Scope:** preserving merge of original #904, current-main proof repairs,
+  reviewed post-await owner/project guard and retained actual CI artifacts.
+- **History:** merge `6f1ffa0` retains original `a27c75a`; no remote original
+  change or main merge yet. No replacement PR.
+- **Done when:** signed units, actual unskipped recovery and writer UI,
+  Node20 suites, macOS, D009 and diff pass on the combined head; record exact
+  evidence on original #904 and retain independent review/check requirements.
+- **Evidence:** `docs/original-904-recovery-rehearsal-2026-10-19.md`.
+- **Verified now:** signed units632/0/0; Node20 backend2749/0/2,
+  scripts224/0/0; macOS and offline quality gate pass; real recovery2/0/0.
+  Writer/export/relaunch1/0/0. Full V1 UI27/1/9: direct typing drops the
+  final character of chunk9 in both editor/model. Publish preserved original
+  #904 on #964 with this failure explicit; separate original #919 contains
+  the reproduced live-Binding correction and broader after-proof. Require
+  new hosted checks and independent review; no main merge.
+
+### T-1078 — Admit held saves atomically, without active-save deduplication
+
+- **Owner:** codex. **Branch:** `codex/T-1078-atomic-held-save`.
+- **Status:** review (affected signed cohort passed; fresh hosted proof pending).
+  **Pillar:** no silent loss or unintended replay.
+- **Self-audit:** T1077 used enqueue then markParked across two actor calls;
+  a held copy was briefly runnable. Active same-text dedup could also return
+  without storing its new id, making the second markParked a silent no-op.
+- **Fix:** construct a parked entry before the canonical enqueue; admit it
+  in one actor call. Held intent is not an active-write duplicate. Existing
+  IDs can transition to parked atomically; failed writes restore memory.
+- **Scope:** existing journal, identity checks and same original #964; no
+  new store/framework. Three real queue persistence/reopen/failure cases,
+  affected outbox/slot checks only, no repeated broad/provider suite.
+- **Done when:** affected signed cohort passes, D009/diff clean; save the
+  coherent repair through the original protected PR and require fresh CI.
+- **Verified:** actual queue/slot cohort20/0/0, native exit0, erased owned
+  SE/iOS26.2. Includes persisted/reopened held records and real write failure;
+  no full local suite/provider calls. All five D009 deltas0; diff clean.
+- **Evidence:** `docs/atomic-held-save-2026-10-20.md`.
+
+### T-1075 — Do not repeat full gates for unchanged draft readiness
+
+- **Owner:** codex. **Branch:** `codex/T-1075-ci-ready-dedup`.
+- **Status:** review (static proof passed; platform readiness observation pending).
+  **Pillar:** safer, faster verified integration.
+- **Evidence:** #909d3b6027e has successful quality runs39400830397 and
+  39491129919 on the same head. Second starts20:20:28Z, four seconds after
+  its ready_for_review event. Run metadata no longer exposes base SHAs;
+  do not claim exact virtual merge-tree equality from these records.
+- **Fix:** remove only ready_for_review from quality-gate's event list;
+  retain opened/synchronize/reopened, all draft execution, main pushes,
+  job bodies, manual entry, strict checks/review/admin protections.
+- **Proof:** fast focused contract checks and byte-equal job definitions;
+  no new simulator/provider run. Fresh hosted checks and review remain
+  required on the updated original #964; actual ready-state non-duplication
+  must be observed before claiming platform behavior verified.
+- **Verified:** pinned Node20.20.2 checks6/0/0; independent byte comparison
+  proves the only workflow change is the readiness trigger and explanatory
+  comment. All jobs, steps, permissions and timeouts unchanged. No runtime
+  or dependency source change from tested save-fix parentfeb5f372.
+- **Reference:** `docs/ci-ready-dedup-2026-10-20.md`.
+
+### T-1077 — Run explicit saves waiting behind a background drain
+
+- **Owner:** codex. **Branch:** `codex/T-1077-save-drain-handoff`.
+- **Status:** review (focused and writer checks passed; fresh full CI pending).
+  **Pillar:** dependable acknowledged saves.
+- **Boundary:** preserve original #964ee5c83fd and its independent approval;
+  hosted39507066013 failed Save Now before any server version. Do not merge
+  or substitute its earlier local green. No production change.
+- **Fix:** provenance-port original970b84f6's single save-slot owner; adapt
+  original50d04ae5's handoff/rebase semantics. Claim before queue awaits,
+  consume pending work after drain, preserve request identity/project/auth.
+- **Verification scope:** focused preserved checks plus the unchanged
+  authenticated writer journey; leave full repeated suites to required CI.
+  No model credits, weaker assertions or retries of unchanged code.
+- **Done when:** connected writer save/relaunch passes, D009/diff pass;
+  normal original-branch update retains history/base and requires fresh
+  hosted gates and non-author review before merge.
+- **Verified:** preserved slot checks6/0/0; unchanged authenticated writer
+  UI1/0/0 with actual bundle retained. Signed/erased owned SE/iOS26.2.
+  Five D009 deltas0, diff clean; backend/security files unchanged. No new
+  full local suites or paid call. Hosted iOS26.5 failure remains unclosed.
+- **Evidence:** `docs/foundation-save-handoff-2026-10-20.md`.
+
+### T-1074 — Carry approved security main into original foundation #964
+
+- **Owner:** codex. **Branch:** `codex/T-1074-security-foundation-sync`.
+- **Status:** review (local combined proof passed; publication/CI pending).
+  **Pillar:** integrated writer trust.
+- **Boundary:** original #96481b05e44 + security main78b8c94f, preserving
+  no-ff mergebb20ee71. Only task-ledger conflict; keep both histories.
+  Existing original worktree remains untouched. No source conflict, rewrite,
+  new PR, base change, direct-main push or production action.
+- **Target:** future foundation updates retain current Multer2.4.0,
+  fast-uri3.1.9 and proxy-addr2.0.8 rather than restoring the old lockfile.
+  Keep exact signed/erased simulator and fail-closed evidence contracts.
+- **Done when:** fresh locked Node20 install/audit, full scripts/backend,
+  signed units, writer/voice/macOS, D009/diff pass on the merged source;
+  advance original #964 normally and require fresh CI/independent review.
+- **Limits:** foundation application recovery was previously red; actual
+  client repairs remain in preserved #904/#919, not silently imported here.
+  Do not claim this test-infrastructure boundary proves recovered writer
+  text or native Files. Production and real-phone proof remain held.
+- **CI observation:** ready_for_review duplicates a full gate on an unchanged
+  head, but the existing merge-safety contract explicitly pins that event.
+  Leave it intact in this scoped integration. Follow-up T-1075 must prove
+  any event deduplication preserves exact-head required checks, strict bases
+  and independent review; no draft skip or dropped native gate.
+- **Proof:** checkpoint4f907cbf/tree31481d7c. Fresh Node20 locked install136
+  packages/audit0. Initial scripts210/13/0 lacked real Git/context; after
+  correcting only disposable tooling, scripts223/0/0. Full fresh-lock
+  backend2752/0/2; signed units624/0/0, writer1/0/0, synthetic voice1/0/0,
+  macOS build0, D009 allfive0/diff pass. Native writer bundle retained by an
+  external copy-only wrapper before unchanged producer cleanup. No app
+  recovery, native Files or live/physical claim at this boundary.
+- **Evidence:** `docs/foundation-security-propagation-2026-10-20.md`.
+
+### T-985 — Fail-closed recovery proof and preserve original #904
+
+- **Owner:** codex. **Branch:** `codex/T-985-recovery-proof-truth`.
+- **Status:** review. **Pillar:** durable writer recovery.
+- **Scope:** reuse the original port fix and canonical async/summary proof;
+  reject false-green skips. Then preserve/re-prove original #904's existing
+  deterministic fault injection and queued-draft hydration protection.
+- **Evidence:** Node20 focused14/0/0, scripts223/0/0, backend2747/0/2,
+  D009 deltas0. Real parent recovery0/2/0 during queue setup; not green.
+- **Done when:** the actual requested recovery tests pass without skips on
+  the preserved combined head, with full gates and exact retained artifacts.
+- **Reference:** `docs/recovery-proof-truth-2026-10-19.md`.
+- **Publication checkpoint (2026-10-20):** advance original draft #964 by
+  normal fast-forward, preserving its complete original history. Current
+  focused Node20.20.2 verifier checks14/0/0; syntax, D009 and diff pass.
+  Application recovery remains explicitly red on this main-boundary tree;
+  the separate preserved #904/#919 rehearsal repairs are not included here.
+
+### T-984 — Exact, signed simulator proof on main
+
+- **Owner:** codex. **Branch:** `codex/T-984-main-simulator-proof`.
+- **Status:** review. **Pillar:** trustworthy writer/recovery proof.
+- **Scope:** resolve one exact simulator ID before erasure and Xcode; route
+  main's existing offline-save iPhone tests through that signed canonical
+  runner. No application runtime or unfinished product-stack changes.
+- **Done when:** regressions, full Node20 scripts/backend, erased signed units,
+  authenticated writer UI, macOS, D009 and diff pass; draft PR records proof.
+- **Evidence:** scripts223/0/0, backend2739/0/2, signed units624/0/0,
+  macOS exit0, writer UI1/0/0, D009 deltas0. Offline-save UI still running. See
+  `docs/main-simulator-proof-2026-10-19.md`.
+- **Hold:** required hosted checks and independent human review before merge.
+- **GitHub:** draft #964, initial implementation `ba55565`; no main merge.
+
+### T-1042 — Promote the minimal original dependency-security correction
+
+- **Owner:** codex. **Branch:** `codex/T-1042-dependency-boundary-refresh`.
+- **Status:** review; minimal current-main integration locally proven.
+  **Pillar:** trustworthy screenplay service.
+- **Scope:** original #909 `788e0107` + actual main `deac1a6d`, preserving
+  merge `c111f711`; no unrelated #964 runner work from the older proof branch.
+- **Root:** yesterday's zero registry audit missed four freshly disclosed
+  URI normalization defects. Preserve existing Multer/proxy fixes and update
+  only the compatible locked fast-uri patch to3.1.9. Exact tested backend
+  comes from preserved preparation `a0abd56`; no copied product/UI changes.
+- **Done when:** scoped before/after regressions, exact integrated-tree pinned
+  Node20 full backend, locked install/audit, D009 and diff pass; advance only
+  original #909 normally with fresh hosted checks and independent review.
+- **Holds:** no production/main change, paid call or personal-device action.
+  This is not live exploitability, whole-app security or writer-loop proof.
+- **Verified:** corrected before0/4/0, patched focused5/0/0; exact minimal
+  integrated-tree full Node20 backend2744/0/2, native exit0. Registry scans0
+  are bounded metadata, not security certification. All five D009 deltas0,
+  whitespace/syntax pass; no client, script or workflow delta versus main.
+- **Evidence:** `docs/dependency-boundary-refresh-2026-10-20.md`. Original
+  #909 requires fresh exact-head hosted checks and independent review.
+
+### T-969 — Truthful required checks on original #906
+
+- **Owner:** codex. **Task branch:** `codex/T-969-truthful-906-gate`.
+- **Status:** review. **Pillar:** trustworthy writer/recovery proof.
+- **Landing:** original #906, not a replacement PR. Preserve #904's CI prefix
+  and its remaining later recovery/inspector work separately.
+- **Done when:** signed units/failing UI cases, canonical erased voice entry,
+  Node20 runner contracts, macOS, D009 and diff pass; fresh hosted gate required.
+- **Evidence:** signed units624 + UI2 all pass; final voice1/0/0 and macOS pass;
+  Node20 contracts11/0/0, D009 deltas0. Original hidden hosted reds retained.
+  `docs/906-required-gate-repair-2026-10-16.md`.
+- **Hold:** changed head requires fresh independent approval and real green CI.
+
 ## Branch conventions
 - `codex/<task-id>-<short-name>`
 - `support/backend-<short-name>`
 
 ---
+
+## T-1473 — Preserve original idle-session coalescing safely
+
+- **Owner:** codex (HOWARD preparation; root owns execution/publication)
+- **Branch:** `codex/T-1473-idle-session-preservation`
+- **Pillars:** mobile-first, living companion
+- **Status:** review
+- **Scope:** preserve original #621 `0e5154fc` with a no-ff merge of exact main
+  `71c637d8`; compare both snapshot and existing entries before suppressing a
+  publication; keep real outbox events on forced pending-question refresh.
+- **Regression:** retain all original cases; add the real actor/NotificationCenter
+  earlier-row error mutation case with an unchanged aggregate snapshot.
+- **Verification:** static diff and canonical D009 exact-main71 checks pass;
+  signed focused cases and the snapshot-only counterfactual remain root-owned
+  and unexecuted in this preparation lane. No Autosave/auth-freeze fix claimed.
+- **Proof:** [T1473 preparation](docs/idle-session-preservation-2026-11-13.md).
 
 ## Active work — quick view
 

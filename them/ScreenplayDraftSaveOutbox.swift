@@ -62,6 +62,7 @@ nonisolated struct ScreenplayDraftSaveOutboxSnapshot: Equatable {
 }
 
 actor ScreenplayDraftSaveOutbox {
+    static let conflictReason = "Server draft changed. Choose Keep Mine or Load Server."
     static let shared = ScreenplayDraftSaveOutbox(storageDirectory: defaultStorageDirectory())
 
     private static let maxDraftBytes = 2 * 1024 * 1024
@@ -72,6 +73,8 @@ actor ScreenplayDraftSaveOutbox {
     private let fileManager: FileManager
     private var didLoad = false
     private var entries: [ScreenplayDraftSaveOutboxEntry] = []
+    private struct ConflictScope: Hashable { let project: String; let owner: String; let authorityID: UUID }
+    private var discardedConflictGenerations: [ConflictScope: UInt64] = [:]
     private var networkMonitor: NWPathMonitor?
     private let networkMonitorQueue = DispatchQueue(label: "io.them.screenplay-save-outbox.network")
 
@@ -133,30 +136,40 @@ actor ScreenplayDraftSaveOutbox {
         if let index = entries.firstIndex(where: { $0.id == entry.id }) {
             guard entries[index].projectId == entry.projectId,
                   entries[index].ownerUserId == entry.ownerUserId,
-                  normalizedDraft(entries[index].draft) == normalizedDraft(entry.draft) else {
+                  ScreenplayDraftSaveCompletionPolicy.hasSameBytes(normalizedDraft(entries[index].draft), normalizedDraft(entry.draft)) else {
                 throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_id_reused")
+            }
+            if entry.status == .parked {
+                // A held intent must never have a runnable intermediate state.
+                let previous = entries
+                entries[index].status = .parked
+                entries[index].updatedAt = entry.updatedAt
+                entries[index].nextAttemptAt = 0
+                entries[index].lastError = normalizedError(entry.lastError)
+                do { try persist() } catch { entries = previous; throw error }
             }
             let nextSnapshot = snapshotFor(entries)
             publish(nextSnapshot)
             return nextSnapshot
         }
-        if entries.contains(where: { existing in
+        if entry.status != .parked, entries.contains(where: { existing in
             existing.projectId == entry.projectId &&
                 existing.ownerUserId == entry.ownerUserId &&
                 existing.status != .parked &&
                 existing.baseVersionId == entry.baseVersionId &&
-                normalizedDraft(existing.draft) == normalizedDraft(entry.draft)
+                ScreenplayDraftSaveCompletionPolicy.hasSameBytes(normalizedDraft(existing.draft), normalizedDraft(entry.draft))
         }) {
             let nextSnapshot = snapshotFor(entries)
             publish(nextSnapshot)
             return nextSnapshot
         }
+        let previous = entries
         entries.append(entry)
         entries.sort { lhs, rhs in
             if lhs.createdAt == rhs.createdAt { return lhs.id < rhs.id }
             return lhs.createdAt < rhs.createdAt
         }
-        try persist()
+        do { try persist() } catch { entries = previous; throw error }
         let nextSnapshot = snapshotFor(entries)
         publish(nextSnapshot)
         return nextSnapshot
@@ -203,24 +216,41 @@ actor ScreenplayDraftSaveOutbox {
     func markInflight(id: String, now: Date = Date()) throws {
         try loadIfNeeded()
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+        guard entries[index].status != .parked || entries[index].lastError != Self.conflictReason else { return }
         entries[index].status = .inflight
         entries[index].updatedAt = now.timeIntervalSince1970
         try persist()
         publishSnapshot()
     }
 
+    @discardableResult
     func markSucceeded(
         id: String,
         serverVersionId: String,
+        supersedesEarlierSaves: Bool = false,
+        preserveConflictCopies: Bool? = nil,
+        expectedEntry: ScreenplayDraftSaveOutboxEntry? = nil,
+        requireUnparkedRequest: Bool = false,
         now: Date = Date()
-    ) throws {
+    ) throws -> Bool {
         try loadIfNeeded()
-        guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+        guard let index = entries.firstIndex(where: { $0.id == id }) else { return true }
+        if requireUnparkedRequest, entries[index].status == .parked,
+           entries[index].lastError == Self.conflictReason { return false }
+        if let expectedEntry {
+            guard entries[index] == expectedEntry,
+                  ScreenplayDraftSaveCompletionPolicy.hasSameBytes(entries[index].draft, expectedEntry.draft) else { return false }
+        }
+        let previous = entries
         let completed = entries.remove(at: index)
+        // Ordinary receipts retain unresolved choices. Explicit resolution can
+        // supersede them; metadata may compact active retries while retaining them.
+        let preserveConflicts = preserveConflictCopies ?? !supersedesEarlierSaves
         entries.removeAll { entry in
             entry.projectId == completed.projectId &&
                 entry.ownerUserId == completed.ownerUserId &&
-                entry.status == .parked &&
+                (supersedesEarlierSaves || entry.status == .parked) &&
+                !(preserveConflicts && entry.status == .parked && entry.lastError == Self.conflictReason) &&
                 entry.createdAt <= completed.createdAt
         }
         let nextBase = serverVersionId.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -228,20 +258,94 @@ actor ScreenplayDraftSaveOutbox {
             for queuedIndex in entries.indices where
                 entries[queuedIndex].projectId == completed.projectId &&
                 entries[queuedIndex].ownerUserId == completed.ownerUserId &&
+                entries[queuedIndex].status != .parked &&
                 entries[queuedIndex].createdAt >= completed.createdAt &&
                 entries[queuedIndex].baseVersionId == completed.baseVersionId {
                 entries[queuedIndex].baseVersionId = nextBase
                 entries[queuedIndex].updatedAt = now.timeIntervalSince1970
             }
         }
-        try persist()
+        do { try persist() } catch { entries = previous; throw error }
         publishSnapshot()
+        return true
+    }
+
+    /// Preserve an undispatched follower or release an interrupted inflight
+    /// request under its captured owner, without reviving an explicit discard.
+    func retainInterruptedSave(_ entry: ScreenplayDraftSaveOutboxEntry,
+        authorityID: UUID, authorityGeneration: UInt64) throws {
+        try loadIfNeeded()
+        let scope = ConflictScope(project: entry.projectId, owner: entry.ownerUserId, authorityID: authorityID)
+        if let discarded = discardedConflictGenerations[scope], authorityGeneration <= discarded { return }
+        if let stored = entries.first(where: { $0.id == entry.id }) {
+            guard stored.projectId == entry.projectId, stored.ownerUserId == entry.ownerUserId,
+                  ScreenplayDraftSaveCompletionPolicy.hasSameBytes(stored.draft, entry.draft) else {
+                throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_id_reused")
+            }
+            guard stored.status != .parked else { return }
+            try markRetryable(id: entry.id, error: "Account or project changed before save confirmation.")
+        } else {
+            var retained = entry
+            retained.status = .parked
+            retained.nextAttemptAt = 0
+            retained.lastError = "Save retained after the account or project changed."
+            _ = try enqueue(retained)
+        }
+    }
+
+    /// A late task cannot revive a conflict already discarded by this model's explicit choice.
+    func enqueueConflictCopy(_ entry: ScreenplayDraftSaveOutboxEntry,
+        authorityID: UUID, authorityGeneration: UInt64) throws {
+        let scope = ConflictScope(project: entry.projectId, owner: entry.ownerUserId, authorityID: authorityID)
+        if let discarded = discardedConflictGenerations[scope], authorityGeneration <= discarded { return }
+        _ = try retainConflict(projectId: entry.projectId, ownerUserId: entry.ownerUserId)
+        var parked = entry
+        parked.status = .parked
+        parked.lastError = Self.conflictReason
+        parked.nextAttemptAt = 0
+        _ = try enqueue(parked)
     }
 
     func remove(id: String) throws {
         try loadIfNeeded()
         entries.removeAll { $0.id == id }
         try persist()
+        publishSnapshot()
+    }
+
+    /// Retain every immutable draft until the writer resolves this chain.
+    func retainConflict(projectId: String, ownerUserId: String, now: Date = Date()) throws -> ScreenplayDraftSaveOutboxEntry? {
+        try loadIfNeeded()
+        let previous = entries
+        let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let owner = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
+        for index in entries.indices where entries[index].projectId == project && entries[index].ownerUserId == owner {
+            entries[index].status = .parked
+            entries[index].updatedAt = now.timeIntervalSince1970
+            entries[index].nextAttemptAt = 0
+            entries[index].lastError = Self.conflictReason
+        }
+        do { try persist() } catch { entries = previous; throw error }
+        publishSnapshot()
+        return entries.last { $0.projectId == project && $0.ownerUserId == owner }
+    }
+
+    /// Only an explicit Load Server choice discards conflicts already present at that choice.
+    func discardConflicts(projectId: String, ownerUserId: String, through: TimeInterval,
+        authorityID: UUID? = nil, authorityGeneration: UInt64 = 0) throws {
+        try loadIfNeeded()
+        let previous = entries
+        let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let owner = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
+        entries.removeAll {
+            $0.projectId == project && $0.ownerUserId == owner && $0.status == .parked
+                && $0.lastError == Self.conflictReason && $0.createdAt <= through
+        }
+        do { try persist() } catch { entries = previous; throw error }
+        if let authorityID {
+            let scope = ConflictScope(project: project, owner: owner, authorityID: authorityID)
+            discardedConflictGenerations[scope] = max(discardedConflictGenerations[scope] ?? 0, authorityGeneration)
+        }
         publishSnapshot()
     }
 
@@ -260,6 +364,7 @@ actor ScreenplayDraftSaveOutbox {
     func markRetryable(id: String, error: String, now: Date = Date()) throws {
         try loadIfNeeded()
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+        guard entries[index].status != .parked || entries[index].lastError != Self.conflictReason else { return }
         let retryCount = entries[index].retries + 1
         entries[index].retries = retryCount
         entries[index].updatedAt = now.timeIntervalSince1970
@@ -278,6 +383,7 @@ actor ScreenplayDraftSaveOutbox {
     func markParked(id: String, error: String, now: Date = Date()) throws {
         try loadIfNeeded()
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+        guard entries[index].status != .parked || entries[index].lastError != Self.conflictReason else { return }
         entries[index].status = .parked
         entries[index].updatedAt = now.timeIntervalSince1970
         entries[index].nextAttemptAt = 0
@@ -289,6 +395,18 @@ actor ScreenplayDraftSaveOutbox {
     func entriesForTesting() throws -> [ScreenplayDraftSaveOutboxEntry] {
         try loadIfNeeded()
         return entries
+    }
+
+    func pendingEntry(projectId: String, ownerUserId: String) throws -> ScreenplayDraftSaveOutboxEntry? {
+        try loadIfNeeded()
+        let cleanProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanOwnerUserId = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
+        return entries.last { entry in
+            entry.projectId == cleanProjectId
+                && entry.ownerUserId == cleanOwnerUserId
+                && (entry.status == .pending || entry.status == .inflight
+                    || (entry.status == .parked && entry.lastError == Self.conflictReason))
+        }
     }
 
     #if DEBUG

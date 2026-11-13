@@ -2404,6 +2404,9 @@ final class BackendClient {
         BackendDefaultBaseURLPolicy.currentFallbackBaseURL
     }
 
+    // No teardown requires actor state; keep the canonical stateless release.
+    nonisolated deinit {}
+
     init(
         baseURL: URL = BackendClient.resolveURL(
             fromEnv: "BACKEND_URL",
