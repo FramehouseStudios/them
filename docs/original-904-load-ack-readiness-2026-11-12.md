@@ -12,8 +12,9 @@ adds this report. No product/backend/provider/auth behavior changes.
 ## Root issue addressed
 
 VERIFIED source: both waits accepted queued marker/count/dirty state while
-load acknowledgement could still be0. The nonfatal equality assertion was
-after the wait returned. Root consumes a real request and resets ACK0; Studio
+load acknowledgement could still be0. The equality assertion was after the wait returned. This UI class sets
+`continueAfterFailure = false`, so a failure stops the case; later assertions
+must not be counted as executed merely because no later failure is listed. Root consumes a real request and resets ACK0; Studio
 publishes that request's acknowledgement later. The removed old command-line
 ACK0 override remains removed and is not claimed as this failure's cause.
 
