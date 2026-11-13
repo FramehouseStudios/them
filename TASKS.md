@@ -5,6 +5,13 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### Original #979 immutable conflict-chain proof — T-1469 root execution
+
+- **Owner:** Jarvis; Einstein bounded contract/driver preparation; root reviewed and executed.
+- **Fixed:** exact-one parked count contradicted the canonical immutable save chain. Require durable full writer text and explicit choice, exact server-version sets and one clean post-choice relaunch; no recovery copies deleted.
+- **Proof:** candidate9d signed erasedowned81F canonical recovery2/0/0; source/driver hashes unchanged, exact identities once, authenticated local fixture PID/nonce verified. Offline exact-lock136 packages; hostNode26.7, no paid calls. BackendNode20/fullunits are inherited7b proof, not repeated. Parse/diff/D009 fivezero.
+- **GitHub/next:** normal descendant update to original979 only; fresh required checks/re-review remain. Main71 Autosave firstred and productionhold remain; real-phone journey and separate authfreeze unresolved. See docs/original-979-recovery-chain-contract-2026-11-13.md. READY FOR CONTINUE.
+
 ### Original979 immutable recovery-chain test contract — T-1469 (2026-11-13)
 
 - **Owner:** Einstein, bounded source/artifact investigation and explicitly assigned test-only candidate; only new `codex/T-1469-recovery-chain-contract`, exact published7b base. Root retains execution/publication and both held merges.

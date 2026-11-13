@@ -101,9 +101,9 @@ this case; no action retry, enlarged limit or new skip was introduced.
   ref `origin/codex/T-1469-base-main` was created and removed; no existing tracking
   or GitHub ref changed. Static Node v26.7.0.
 
-No native, simulator, backend, npm, provider, Docker or performance run. Native
-behavior of this candidate, including new version-set and final-relaunch checks,
-remains unproved. The retained hosted red stays red. The published immutable auth
+At the preparation checkpoint above, no native, simulator, backend, npm, provider,
+Docker or performance run had executed. The root execution below supersedes that
+local verification gap; it does not change the original hosted result. The retained hosted red stays red. The published immutable auth
 override still prevents treating the test name as actual401-to-refresh evidence;
 root's separate real-auth fixture evidence does not become this candidate's proof.
 Both held merges, root's Autosave first-red investigation and production hold remain.
@@ -122,4 +122,44 @@ Patch SHA256:
 
 Next active task: root reviews this exact test diff before any focused native proof
 or normal original979 advancement. No replacement PR or remote mutation.
+READY FOR CONTINUE.
+
+
+## Root review and focused execution — 2026-11-13
+
+Root reviewed the exact9d test diff and canonical outbox ownership/immutable-chain
+contract before execution. App/backend/dependency/runner sources remain exact7b;
+no Autosave diagnostic is included in this recovery candidate.
+
+The verified private npm-cache copy provided all136 locked tarballs. Root performed
+one offline install with lifecycle scripts/audit/fund disabled, then npm ls and
+installed-version verification:136 packages match the lock, including Multer2.5.0,
+Express4.22.3, body-parser1.20.9 and qs6.16.2. Host Node26.7.0/npm11.19.0; this is
+not a new Node20 full-backend suite or registry audit. Original cache was unmodified.
+
+One canonical signed two-case iPhone recovery execution on erased owned81F,
+iOS26.2/Xcode26.3, completed with native/producer exit0:2 passed/0 failed/0 skipped.
+Both exact test identities occurred once. The corrected stale-conflict case passed
+the full writer fingerprint/project checks, no unchosen server save, exact two
+pre-choice versions, exactly one chosen version, three post-choice versions and
+three unchanged versions after its final clean relaunch. The ordinary reconnect
+case also passed. No extra waits, action retries or skips were added.
+
+The disposable31337 fixture required real local user authentication; its live PID
+and per-run nonce were verified before Xcode. No real provider key was forwarded;
+the known Node HTTP/fetch/WebSocket guard recorded zero external attempts. This
+is not an OS-wide network isolation claim. All1410 source files and driver hashes
+remained unchanged throughout execution. The case's inherited DEBUG auth override
+still prevents a claim that this run proves an actual401/refresh exchange.
+
+Private exact result bundle:
+/private/tmp/them-t1469-einstein-artifact/contract-candidate/native-preparation/native-run/them-save-recovery-8GEAMp/recovery-ios.xcresult.
+Completion/source/ownership receipts are adjacent. Fullbackend2758/0/2 onNode20,
+hosted709 signedunits and other7b results remain inherited with identical relevant
+sources; none is represented as a new full run on9d. The hosted7b recovery1/1/0
+remains red. New published-head checks and non-author review are required.
+
+The first red on integratedmain71 remains the separate Autosave activation failure;
+all main merges are held. No runtime freeze repair, paid model, microphone,
+physical-phone, external-file-open or production deployment is claimed.
 READY FOR CONTINUE.
