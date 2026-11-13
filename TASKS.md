@@ -5,6 +5,13 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1471 — Keep the writer runner draining its backend pipes
+
+- **Owner:** Jarvis; Howard original4386 capability backport, Einstein frozen Node20 proof preparation.
+- **Fixed:** synchronous native wait starved the supervisor's backend-pipe listeners. Preserve all native assertions/paths; await close asynchronously and stream bounded diagnostic tails.
+- **Proof:** original exact3s pressure timeout0/1/0 → async1/0/0 onNode20 (fakeApple only). Separate unchanged signed writer1/0/0 on erasedowned81F; exact identity/source hashes/PIDnonce verified, no paidcalls. Initial noexec-fixture0/1 setup failure retained separately. Exactmain71 D009fivezero, syntax/diffpass.
+- **Next/limits:** scoped history-preserving branch backup; leave9794af CI intact, no main merge/deploy. Autosave originalfirstred and separate authfreeze remain unresolved; realphone journey unproved. See docs/writer-pipe-backport-proof-2026-11-13.md. READY FOR CONTINUE.
+
 ### Original #979 immutable conflict-chain proof — T-1469 root execution
 
 - **Owner:** Jarvis; Einstein bounded contract/driver preparation; root reviewed and executed.

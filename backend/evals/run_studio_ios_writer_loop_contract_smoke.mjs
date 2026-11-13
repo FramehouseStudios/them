@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -38,20 +38,36 @@ try {
     { encoding: "utf8", mode: 0o600 }
   );
 
-  const child = spawnSync("bash", [
+  const child = spawn("bash", [
     "scripts/run_v1_ui_smoke.sh",
     "-quiet",
     "-resultBundlePath", RESULT_BUNDLE_PATH,
   ], {
     cwd: ROOT_DIR,
-    encoding: "utf8",
-    maxBuffer: 128 * 1024 * 1024,
+    stdio: ["ignore", "pipe", "pipe"],
     env: {
       ...process.env,
       ONLY_TESTING: WRITER_LOOP_TEST,
       ARTIFACT_DIR: dirname(RESULT_BUNDLE_PATH),
       THEM_UITEST_RESTORE_XCCONFIG_PATH: XCCONFIG_PATH,
     },
+  });
+  let stdout = "", stderr = "";
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", chunk => {
+    process.stdout.write(chunk);
+    stdout = failureOutputTail(stdout + chunk);
+  });
+  child.stderr.on("data", chunk => {
+    process.stderr.write(chunk);
+    stderr = failureOutputTail(stderr + chunk);
+  });
+  // Keep the event loop free to drain both backend and native output while
+  // Xcode waits for backend requests; retain bounded tails for failure reports.
+  const status = await new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", resolve);
   });
   const resultTests = existsSync(RESULT_BUNDLE_PATH)
     ? spawnSync("xcrun", [
@@ -73,13 +89,13 @@ try {
     resultFailureDetails = "Could not read xcresult test details.\n"
       + failureOutputTail(resultTests.stderr || resultTests.stdout);
   }
-  if (child.status !== 0) {
+  if (status !== 0) {
     throw new Error(
       "Integrated iPhone writer-loop UI test failed.\n"
-      + `status=${child.status}\n`
+      + `status=${status}\n`
       + `xcresult failures:\n${failureOutputTail(resultFailureDetails)}\n`
-      + `stdout tail:\n${failureOutputTail(child.stdout)}\n`
-      + `stderr tail:\n${failureOutputTail(child.stderr)}\n`
+      + `stdout tail:\n${stdout}\n`
+      + `stderr tail:\n${stderr}\n`
       + `backend stdout tail:\n${failureOutputTail(server.stdout.join(""))}\n`
       + `backend stderr tail:\n${failureOutputTail(server.stderr.join(""))}`
     );
@@ -100,8 +116,6 @@ try {
   }
   assertSinglePassedTestSummary(JSON.parse(summaryResult.stdout));
 
-  process.stdout.write(child.stdout || "");
-  process.stderr.write(child.stderr || "");
   console.log("studio-ios-writer-loop-contract-smoke: ok");
 } finally {
   if (existsSync(XCCONFIG_PATH)) unlinkSync(XCCONFIG_PATH);
