@@ -5,6 +5,14 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### Original919 conflict-parent preparation — T-1463 (2026-11-12)
+
+- **Owner:** Einstein, bounded root-authorized reconciliation in only new `codex/T-1463-919-conflict-parent-sync` worktree. No publication or readiness claim.
+- **History:** preserving merge 23c96f1e retains exact prepared 1c182252 + published original #904 c2fab4c1; original #919 9b remains ancestor. All 12 conflict stages/four working copies preserved and rehashed; only 13 explicitly approved hunks reconciled. Both task histories retained.
+- **Source:** outbox/tests exact c2; all 42 original test bodies plus 6 parent additions retained. VM exact c2 except exact original child DEBUG queued-save readiness function. Viewport/bridge/related tests/V1 exact 1c; common recovery policies match both. No duplicate recovery owner or assertion relaxation.
+- **Proof/limits:** source parse/diff pass; D009 vs exact c2 all five zero, task-local base ref removed. Static Node 26.7.0. Parent 709 units / 2 recovery / 1 writer / Mac exit 0 are inherited root proof (fixture/controller Node 26.7), not child reruns. No native/backend/npm/model/ports or shared worktree action.
+- **Next:** root first-red/auth-fixture work remains priority, then combined verification and original-branch review/advancement. Evidence: `docs/original-919-conflict-parent-sync-2026-11-12.md`. Main/GitHub/productionheld; child not ready. READY FOR CONTINUE.
+
 ### Original904 conflict recovery authority — T-1460 (2026-11-12)
 
 - **Owner:** Jarvis runtime/proof; Zora bounded artifact/source challenge; Einstein separate original979 security integration, no shared file ownership.
