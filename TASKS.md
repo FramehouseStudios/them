@@ -27,6 +27,14 @@
 - **Proof/limits:** source parse/diff pass; D009 vs exact c2 all five zero, task-local base ref removed. Static Node 26.7.0. Parent 709 units / 2 recovery / 1 writer / Mac exit 0 are inherited root proof (fixture/controller Node 26.7), not child reruns. No native/backend/npm/model/ports or shared worktree action.
 - **Next:** root first-red/auth-fixture work remains priority, then combined verification and original-branch review/advancement. Evidence: `docs/original-919-conflict-parent-sync-2026-11-12.md`. Main/GitHub/productionheld; child not ready. READY FOR CONTINUE.
 
+### Original #979 fixture hydration boundary — T-1472 (2026-11-13)
+
+- **Owner:** Jarvis; Zora bounded read-only source challenge.
+- **Verified red:** exact4af hosted recovery1/1/0; ordinary offline queue contains only marker, not seeded page; stale-conflict case passes. Artifact/hash retained privately.
+- **Fix:** reuse preserved919b24 / original39ca DEBUG helper readiness, matching selected+loaded draft project and cancellation; same40x250ms budget. All test identities/assertions/runtime bytes otherwise unchanged.
+- **Proof:** exactfd03 signed erasedowned81F recovery2/0/0; both identities once; all1411 source/four driver hashes unchanged; authenticated fixture livePID/nonce verified, known external API attempts0. Swiftparse/diff/D009fivezero. No unchanged broad local reruns or live-model/phone/real401 claim.
+- **Next:** record proof and normally fast-forward original979; fresh hosted checks and genuine non-author review required. Main Autosave failure and production hold persist. See docs/original-979-fixture-hydration-2026-11-13.md. READY FOR CONTINUE.
+
 ### Original #979 immutable conflict-chain proof — T-1469 root execution
 
 - **Owner:** Jarvis; Einstein bounded contract/driver preparation; root reviewed and executed.
