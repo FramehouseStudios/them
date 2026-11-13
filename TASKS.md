@@ -5,6 +5,13 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### Original979 on landed foundation — T-1461 (2026-11-12)
+
+- **Owner:** Einstein, bounded integration assigned by Jarvis; only new `codex/T-1461-979-foundation-sync` worktree. Original979c508 and landedmainbc retained by no-ff85f957c5; no conflicts or source overwrite.
+- **Source:** entire backend/dependency bytes remain original979c508; app/Packages/units/scripts/workflows match mainbc. Original two V1 helper/assertion hunks and proofdoc remain; whole candidate is not main-identical. No recovery/auth assertion weakened.
+- **Proof:** fresh isolated Node20.20.2/npm10.8.2 offlineinstall/ls exit0; focused12/0/1, fullbackend2752/0/2; fresh official productionaudit0;1,390 sourcefiles/zero mismatches; actualmain D009 five0/diffpass. Skips explicit, no native/sim/model/host-port use.
+- **Boundary/next:** local/unpublished only; root reviews descendant before normal original979 advancement/base targeting, fresh hosted checks and genuine non-author approval. No GitHub/main/protection/production changes; dirty973 and recovery/simulator ownership untouched. Evidence: `docs/original-979-foundation-sync-2026-11-12.md`. Productionheld; READY FOR CONTINUE.
+
 ### Current foundation scene fixture repair — T-1453 (2026-11-12)
 
 - **Owner:** Jarvis; Howard bounded source/scope review, Luna hosted evidence and next drawer triage. No human approval substituted.
