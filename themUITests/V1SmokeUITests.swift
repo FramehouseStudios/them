@@ -3475,13 +3475,19 @@ final class V1SmokeUITests: XCTestCase {
     }
 
     private func attachWriterLoopAutosaveInput(in app: XCUIApplication, name: String) {
-        let trace = element(identifier: "studio.debug.input.trace", in: app)
-        let attachment = XCTAttachment(string: trace.exists
-            ? (trace.value as? String ?? "Native input trace unavailable")
-            : "Native input trace endpoint unavailable")
+        let trace = element(identifier: "studio.debug.inspector.input.trace", in: app)
+        let raw = trace.exists ? (trace.value as? String) : nil
+        let attachment = XCTAttachment(string: raw ?? "Native input trace endpoint unavailable")
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
+        if let data = raw?.data(using: .utf8),
+           let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
+            XCTAssertNotNil(payload["autosave_enabled"] as? Bool, "Autosave diagnostic lacks canonical state.")
+            XCTAssertNotNil(payload["events"] as? [[String: Any]], "Autosave diagnostic lacks event records.")
+        } else {
+            XCTFail("The opt-in Autosave diagnostic endpoint was unavailable or invalid.")
+        }
     }
 
     /// Requires known native states before and after one action. Missing or

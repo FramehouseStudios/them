@@ -62,3 +62,12 @@ is unavailable. Artifact-directory setup now runs as a step using RUNNER_TEMP.
 Official context restrictions: https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#context-availability.
 The corrected push is a new source head, not a retry of executed native tests;
 no hosted native case has run yet. Required workflow files remain byte-identicalmain.
+
+A final source challenge found thatfa1 queried the representable's unused default
+identifier. Studio actually mounts studio.debug.inspector.input.trace. The helper
+now queries that mounted identifier and requires parseable Bool/events metadata,
+so an unavailable endpoint cannot be accepted as successful diagnostic capture.
+Run43397837843 remains untouched atfa1; its result must be labeled separately and
+may have no retained metadata. This corrected query has syntax proof only until
+an actual native execution is recorded. No unavailable trace proves absence of
+setter delivery. No test rerun/cancellation has been requested.
