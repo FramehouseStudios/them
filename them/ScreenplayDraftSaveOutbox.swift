@@ -134,7 +134,7 @@ actor ScreenplayDraftSaveOutbox {
         if let index = entries.firstIndex(where: { $0.id == entry.id }) {
             guard entries[index].projectId == entry.projectId,
                   entries[index].ownerUserId == entry.ownerUserId,
-                  normalizedDraft(entries[index].draft) == normalizedDraft(entry.draft) else {
+                  ScreenplayDraftSaveCompletionPolicy.hasSameBytes(normalizedDraft(entries[index].draft), normalizedDraft(entry.draft)) else {
                 throw BackendMemoryAPIError.server(status: 409, message: "screenplay_save_id_reused")
             }
             if entry.status == .parked {
@@ -155,7 +155,7 @@ actor ScreenplayDraftSaveOutbox {
                 existing.ownerUserId == entry.ownerUserId &&
                 existing.status != .parked &&
                 existing.baseVersionId == entry.baseVersionId &&
-                normalizedDraft(existing.draft) == normalizedDraft(entry.draft)
+                ScreenplayDraftSaveCompletionPolicy.hasSameBytes(normalizedDraft(existing.draft), normalizedDraft(entry.draft))
         }) {
             let nextSnapshot = snapshotFor(entries)
             publish(nextSnapshot)
@@ -224,16 +224,26 @@ actor ScreenplayDraftSaveOutbox {
         id: String,
         serverVersionId: String,
         supersedesEarlierSaves: Bool = false,
+        preserveConflictCopies: Bool? = nil,
+        expectedEntry: ScreenplayDraftSaveOutboxEntry? = nil,
         now: Date = Date()
     ) throws {
         try loadIfNeeded()
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+        if let expectedEntry {
+            guard entries[index] == expectedEntry,
+                  ScreenplayDraftSaveCompletionPolicy.hasSameBytes(entries[index].draft, expectedEntry.draft) else { return }
+        }
         let previous = entries
         let completed = entries.remove(at: index)
+        // Ordinary receipts retain unresolved choices. Explicit resolution can
+        // supersede them; metadata may compact active retries while retaining them.
+        let preserveConflicts = preserveConflictCopies ?? !supersedesEarlierSaves
         entries.removeAll { entry in
             entry.projectId == completed.projectId &&
                 entry.ownerUserId == completed.ownerUserId &&
                 (supersedesEarlierSaves || entry.status == .parked) &&
+                !(preserveConflicts && entry.status == .parked && entry.lastError == Self.conflictReason) &&
                 entry.createdAt <= completed.createdAt
         }
         let nextBase = serverVersionId.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -241,6 +251,7 @@ actor ScreenplayDraftSaveOutbox {
             for queuedIndex in entries.indices where
                 entries[queuedIndex].projectId == completed.projectId &&
                 entries[queuedIndex].ownerUserId == completed.ownerUserId &&
+                entries[queuedIndex].status != .parked &&
                 entries[queuedIndex].createdAt >= completed.createdAt &&
                 entries[queuedIndex].baseVersionId == completed.baseVersionId {
                 entries[queuedIndex].baseVersionId = nextBase
