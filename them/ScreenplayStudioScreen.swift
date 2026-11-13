@@ -989,7 +989,6 @@ Replace is best when this file should become the script you edit. Append is safe
     private var studioThreadStateBoundView: some View {
         studioObservedView
             .onChange(of: studioAskNoteHistory) { _, newValue in
-                persistStudioAskNoteHistory(newValue, for: activeStudioAskNoteHistoryKey)
                 persistStudioWriteAnchorSnapshot(
                     from: newValue,
                     for: activeStudioAskNoteHistoryKey,
@@ -1014,6 +1013,7 @@ Replace is best when this file should become the script you edit. Append is safe
                 }
                 migrateAcknowledgedStudioDiffStorageKeysIfNeeded(entries: newValue)
                 refreshAcknowledgedDiffState()
+                persistStudioAskNoteHistory(newValue, for: activeStudioAskNoteHistoryKey)
                 syncPreferredFocusedRevisedDiffIfNeeded()
                 syncFocusedPageDiffAnchorRequest()
                 persistFullThreadBrowseState(for: activeStudioAskNoteHistoryKey)
