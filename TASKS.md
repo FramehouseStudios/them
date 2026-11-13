@@ -770,6 +770,22 @@ change or treat it as merged; original pre-proof text remains in Git history.
 
 ---
 
+## T-1473 — Preserve original idle-session coalescing safely
+
+- **Owner:** codex (HOWARD preparation; root owns execution/publication)
+- **Branch:** `codex/T-1473-idle-session-preservation`
+- **Pillars:** mobile-first, living companion
+- **Status:** review
+- **Scope:** preserve original #621 `0e5154fc` with a no-ff merge of exact main
+  `71c637d8`; compare both snapshot and existing entries before suppressing a
+  publication; keep real outbox events on forced pending-question refresh.
+- **Regression:** retain all original cases; add the real actor/NotificationCenter
+  earlier-row error mutation case with an unchanged aggregate snapshot.
+- **Verification:** static diff and canonical D009 exact-main71 checks pass;
+  signed focused cases and the snapshot-only counterfactual remain root-owned
+  and unexecuted in this preparation lane. No Autosave/auth-freeze fix claimed.
+- **Proof:** [T1473 preparation](docs/idle-session-preservation-2026-11-13.md).
+
 ## Active work — quick view
 
 | ID   | Title                                              | Owner  | Status            |
@@ -5802,3 +5818,9 @@ rebase on current main after #273, rerun backend auth tests, and keep
 `do-not-merge`/tier-3 until human auth-route clearance.
 
 <!-- END AUTOGEN active-tasks -->
+
+### T-1473 root execution — idle-session preservation
+
+- **Owner:** Jarvis; Howard prepared preserved original621 plus entry-aware coalescing and main-compatible forced real-event refresh.
+- **Proof:** original-guard new-case counterfactual signed0/1/0 expected; corrected entireoutboxclass10/0/0, erasedowned81F, normal signing. All1408 tracked inputs verified, controlled source restored and clean. No full unchanged suite/model/live idle-route claim.
+- **Next:** scoped verified branch backup; preserve eventual actual main before original621 advancement and fresh hosted review/check gates. Main Autosave/auth-freeze and production hold persist. See docs/idle-session-preservation-2026-11-13.md. READY FOR CONTINUE.

@@ -253,4 +253,105 @@ final class OfflineTalkOutboxTests: XCTestCase {
         entries = await outbox.allEntries()
         XCTAssertEqual(entries, [])
     }
+
+    func testEarlierEntryErrorChangePublishesWhenAggregateSnapshotIsUnchanged() async throws {
+        let outbox = OfflineTalkOutbox(storageDirectory: directory)
+        let firstReason = "first-row-offline-\(UUID().uuidString)"
+        let lastReason = "last-row-offline-\(UUID().uuidString)"
+        let initialUpdates = expectation(description: "Both initial entries publish")
+        initialUpdates.expectedFulfillmentCount = 2
+        let initialToken = NotificationCenter.default.addObserver(
+            forName: .themOfflineTalkOutboxUpdated,
+            object: nil,
+            queue: .main
+        ) { notification in
+            let snapshot = OfflineTalkOutboxSnapshot(notification: notification)
+            if snapshot.lastError == firstReason || snapshot.lastError == lastReason {
+                initialUpdates.fulfill()
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(initialToken) }
+
+        var firstRequest = URLRequest(url: URL(string: "https://them.test/talk")!)
+        firstRequest.httpMethod = "POST"
+        firstRequest.setValue("multipart/form-data; boundary=test", forHTTPHeaderField: "Content-Type")
+        firstRequest.setValue("idem-earlier-row", forHTTPHeaderField: "X-Idempotency-Key")
+        var lastRequest = firstRequest
+        lastRequest.setValue("idem-last-row", forHTTPHeaderField: "X-Idempotency-Key")
+        let body = Data("queued-body".utf8)
+        _ = try await outbox.enqueue(request: firstRequest, body: body, reason: firstReason)
+        _ = try await outbox.enqueue(request: lastRequest, body: body, reason: lastReason)
+        await fulfillment(of: [initialUpdates], timeout: 2)
+        NotificationCenter.default.removeObserver(initialToken)
+
+        let before = await outbox.snapshot()
+        XCTAssertEqual(before.pendingCount, 2)
+        XCTAssertEqual(before.inflightCount, 0)
+        XCTAssertEqual(before.parkedCount, 0)
+        XCTAssertEqual(before.lastError, lastReason)
+        let changed = expectation(description: "Earlier row change publishes an equal snapshot")
+        let changedToken = NotificationCenter.default.addObserver(
+            forName: .themOfflineTalkOutboxUpdated,
+            object: nil,
+            queue: .main
+        ) { notification in
+            if OfflineTalkOutboxSnapshot(notification: notification) == before {
+                changed.fulfill()
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(changedToken) }
+
+        let updatedReason = "earlier row changed while last row stayed unchanged"
+        let updated = try await outbox.enqueue(
+            request: firstRequest,
+            body: body,
+            reason: updatedReason
+        )
+        XCTAssertEqual(updated.snapshot, before)
+        XCTAssertEqual(updated.entry.lastError, updatedReason)
+        let entries = await outbox.allEntries()
+        XCTAssertEqual(entries.count, 2)
+        XCTAssertEqual(entries.first?.lastError, updatedReason)
+        XCTAssertEqual(entries.last?.lastError, lastReason)
+        await fulfillment(of: [changed], timeout: 2)
+    }
+
+    func testIdleDrainPublishesTheSameSnapshotOnlyOnce() async throws {
+        let outbox = OfflineTalkOutbox(storageDirectory: directory)
+        let received = ReceivedNotificationCounter()
+        let token = NotificationCenter.default.addObserver(
+            forName: .themOfflineTalkOutboxUpdated,
+            object: nil,
+            queue: .main
+        ) { _ in received.increment() }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        // Nothing queued: the first idle drain may announce itself once.
+        _ = await outbox.drainDue()
+        try await Task.sleep(nanoseconds: 300_000_000)
+        let afterFirstDrain = received.count
+
+        // Further idle drains (one per health tick) must stay silent.
+        _ = await outbox.drainDue()
+        _ = await outbox.drainDue()
+        _ = await outbox.drainDue()
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(received.count, afterFirstDrain, "an unchanged outbox must not re-notify every tick")
+
+        // A real change still notifies.
+        var request = URLRequest(url: URL(string: "https://them.test/talk")!)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=test", forHTTPHeaderField: "Content-Type")
+        request.setValue("idem-idle", forHTTPHeaderField: "X-Idempotency-Key")
+        _ = try await outbox.enqueue(request: request, body: Data("q".utf8), reason: "offline")
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertGreaterThan(received.count, afterFirstDrain)
+    }
+}
+
+private final class ReceivedNotificationCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+    var count: Int { lock.lock(); defer { lock.unlock() }; return value }
+    func increment() { lock.lock(); value += 1; lock.unlock() }
 }
