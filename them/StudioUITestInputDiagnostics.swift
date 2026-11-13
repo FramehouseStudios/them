@@ -85,9 +85,26 @@ enum StudioUITestInputDiagnostics {
         if records.count > 32 { records.removeFirst(records.count - 32) }
     }
 
+    static func autosaveBinding(_ original: Binding<Bool>) -> Binding<Bool> {
+        guard requested else { return original }
+        return Binding(get: { original.wrappedValue }, set: { value, transaction in
+            record(["kind": "autosave_setter", "phase": "entered",
+                    "previous": original.wrappedValue, "requested": value])
+            let target = original.transaction(transaction)
+            target.wrappedValue = value
+            record(["kind": "autosave_setter", "phase": "applied",
+                    "requested": value, "current": original.wrappedValue])
+        })
+    }
+
     static var snapshot: String? { serialize(records) }
 
-    private static func serialize(_ entries: [[String: Any]]) -> String? {
+    static func snapshot(autosaveEnabled: Bool?) -> String? {
+        guard let autosaveEnabled else { return snapshot }
+        return serialize(["autosave_enabled": autosaveEnabled, "events": records])
+    }
+
+    private static func serialize(_ entries: Any) -> String? {
         guard let data = try? JSONSerialization.data(withJSONObject: entries, options: [.sortedKeys]) else { return nil }
         return String(data: data, encoding: .utf8)
     }
@@ -102,24 +119,29 @@ private extension UIApplication {
 }
 
 private final class StudioInputTraceView: UIView {
+    var autosaveState: (() -> Bool)?
 
     override var accessibilityValue: String? {
-        get { StudioUITestInputDiagnostics.snapshot }
+        get { StudioUITestInputDiagnostics.snapshot(autosaveEnabled: autosaveState?()) }
         set {}
     }
 }
 
 struct StudioUITestInputDiagnosticsView: UIViewRepresentable {
     var identifier = "studio.debug.input.trace"
+    var autosaveState: (() -> Bool)? = nil
     func makeUIView(context: Context) -> UIView {
         let view = StudioInputTraceView()
+        view.autosaveState = autosaveState
         view.isUserInteractionEnabled = false
         view.isAccessibilityElement = StudioUITestInputDiagnostics.requested
         view.accessibilityIdentifier = identifier
         view.accessibilityLabel = "Studio input delivery diagnostics"
         return view
     }
-    func updateUIView(_ view: UIView, context: Context) {}
+    func updateUIView(_ view: UIView, context: Context) {
+        (view as? StudioInputTraceView)?.autosaveState = autosaveState
+    }
 }
 #else
 @MainActor

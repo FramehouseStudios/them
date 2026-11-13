@@ -1,0 +1,49 @@
+name: writer-autosave-diagnostic
+
+# One branch-only evidence capture for main71's failed Autosave activation.
+# This is not a required-check substitute and is not intended to merge to main.
+on:
+  push:
+    branches:
+      - codex/T-1468-writer-autosave-hit-target
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    name: Writer Autosave diagnostic
+    runs-on: macos-latest
+    timeout-minutes: 30
+    env:
+      OPENAI_API_KEY: ""
+      APP_TOKEN: them-dev
+      CLEMENTINE_MUSE_ENABLED: "0"
+      KNOWLEDGE_RAG_WARMUP_ON_BOOT: "0"
+      KNOWLEDGE_RAG_EMBEDDINGS_ENABLED: "0"
+      ARTIFACT_DIR: ${{ runner.temp }}/writer-autosave-diagnostic
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Record toolchain
+        run: |
+          node --version
+          xcodebuild -version
+      - name: Install unchanged backend dependencies
+        working-directory: backend
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Capture the one existing writer workflow
+        working-directory: backend
+        run: npm run eval:studio-ios-writer-loop-contract
+      - name: Preserve native evidence on success or failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: writer-autosave-diagnostic-${{ github.run_id }}
+          path: ${{ runner.temp }}/writer-autosave-diagnostic/
+          if-no-files-found: error
+          retention-days: 7

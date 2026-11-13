@@ -346,6 +346,14 @@ private struct ScreenplayStudioDraftDocumentControls: View {
     @State private var isExportExpanded = false
 #endif
 
+    private var observedAutosaveBinding: Binding<Bool> {
+#if DEBUG && canImport(UIKit)
+        StudioUITestInputDiagnostics.autosaveBinding($autosaveEnabled)
+#else
+        $autosaveEnabled
+#endif
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 6) {
@@ -376,12 +384,25 @@ private struct ScreenplayStudioDraftDocumentControls: View {
 
                 Spacer(minLength: 8)
 
-                Toggle("Autosave", isOn: $autosaveEnabled)
+                Toggle("Autosave", isOn: observedAutosaveBinding)
                     .labelsHidden()
                     .toggleStyle(.switch)
                     .controlSize(.small)
                     .accessibilityIdentifier("studio.draft.document.autosave")
                     .accessibilityHint("Automatically saves screenplay changes while you write")
+#if DEBUG && canImport(UIKit)
+                    .overlay(alignment: .topTrailing) {
+                        if StudioUITestInputDiagnostics.requested {
+                            StudioUITestInputDiagnosticsView(
+                                identifier: "studio.debug.autosave.input.trace",
+                                autosaveState: { autosaveEnabled }
+                            )
+                            .frame(width: 1, height: 1)
+                            .opacity(0.01)
+                            .allowsHitTesting(false)
+                        }
+                    }
+#endif
             }
 
             HStack(alignment: .top, spacing: 9) {

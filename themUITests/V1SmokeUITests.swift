@@ -472,7 +472,9 @@ final class V1SmokeUITests: XCTestCase {
 
         var app = launchApp(
             openStudio: true,
-            launchEnvironment: fixture.appLaunchEnvironment
+            launchEnvironment: fixture.appLaunchEnvironment.merging(
+                ["THEM_UITEST_TRACE_INPUT": "1"], uniquingKeysWith: { _, trace in trace }
+            )
         )
         defer { app.terminate() }
         XCTAssertTrue(
@@ -532,7 +534,13 @@ final class V1SmokeUITests: XCTestCase {
             XCTFail("Autosave's initial on state was not confirmed before the writer-loop began.")
             return
         }
-        guard toggleWriterLoopSwitch(autosave, toBeOn: false, timeout: writerLoopWait(4)) else {
+        let autosaveTurnedOff = toggleWriterLoopSwitch(
+            autosave, toBeOn: false, timeout: writerLoopWait(4), afterAction: {
+                self.attachWriterLoopAutosaveInput(in: app, name: "Autosave immediately after one action")
+            }
+        )
+        attachWriterLoopAutosaveInput(in: app, name: "Autosave after native-state wait")
+        guard autosaveTurnedOff else {
             XCTFail("Autosave did not turn off, so Save Now would not be the sole version-producing action.")
             return
         }
@@ -3465,16 +3473,28 @@ final class V1SmokeUITests: XCTestCase {
         base * Self.writerLoopWaitScale
     }
 
+    private func attachWriterLoopAutosaveInput(in app: XCUIApplication, name: String) {
+        let trace = element(identifier: "studio.debug.autosave.input.trace", in: app)
+        let attachment = XCTAttachment(string: trace.exists
+            ? (trace.value as? String ?? "Native input trace unavailable")
+            : "Native input trace endpoint unavailable")
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     /// Requires known native states before and after one action. Missing or
     /// unrecognized accessibility values cannot prove that Autosave is off.
     private func toggleWriterLoopSwitch(
         _ element: XCUIElement,
         toBeOn expected: Bool,
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        afterAction: (() -> Void)? = nil
     ) -> Bool {
         guard waitForHittability(of: element, timeout: max(1, timeout / 4)),
               let initial = writerLoopSwitchState(element), initial != expected else { return false }
         element.tap()
+        afterAction?()
         return waitForWriterLoopSwitch(element, toBeOn: expected, timeout: timeout)
     }
 

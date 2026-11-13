@@ -5,6 +5,13 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### Main writer Autosave activation evidence — T-1468
+
+- **Owner:** Jarvis; Zora artifactchallenge; Howard boundednativeinteractionreview.
+- **Firstred:** main71requiredwriter0/1/0 after709/0/0 units; fullyvisible centeredone-tap failed toturnAutosaveoff. Originalartifact/hashretained. No rootcauseclaimed.
+- **Diagnostic:** opt-in DEBUG transaction-preserving setter/canonicalBool plus existingtrace/keepAlwaysattachments; sameoneaction/nativeguards/deadlines. Signedlocal1/0/0 sourceunchanged ishealthybaseline, notfix. Onebranch-onlyhostedwriterdiagnostic usescanonicalfixture/runner withdistinctnonrequiredcontext, read-onlypermissions andnopaidkeys. Releasebehavior/requiredworkflowsunchanged; DEBUGsetterprobe1/0/0 afterretainedexplicit-selfbuildfailure; bothattachments proveonesetter/canonicalfalse.
+- **Next:** inspecthostednativeevents, repairrealcause, removeone-offworkflowbeforeactualmainPR; nomergesuntilfirstredfixed. Separate979parked-chainpredicatefailureheld. LiveRenderAutoDeployOff verifiedwithoutEnv/settingschange. See docs/main-writer-autosave-diagnostic.md. READY FOR CONTINUE.
+
 ### Original904 conflict recovery authority — T-1460 (2026-11-12)
 
 - **Owner:** Jarvis runtime/proof; Zora bounded artifact/source challenge; Einstein separate original979 security integration, no shared file ownership.
