@@ -217,10 +217,30 @@ test('quality-rejected short-film prose cannot mutate a supplied active owner', 
 test('accepted short-film screenplay appends and commits once without changing saved version bytes', async () => {
   const previous = process.env.CLEMENTINE_SHORT_FILM_BETA;
   process.env.CLEMENTINE_SHORT_FILM_BETA = '1';
-  const { parsed, owner } = activeShortFilmOwnerFixture();
+  const { owner } = activeShortFilmOwnerFixture();
   const before = structuredClone(owner);
   const persisted = structuredClone(owner);
-  const draft = generateOfflineShortFilmDraft(parsed);
+  // Exact VALID_PAGE from the canonical quality gate initial-pass control.
+  const draft = [
+    "INT. ARCHIVE - NIGHT",
+    "",
+    "Mara drives a brass key into the evidence locker as footsteps close behind her.",
+    "",
+    "ELI",
+    "You said the file was gone.",
+    "",
+    "Mara snaps the key before the lock can release it.",
+    "",
+    "MARA",
+    "I said they could not use it.",
+    "",
+    "The broken half drops inside the locker. Eli raises the original subpoena, its red seal reflected in the steel door.",
+    "",
+    "ELI",
+    "Then we use this.",
+    "",
+    "Mara takes the subpoena and steps toward the approaching guard instead of the exit.",
+  ].join("\n");
   const commits = [];
   let mutations = 0;
   let providerCalls = 0;
@@ -237,7 +257,7 @@ test('accepted short-film screenplay appends and commits once without changing s
       } },
       rid: 'short-film-accepted-owner', logger: { log() {}, warn() {} },
       chatModelPlan: { model: 'test' },
-      talkGenerationTranscript: 'A 15 pages horror short film, one location bedroom, three characters John Sally Sam. Write first five pages.',
+      talkGenerationTranscript: 'A 15 pages thriller short film, one location archive, two characters Mara Eli. Write first one page.',
       chatSupplier: { chat: async () => {
         providerCalls++;
         return { text: draft, usage: { outputTokens: 123 } };
