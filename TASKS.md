@@ -5,6 +5,14 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### Current original904 parent preservation — T-1456 (2026-11-12)
+
+- **Owner:** Jarvis preserving integration/proof; Luna bounded source-scope review.
+- **Source:** no-ff merge of original90476 plus local prose correction807 with original96432. One TASKS conflict, stages preserved and both blocks retained. Config/new regression byte-identical32; entire original904UI byte-identical807, including both ACK predicates/full-draft/exactly-one checks. No production recovery/backend change.
+- **Proof:** one focused signed erasedowned81F checkpoint3/0/0, finalized exact identities/sourcehashes verified; original synthetic scene case uses typed input, not a microphone. Actual96432 D009Studio−4/Bridge−2/other3zero; diff/parse pass. Both loopback services503, no provider keys/paid calls.
+- **Attribution:** no unchanged fullbackend/fullunits/Mac/recovery rerun. Hosted90476 Node20backend2758/0/2 inherited with identical JS; old ACK-focused recovery2/0/0 stays76 proof. Fresh parent hosted gates stillrunning at observation, no blanket green claim.
+- **GitHub/next:** local preserving commit only until publication receipt; carry parent through original919 plus c6 navigation guard, check combined recovery, then normal original-branch updates in order. Main78 unchanged; genuine review required. Evidence: docs/original-904-parent-preservation-2026-11-12.md. Productionheld; real-phone journey unproved. READY FOR CONTINUE.
+
 ### Current original904 hosted-ACK repair — T-1452 (2026-11-12)
 
 - **Owner:** Jarvis; Luna independent hosted/native artifact inspection. Einstein reviewed parked973 wire seam; no human approval substituted.
@@ -22,6 +30,14 @@
 - **Failure retained:** initial runner contracts60/9/0 lacked snapshotdependencies; affected corrected file10/0/0 and subsequent fullbackendpassed. Six UI/two backend skips are explicitly listed in proof; no simulated-response/phone/production completion claim.
 - **GitHub boundary:** normal original964→975 and original904→proven descendant only; parent975's own offline0/2/0 is not child success. Require new hosted checks and genuine review before any landing. Production held; APIhealth302parking at01:56UTC.
 - **Next:** original919 T1449 preserves510+7ad with one unresolved additive TASKS conflict. T1448 Unicode receipt/publisher patch is private/uncommitted/static-only; review and native proof still required. Evidence: `docs/original-904-integrated-recovery-2026-11-12.md`. READY FOR CONTINUE.
+
+### Current foundation scene fixture repair — T-1453 (2026-11-12)
+
+- **Owner:** Jarvis; Howard bounded source/scope review, Luna hosted evidence and next drawer triage. No human approval substituted.
+- **First red:** original964975 run43349264675 V1 28/1/9 at synthetic kitchen-heading wait; artifact14005643881 SHA1bd55272 retained. Failure hierarchy has exact scene/173chars; video shows loading before page. No lost-text/microphone claim.
+- **Fix:** explicit valid stub-only Page auto-submit uses existing initial Studio hydration bypass; live/backend/voice/malformed/restore requests and legacy fixture rules preserved. No production loading/editor or original V1 assertion/deadline change.
+- **Proof:** initialbuild65/type-inference failure preserved; corrected mixed selection ran unchanged UI1/0/0 but countguard rejected missingunit selectors; actualclass units-only2/0/0 passed, UI notrerun. Signed erasedowned81F, deliberate503loopback, no providers. Actualmain D009Studio−15/Bridge−35/other3zero; diff/parse pass. No unchanged broadbackend/unit/Mac rerun; fresh hosted required.
+- **GitHub/next:** original964 normal preserving advancement only, base/draft retained; main78 unchanged and genuine review stillrequired. Observe freshfirstgate then preserveparentthrough904/919/923. Inspect #9234b writer Projectsdrawer title-field failure before any data-loss/timing assumption;973held. Evidence: `docs/foundation-page-fixture-isolation-2026-11-12.md`. Productionheld, phonejourney unproved. READY FOR CONTINUE.
 
 ### Current history-sync handoff — T-1446 (2026-11-12)
 
