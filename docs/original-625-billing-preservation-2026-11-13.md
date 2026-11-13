@@ -26,7 +26,9 @@ callback before provider HTTP/JSON/non-empty validation, accepts an empty
 quality-gate replacement, treats short-film supplier raw JSON as draft text,
 and directly settles usage in the adapter callback before response outcome.
 The three original625 runtime files contain all four existing corrections.
-They are preserved byte-for-byte; no billing implementation was reinvented.
+They were preserved byte-for-byte in merge654c30b1; the separately attributed
+quality-acceptance follow-up below changes only the existing owner-mutation guard.
+No new billing implementation was invented.
 
 - `backend/lib/talk_generate.js`: retain non-empty original output when the
   quality stage returns empty; reject empty final output; only propose
@@ -64,9 +66,11 @@ byte-identical to incoming2ea. Original proof documents are retained as history.
 
 ## Current static verification only
 
-VERIFIED six syntax checks, all exit0, using `node --check` on the three
-runtime files and three original regression/helper files. All six files are
-byte-identical to original62525d. Static receipt:
+VERIFIED at preserving merge654c30b1: six syntax checks, all exit0, using
+`node --check` on the three runtime files and three original regression/helper
+files. All six then matched original62525d. The follow-up adds the guard and
+two cases below; its two changed JS files also pass syntax checks, exit0,
+without executing any module/test. Static preservation receipt:
 `/private/tmp/them-t1474-conflict-stages-nm003mzf/static-proof.json`.
 
 VERIFIED explicit exact-main71 D009 comparison using the file list extracted
@@ -128,7 +132,7 @@ Record actual fresh failures/skips/counts. Old22/33/2774 results are inherited
 and must not be relabeled as this merge's proof. Root decides subsequent full
 backend/signed-unit/essential-UI and hosted integration boundaries.
 
-## Conditional short-film owner side effect — source finding, not a runtime result
+## Conditional short-film owner side effect found in original source
 
 VERIFIED source ordering: `talk_generate.js:103-128` retains non-empty prose
 when the quality gate rejects it with `ok:false, reply:""`. If a caller also
@@ -143,8 +147,9 @@ request owner/committer fields. `index.js:31956` injects the canonical committer
 into screenplay route mounting, not the talk request. The adapter reconstructs
 `req.clementine` without these fields and the handler does not attach them.
 Therefore a shipping `/talk` overwrite is not established by this finding.
-The owner-injected helper capability nevertheless needs a guard before it is
+The owner-injected helper capability nevertheless needed a guard before it is
 wired into production; billing release alone cannot undo a premature version.
+The scoped follow-up below adds that guard without wiring the capability.
 
 The real HTTP tests explicitly enable short-film beta and submit a parseable
 15-page/John-Sally-Sam page request. Source wiring selects Page and forwards
@@ -153,13 +158,50 @@ a unique short-film execution marker, and no owner-context injector is present.
 They therefore do not cover the owner-side-effect block. Existing owner-injected
 direct generation tests cover empty/throw/cancel, not retained non-empty prose.
 
-RECOMMENDATION for the root's next bounded discriminator: add to the existing
-real `runTalkGenerate` prose regression an active owner project/versions/base
-and committer, require all owner/version bytes and mutation count unchanged
-when the quality gate rejects prose, then guard the canonical pre-persistence
-boundary using the existing quality verdict. Do not weaken the original
-non-empty-output assertion, connect the owner hook, or invent a new store.
-No runtime result is claimed; original billing sources/tests remain unchanged.
+## Additional scoped T-1474 quality-acceptance correction
+
+DECIDED by the root's explicit follow-up assignment, separate from the original
+625 fix: `shortFilmDraftAccepted` starts false and becomes true only when the
+existing gate returns `ok === true` and a nonempty accepted reply. The eager
+owner/version/committer block now also requires that verdict. Null, rejection
+and throw cannot authorize project mutation. Original retained-output and
+proposed-usage behavior remain unchanged; the real handler stays authoritative.
+No owner context was connected, public error envelope changed, or new store added.
+
+Two additive actual `runTalkGenerate` regressions use a correctly shaped active
+owner created by canonical short-film project/version factories:
+
+- rejected nonempty prose plus rejected repair leaves full owner, versions,
+  active IDs, persisted copy and committer untouched, while retaining the
+  original625 reply/proposed-usage contract;
+- the existing accepted offline screenplay fixture appends and commits exactly
+  once and preserves the original saved version, including explicit UTF8 bytes.
+
+All original test source remains identical after removing the single additive
+factory import; the two cases are appended. Source/tests-before copies and hashes:
+`/private/tmp/them-t1474-conflict-stages-nm003mzf/owner-guard-before/`.
+Two-file syntax and original-test preservation receipt:
+`/private/tmp/them-t1474-conflict-stages-nm003mzf/owner-guard-static.json`.
+Host syntax tool was Node26.7.0, not the required Node20 runtime gate.
+
+For a decisive BEFORE result, root should use exact preserving merge654c30b1
+(runtime byte-identical original62525d) in an isolated tracked-source snapshot,
+overlay ONLY the new `backend/tests/empty_generation_billing.test.mjs`, and run:
+
+```sh
+node --test --test-concurrency=1 --test-name-pattern='^quality-rejected short-film prose cannot mutate a supplied active owner$' tests/empty_generation_billing.test.mjs
+```
+
+The source predicts failure at the untouched-owner/committer boundary; this
+child did not run it and does not claim an observed failure. Then run the
+same new negative test and the complete focused commands above against the
+after candidate under pinned Node20.20.2. Retain the actual before/after
+counts, including name-filter skips. Existing original HTTP tests remain intact.
+
+This follow-up guards quality acceptance before eager owner mutation. It does
+not create an atomic transaction spanning later handler/TTS/delivery stages;
+that is outside this bounded change and the owner hook remains unwired in
+current production. No runtime success or shipping reachability is claimed.
 
 ## Adversarial review and limitations
 
@@ -187,5 +229,6 @@ Production hold, independent review and all required hosted checks remain.
 The separate main Autosave red and real-auth intermittent freeze are not fixed
 or cleared by this billing merge. No product completion claim.
 
-Continue status: READY FOR CONTINUE — Jarvis reviews this preserving candidate
-and runs the unchanged focused before/after handler proof before publication.
+Continue status: READY FOR CONTINUE — Jarvis reviews the preserving candidate
+and scoped follow-up, obtains the new-negative before result, then runs the
+focused after/real-handler proof before publication.

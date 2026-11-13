@@ -5,6 +5,14 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### T-1474 quality acceptance before owner persistence — scoped follow-up
+
+- **Owner:** Zora, explicitly assigned by Jarvis after original625 preservation; only talk_generate, additive generation tests and task/proof notes.
+- **Source finding:** original nonempty-prose retention could eagerly append to an injected owner before final handler rejection. No current production talk request attaches that owner/committer; do not claim shipping overwrite.
+- **Correction:** existing quality gate must explicitly accept a nonempty reply before eager owner/version/committer mutation. Retained reply and proposed wallet usage stay original625 behavior; no new owner wiring/store/billing design.
+- **Regression:** two appended real runTalkGenerate cases require rejected prose/full active owner untouched and accepted canonical screenplay appended/committed once with old version UTF8 preserved. All original test source retained except additive factory import.
+- **Proof:** pre-edit full copies/hashes retained; two-file JS syntax exit0, original test bytes verified, diff/D009 static only. No runtime/before failure or after pass claimed; root owns Node20 execution/publication. Exact before negative command in docs/original-625-billing-preservation-2026-11-13.md. READY FOR CONTINUE.
+
 ### Original #625 billing preservation — T-1474 (2026-11-13)
 
 - **Owner:** Zora, bounded preservation assigned by Jarvis; root owns runtime proof/publication.

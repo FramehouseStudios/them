@@ -100,6 +100,7 @@ async function runTalkGenerate({
         chatModelPlan,
       });
       // Studio quality gate — use existing gate with reply/transcript/body/systemPrompt and one repair pass
+      let shortFilmDraftAccepted = false;
       try {
         const qualityResult = await enforceStudioScreenplayQuality({
           reply: draft,
@@ -120,6 +121,7 @@ async function runTalkGenerate({
         });
         if (qualityResult && typeof qualityResult.reply === "string" && qualityResult.reply.trim()) {
           draft = qualityResult.reply;
+          shortFilmDraftAccepted = qualityResult.ok === true;
           // usage stays from first generation; quality gate does not change token count
           if (qualityResult.quality && !qualityResult.ok) {
             logger?.warn?.(`[${rid}] short_film_quality_repaired ok=${qualityResult.ok} reason=${qualityResult.quality?.reason || ""}`);
@@ -143,7 +145,9 @@ async function runTalkGenerate({
       // Short-film project id + per-character contexts — singular project holds isolated memory per character
       try {
         const ownerRecord = req.clementine?.screenplayOwnerRecord || req.screenplayOwnerRecord || null;
-        if (ownerRecord) {
+        // Retained non-empty output still goes through the handler's final
+        // contract; only an accepted screenplay may mutate project history here.
+        if (ownerRecord && shortFilmDraftAccepted) {
           const { ensureShortFilmProjectWithContexts, createShortFilmVersion } = await import("./clementine/short_film_store.js");
           const { project } = ensureShortFilmProjectWithContexts({ ownerRecord, parsed: betaParsed, now: Date.now() });
           const version = createShortFilmVersion({ draft, parsed: betaParsed, now: Date.now() });
