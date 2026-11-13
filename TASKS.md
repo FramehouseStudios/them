@@ -5,6 +5,14 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### Private preserving core-fixes integration — T-1475 (2026-11-13)
+
+- **Owner/history:** Einstein, new `codex/T-1475-core-fixes-integration`, exact585 base. Preserving merges31d6163d(writer5e),58c25f76(entry-aware6fc),44cfa53d(correctedbillingef93 containing3af/e3). Original919/979/621/625 histories retained; no replacement PR/publication.
+- **Conflicts/source:** only2TASKS conflicts; all6stageblobs/fullworking/index preserved/rehashed, both blocks retained. No manual source edits. Exact11 capability files; VM=585 plus only6fc pending-question method; V1=correctedef93 plus exact919 keyboard case.42IDs, one canonical2ea tutorial helper, both latest979 recovery methods and alloriginalunitmethod bodies retained. Full1431/1433/1441-path proofs/zero mismatch.
+- **Fresh static only:** Swiftparse5files/JSsyntax8files/diff0, canonicalD009 exactmain71fivezero, actualNode24.19.0/temprefremoved. No semanticSwiftbuild, tests, backend/npm/Docker/native/provider/ports/GitHub action. Root must build and prove combined tree once.
+- **INHERITED:** writer validpressure0/1→1/0, realwriter1/0/0/fullbackend2759/0/2; actororiginalguard0/1expected→10/0/0; billing BEFORE0/1+13filtered each, initialafter23/1retained, correctedfocus24/0/0/full2782/0/2. No freshcombined or billingUI claim; skip reasons and exactsource attribution in docs/core-fixes-integration-2026-11-13.md.
+- **Next/hold:** root reviews private tree and owns one integration proof; original9792eaCI/publicheads/dirty973 untouched. Main71/Autosave/productionhold and genuinehumanreview/phone gaps persist. Private receipts `/private/tmp/them-t1475-core-fixes-integration`. READY FOR CONTINUE.
+
 ### Original919 handoff refresh to published9792ea — T-1470 (2026-11-13)
 
 - **Owner/history:** Einstein, existing clean task-owned T1470 only. Preserving mergea963371e retains exact47ca908c +2ea20422; original heads remain ancestors. Three TASKS stages/full copies/index preserved and rehashed; sole conflict concatenates both blocks verbatim, no Swift edit.
