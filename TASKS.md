@@ -5,6 +5,13 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### Current combined foundation checkpoint — T-1445 (2026-11-12)
+
+- **Owner:** Codex (Jarvis). Preserving merge of inspector8688 and editorc6ec7720; both scoped published parents and all original commits retained. No main/original PR/rehearsal-backup change.
+- **Status:** combined source not yet runtime-proven. Parent proof remains attributed to its exact source: editor54/0/0 plus typingUI1/0/0 and inspector5/0/0 plus UI2/0/0. Do not add these into a combined-suite claim.
+- **Next:** inspect the canonical CI invocation and run full Node20 backend, signed full themTests on erased owned81F, required writer/essential UI and Mac/god-file gates on this combined foundation before any original964 advancement. No paid calls, review bypass, new replacement PR or production change.
+- **Limits:** inherited direct completion/immediate-owner/persistence-byte paths remain open; physical-phone/intended-backend journey unproved. READY FOR CONTINUE.
+
 ### Current parent checkpoint — T-1438 / T-1441 (2026-11-12)
 
 - **Owner:** Codex (Jarvis); actual Luna evidence/source handoff. Other roles and credit limits are recorded in the proof. No human review substituted.
@@ -15,6 +22,14 @@
 - **GitHub:** original964831 still red and draft; original904909 and997f68 unchanged. No main change or review bypass. Scoped verified branch publication only; exact push receipt lives in private proof. Production hold remains.
 - **Next:** preserve-merge this into the full rehearsal. Finish explicit external-mutation ownership before publishing private416; its equal-pending restore ambiguity is real. Private account-formcbd needs verified-origin authority. Physical phone/intended-backend core loop remains unproved; broader main/release gates and genuine review still required.
 - **Evidence/files:** `docs/foundation-inspector-edge-hit-2026-11-12.md`; private `_proof/T-1441-inspector-pointer-routing-20261112/proof.json`. READY FOR CONTINUE.
+
+### Current parent checkpoint — T-1444 editor ownership (2026-11-12)
+
+- **Owner:** Codex (Jarvis), actual bounded Luna source review. **Branch:** `codex/T-1444-foundation-editor-receipt`; runtime65319db1 extends preserved416, based on original964831. No main/original-head change.
+- **Fixed:** explicit restore matching pending native text, deferred A→C→A/project round-trip writes, operation-owned interrupted-target retirement, exact-byte binding comparisons and reproduced generated BackendClient release crash. One production native-editor factory; no fake constant control bindings in real-model cases.
+- **Proof:** final signed54/0/0, unchanged original direct typingUI1/0/0, Mac scaffold compile0, D009 Screen−15/Bridge−35/other3zero versus fetched831. Earlier pure policy12/0 on identical final bodies; no unchanged broad rerun or paid call. All initial48/1 crash, import build65, intermediate52/0 and bad-fixture53/1 results retained honestly.
+- **Limits:** hosted964 still red at831; no live/phone claim. Legacy no-op/immediate cross-owner/persistence byte paths and direct finish-target callbacks remain open. Root/whole-backend/workflows/projects unchanged; original416 and broader rehearsalb5 retained.
+- **Next:** preserving foundation integration with inspector8688, then complete required foundation gates before original964 advancement/review. Evidence, exact files and publication receipt: `docs/foundation-editor-ownership-proof-2026-11-12.md`. Production held; READY FOR CONTINUE.
 
 ### T-1078 — Admit held saves atomically, without active-save deduplication
 
