@@ -41,6 +41,23 @@
 - **Proof:** original exact3s pressure timeout0/1/0 → async1/0/0 onNode20 (fakeApple only). Separate unchanged signed writer1/0/0 on erasedowned81F; exact identity/source hashes/PIDnonce verified, no paidcalls. Initial noexec-fixture0/1 setup failure retained separately. Fresh fullNode20 ond8992759/0/2 (2761total), all1412inputs/modulesunchanged; no externalnetwork. Exactmain71 D009fivezero, syntax/diffpass.
 - **Next/limits:** scoped history-preserving branch backup; leave original9792ea CI intact, no main merge/deploy. Autosave originalfirstred and separate authfreeze remain unresolved; realphone journey unproved. See docs/writer-pipe-backport-proof-2026-11-13.md. READY FOR CONTINUE.
 
+### T-1474 quality acceptance before owner persistence — scoped follow-up
+
+- **Owner:** Zora, explicitly assigned by Jarvis after original625 preservation; only talk_generate, additive generation tests and task/proof notes.
+- **Source finding:** original nonempty-prose retention could eagerly append to an injected owner before final handler rejection. No current production talk request attaches that owner/committer; do not claim shipping overwrite.
+- **Correction:** existing quality gate must explicitly accept a nonempty reply before eager owner/version/committer mutation. Retained reply and proposed wallet usage stay original625 behavior; no new owner wiring/store/billing design.
+- **Regression:** two appended real runTalkGenerate cases require rejected prose/full active owner untouched and accepted canonical screenplay appended/committed once with old version UTF8 preserved. All original test source retained except additive factory import.
+- **Proof:** pre-edit full copies/hashes retained; two-file JS syntax exit0, original test bytes verified, diff/D009 static only. No runtime/before failure or after pass claimed; root owns Node20 execution/publication. Exact before negative command in docs/original-625-billing-preservation-2026-11-13.md. READY FOR CONTINUE.
+
+### Original #625 billing preservation — T-1474 (2026-11-13)
+
+- **Owner:** Zora, bounded preservation assigned by Jarvis; root owns runtime proof/publication.
+- **History:** new isolated branch rooted original62525d; preserving no-ff merge exact incoming9792ea. TASKS and three V1 helper conflict hunks preserved before contextual reconciliation; both task histories and all41 UI identities retained.
+- **Capability:** original three billing files and three regression/helper files byte-identical25d; defer wallet settlement until response outcome, retain nonempty gate output and decode supplier content. No new billing design or production Swift delta versus2ea.
+- **Static proof:** JS syntax6/6 exit0; exact main71 canonical protected-file counts all0; diff check0. Default origin/main was stale and was not mislabeled as71. No backend/npm/container/native/ports/provider/GitHub execution; old proof remains historical.
+- **Source gap:** retained nonempty prose can still append to an injected short-film owner before later handler rejection; no current production request attaches that owner/committer, and existing HTTP proof does not cover this conditional block. Original runtime/tests retained; root notified before proof.
+- **Next:** root reviews candidate and the conditional owner-side-effect gap, executes unchanged real-handler before/after tests under pinned Node20 in isolated source snapshots, then required integration gates/review. Production and physical-phone hold remain. See docs/original-625-billing-preservation-2026-11-13.md. READY FOR CONTINUE.
+
 ### Original #979 fixture hydration boundary — T-1472 (2026-11-13)
 
 - **Owner:** Jarvis; Zora bounded read-only source challenge.
@@ -595,6 +612,83 @@ change or treat it as merged; original pre-proof text remains in Git history.
   #904 on #964 with this failure explicit; separate original #919 contains
   the reproduced live-Binding correction and broader after-proof. Require
   new hosted checks and independent review; no main merge.
+### T-1047 — Reach Voice Pin page actions without overshooting
+
+- **Owner:** codex. **Branch:** `codex/T-1047-partner-page-action`.
+- **Status:** review. **Pillar:** connected, reachable voice-to-page.
+- **History:** original #625 `5824f226` preserved; normal merge `37c50378`
+  also preserves original #964 `81b05e44` exact-device/signing/summary repairs.
+- **Root evidence:** hosted39398273450 UI28/1/9 at To Page; video repeatedly
+  swipes farther down after passing the action. Same callback fails0/1/0
+  on erased signed 375-point SE. No keyboard focus or tap retry implicated.
+- **Fix:** one bounded viewport-aware reveal for all three existing helpers,
+  stable scroll-content accessibility ID, minimum pan travel. First bounded
+  intermediate0/1/0 stalled at co-writer on repeated9.5-point drags; retained.
+- **Proof:** merged runner contracts26/0/0 and Node20 backend2769/0/2,
+  external network off. Minimum-pan run0/1/0 passed Page routing but exposed
+  the known offscreen inline confirmation wait. Reused T-996 `d82b3757`
+  assertions instead of duplicating its fix. Intermediate cohort3/1/0 exposed
+  keyboard tutorial and actual keyboard-safe-area suppression. Removed
+  unsuccessful keyboard-event/anchor experiments; the root product fix is
+  container-only safe-area handling in Studio and its parent. Final signed
+  erased SE cohort11/0/0; separate direct page typing1/0/0; macOS compile0;
+  D009 all five deltas0. Preserve both original heads, advance original #625
+  normally atop #964, require fresh hosted checks and independent review.
+  No main, production, paid-model or physical-phone completion claim.
+- **Done when:** same single-tap callback and affected panel/intent workflows,
+  signed narrow proof, macOS/D009/diff pass; advance original #625 normally
+  with all original history. Fresh hosted checks/review required; no main push.
+- **Evidence:** `docs/partner-page-action-2026-10-20.md`.
+
+### T-1041 — Keep Studio inspector navigation visible while content scrolls
+
+- **Owner:** codex. **Branch:** `codex/T-1041-pinned-inspector-navigation`.
+- **Status:** review; isolated descendant of original #625 `78430dec`.
+- **Evidence:** hosted39318515602 passed backend/units but failed the
+  six-panel inspector route at Outline tap with a system-AX timeout. Its
+  preceding activity repeatedly scrolls to recover the tab grid. Do not
+  claim a reproduced simulator-infrastructure root from those logs alone.
+- **Target:** existing tabs stay pinned while content scrolls; preserve
+  styling, selection, all six panels, scroll targets and original billing
+  history. No new product state or protected-file growth.
+- **Done when:** behavior-only pinned-navigation case reproduces before;
+  same case and original six-panel routing pass after on an erased owned
+  narrow signed simulator, focused presentation/design checks and macOS
+  compile pass, D009/diff clean. Require fresh hosted gate and review.
+- **Holds:** no paid call, production or main change. Character learning
+  from saved pages belongs to original #722/#897; preserve their work.
+- **Verified:** navigation-only before0/1/0. Inset-only1/1/0; inset/identity
+  1/1/0; structural layout with old fling helper8/1/0 (seven units passed).
+  A diagnostic-only route passed1/0/0, not accepted as a stable correction.
+  Reused the preserved T-992 bounded-gesture owner `6a57ff9`, removed the
+  sole-use tab-reopen fallback, retained all action/selection assertions.
+  Final signed erased SE9/0/0 (seven units + two UI), actual summary read;
+  macOS scaffold native exit0. Native Draft/Craft/Outline headings and all
+  six tab labels visually readable. D009 all five deltas0; diff clean.
+- **Evidence:** `docs/pinned-inspector-navigation-2026-10-20.md`. No fresh
+  full backend/unit-bundle or hosted-system-AX root-cause claim. Require
+  updated exact-head hosted checks and independent review before any merge.
+
+### T-993 — Re-prove original failed-generation billing fix on current main
+
+- **Owner:** codex. **Branch:** `codex/T-993-billing-main-proof`.
+- **Status:** in-progress. **Pillar:** trustworthy voice-to-page and wallet.
+- **Root verified:** current rehearsal's actual generation stage returned
+  zero reply bytes after two injected provider calls while proposing123
+  output tokens for billing. No live provider or real wallet used.
+- **Scope:** preserve original #625 head795f14fc and current main deac1a6d
+  with a normal merge. Read all seven original files and follow-up commits;
+  asked_repeat/continue_listening release is already in the original head.
+  Do not reimplement it, create a replacement PR or move main.
+- **Done when:** original generation/supplier/real-HTTP/lifecycle regressions,
+  full Node20 suite, signed erased units, D009/diff pass; adversarial limits
+  recorded; fresh original PR/head checks and independent review still needed.
+- **Human hold:** production blocked until App Store credentials exist.
+- **Verified:** focused33/0/0 after auth enforcement; full pinned Node20
+  backend2761/0/2; signed erased units624/0/0; D009 all five deltas0 and diff
+  clean. Unit source7f6159d and backend129d22c differ only by a Node test.
+  No new writer UI/macOS/live-provider claim. Manifest:
+  `docs/billing-main-proof-2026-10-19.md`.
 
 ### T-1078 — Admit held saves atomically, without active-save deduplication
 
@@ -5824,3 +5918,9 @@ rebase on current main after #273, rerun backend auth tests, and keep
 - **Owner:** Jarvis; Howard prepared preserved original621 plus entry-aware coalescing and main-compatible forced real-event refresh.
 - **Proof:** original-guard new-case counterfactual signed0/1/0 expected; corrected entireoutboxclass10/0/0, erasedowned81F, normal signing. All1408 tracked inputs verified, controlled source restored and clean. No full unchanged suite/model/live idle-route claim.
 - **Next:** scoped verified branch backup; preserve eventual actual main before original621 advancement and fresh hosted review/check gates. Main Autosave/auth-freeze and production hold persist. See docs/idle-session-preservation-2026-11-13.md. READY FOR CONTINUE.
+
+### T-1474 root billing execution
+
+- **Owner:** Jarvis execution/review; Zora preserved original625 and added the narrow quality-accepted owner guard/correct success fixture.
+- **Proof:** current-parent empty-output and original625 rejected-owner counterfactuals each0/1expected +13namefiltered. Initialed9focus23/1 retained; e3test-data-only correction focused24/0/0 and one full offlineNode20suite2782/0/2, all1419inputs/modules unchanged. No threshold/assertion weakening, paid calls or fresh native claim.
+- **Next:** scoped backup and coherent critical-fix integration; preserve original625 until actualparent/fresh gates/review. Known conditional owner-hook and delivery-atomicity limits documented. Main/prodholds remain. READY FOR CONTINUE.
