@@ -254,8 +254,12 @@ struct ScreenplayDraftSaveIntentPolicy {
 }
 
 struct ScreenplayDraftSaveCompletionPolicy {
+    nonisolated static func hasSameBytes(_ lhs: String, _ rhs: String) -> Bool {
+        lhs.utf8.elementsEqual(rhs.utf8)
+    }
+
     static func hasUnsavedChanges(currentDraft: String, savedDraft: String) -> Bool {
-        normalizedDraft(currentDraft) != normalizedDraft(savedDraft)
+        !hasSameBytes(normalizedDraft(currentDraft), normalizedDraft(savedDraft))
     }
 
     private static func normalizedDraft(_ draft: String) -> String {
