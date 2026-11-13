@@ -5,6 +5,62 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### Current original919 byte/conflict checkpoint — T-1449 (2026-11-12)
+
+- **Owner:** Jarvis; Zora bounded recovery review and Luna current topology/CI evidence. Einstein/Howard/Alfred idle; no human approval substituted.
+- **Source:** runtime `6c4c5d39`, preserving merges `c0fc5bc0` + `b262b50c`, retains original919510, parent904ce and foundation975. Sole TASKS conflict reconciled additively; no source overwritten or original history dropped.
+- **Root fix:** byte-aware completion/publisher/enqueue/hydration/delayed Load Server; stale metadata cannot erase known choices; ordinary receipts retain independent parked copies and their original bases; actor snapshot guard rejects intervening queue changes. Explicit Keep Mine/Load Server, owner/project filters and transactional rollback retained.
+- **Proof:** original five actual failures0/5/0 before; unchanged bodies pass within full signed units714/0/0; full V1 36/0/6 (42total, both recovery/relaunch and keyboard-focus cases pass); canonical authenticated writer1/0/0; Mac compile0; actual904 D009 five0; diff/parse pass. Backend sources identical to904's Node20.20.2 result2758/0/2, inherited rather than rerun. No paid calls or physical-phone/production claim.
+- **GitHub:** normal original919 advancement only after checkpoint; fresh hosted checks/review required. Parents964975 and904ce remain draft with Quality in progress at last observation; review absent/dismissed, main78b unchanged. Production held; public API health302parking at02:32UTC.
+- **Next:** preserve actual child #9230ea0a2ed recovery contracts, then inspect separate #973aa729e79 transport boundary. Physical-phone/intended-backend/live-model/export-open proof still missing. Evidence: `docs/original-919-recovery-byte-authority-2026-11-12.md`. READY FOR CONTINUE.
+
+### Current original904 recovery checkpoint — T-1447 (2026-11-12)
+
+- **Owner:** Codex (Jarvis); scoped Luna package/topology work and Zora recovery investigation. Original909, foundation831, history975 and all incoming commits preserved through no-ff merges. No replacement PR/main mutation.
+- **Source:** runtime/UI7adcf46e on `codex/T-1447-904-history-handoff`; merge5fa67e1f + documentation merged087e34c. Nine conflicts/21hunks reconciled from preserved stages, not wholesale file replacement. Both original histories and all prior test cases retained.
+- **Fixed/connected:** original904 durable queued hydration, unreadable-manifest stop, explicit conflict/recovered-copy authority and export/navigation work coexist with incoming editor/inspector/history fixes. DEBUG process-default ack0 override removed; two cases require the actual acknowledgement, retaining whole-draft/exactly-one assertions.
+- **Proof:** signed fullunits676/0/0 atd087 with exact app/unit/package/project source identity at7ad; canonical recovery2/0/0; fullV1 35/0/6 (41total); authenticated writer1/0/0, explicitSavefallback0; Node20backend2758/0/2, sourceunchanged; Mac compile0; D009Studio−19/Bridge−37/other3zero, diffpass. Parent8f offlinecanon stays inherited, fresh hostedQuality mandatory. No unchanged fullunit/voice duplicate or paid call.
+- **Failure retained:** initial runner contracts60/9/0 lacked snapshotdependencies; affected corrected file10/0/0 and subsequent fullbackendpassed. Six UI/two backend skips are explicitly listed in proof; no simulated-response/phone/production completion claim.
+- **GitHub boundary:** normal original964→975 and original904→proven descendant only; parent975's own offline0/2/0 is not child success. Require new hosted checks and genuine review before any landing. Production held; APIhealth302parking at01:56UTC.
+- **Next:** original919 T1449 preserves510+7ad with one unresolved additive TASKS conflict. T1448 Unicode receipt/publisher patch is private/uncommitted/static-only; review and native proof still required. Evidence: `docs/original-904-integrated-recovery-2026-11-12.md`. READY FOR CONTINUE.
+
+### Current history-sync handoff — T-1446 (2026-11-12)
+
+- **Owner:** Codex (Jarvis); actual Zora recovery investigation and Luna topology/source challenge. Einstein/Howard/Alfred idle; no human review substituted.
+- **Source:** runtime `8e4518c2`, branch `codex/T-1446-history-hydration-handoff`, preserving combined parent `8fbb15bf` and every original #964/editor/inspector commit. Original PR/main unchanged.
+- **Fixed:** history observer attempted server persistence before acknowledgement hydration cleared its deferral flags. Move the existing call after the refresh; same captured values/key, local write, canonical scheduler and24-entry cap. No new state/framework or god-file growth.
+- **Verified:** unchanged real authenticated backend project-restore UI **1/0/0**, signed/erased owned81F. Parent checkpoint full backend Node20 **2752/0/2**, signed units **655/0/0**, writer **1/0/0**, offline quality pass (retained initial missing-curl tooling failure), CI-safety **18/0/0**, Mac compile0. These broad results belong to8f, not a full rerun on8e.
+- **Still red:** parent full V1 **29/3/6**; focused remaining save cases on8e **0/2/0**, both initial durable-queue setup. No retry loop/weak assertion or paid call. DEBUG launch ack masking verified separately; no shipping-path cause inferred from that probe.
+- **GitHub/deployment:** main78b8c94f; original964831 still draft/Quality red/review dismissed; original904909 still draft/conflicted. Strict3checks+genuine review/admin protection intact. TLS api.them.io health still302parking. Production held; real-phone/intended-backend journey unproved.
+- **Next:** original904 preserving rehearsal at `codex-T1447-904-history-handoff` has HEADb2/MERGE_HEAD8e/base831, nine explicit conflicts/21hunks and23 preserved stage blobs. Reconcile these, do not reimplement or overwrite original work. Evidence: `docs/foundation-history-hydration-handoff-2026-11-12.md`. READY FOR CONTINUE.
+
+### Current combined foundation checkpoint — T-1445 (2026-11-12)
+
+- **Owner:** Codex (Jarvis). Preserving merge of inspector8688 and editorc6ec7720; both scoped published parents and all original commits retained. No main/original PR/rehearsal-backup change.
+- **Status:** completed checkpoint at8f is RED: full V1 29/3/6 exposed restored-history and offline-queue failures; backend2752/0/2, signed units655/0/0 and writer1/0/0 passed. Original individual parent proof remains separately attributable. T1446 above fixes only the reproduced history-sync handoff.
+- **Next:** inspect the canonical CI invocation and run full Node20 backend, signed full themTests on erased owned81F, required writer/essential UI and Mac/god-file gates on this combined foundation before any original964 advancement. No paid calls, review bypass, new replacement PR or production change.
+- **Limits:** inherited direct completion/immediate-owner/persistence-byte paths remain open; physical-phone/intended-backend journey unproved. READY FOR CONTINUE.
+
+### Current parent checkpoint — T-1438 / T-1441 (2026-11-12)
+
+- **Owner:** Codex (Jarvis); actual Luna evidence/source handoff. Other roles and credit limits are recorded in the proof. No human review substituted.
+- **Branch/source:** `codex/T-1438-foundation-hitbox-proof`, runtimec04886f9, parent original964831. This older parent repair is separate from the broader custody backup5f; do not conflate their test counts or source trees.
+- **Fixed:** a touch centred inside Them directly activated Saved. Typed native receipts and settled geometry established the boundary. Pointer centres now select the unique visible child rectangle; semantic Buttons retain their actions. No fixed screen coordinates, guessed radius or new god-view state.
+- **Proof:** retained5 failing edge runs → routed1/0/0 → final edge plus original ordinary inspector/scroll2/0/0. Signed focused units5/0/0 on identical final product/unit/UI source; Mac scaffold build0; actual831 D009 five0. Invalid local preflight/build invocation is retained, not counted as proof.
+- **Original work:** exact909 rectangle and511 rows preserved; original UI bodies untouched. Diagnostic APIs proved unused were removed; only bounded metadata remains. Backend/package/auth sources unchanged; no repeated full backend/unit suite or paid call.
+- **GitHub:** original964831 still red and draft; original904909 and997f68 unchanged. No main change or review bypass. Scoped verified branch publication only; exact push receipt lives in private proof. Production hold remains.
+- **Next:** preserve-merge this into the full rehearsal. Finish explicit external-mutation ownership before publishing private416; its equal-pending restore ambiguity is real. Private account-formcbd needs verified-origin authority. Physical phone/intended-backend core loop remains unproved; broader main/release gates and genuine review still required.
+- **Evidence/files:** `docs/foundation-inspector-edge-hit-2026-11-12.md`; private `_proof/T-1441-inspector-pointer-routing-20261112/proof.json`. READY FOR CONTINUE.
+
+### Current parent checkpoint — T-1444 editor ownership (2026-11-12)
+
+- **Owner:** Codex (Jarvis), actual bounded Luna source review. **Branch:** `codex/T-1444-foundation-editor-receipt`; runtime65319db1 extends preserved416, based on original964831. No main/original-head change.
+- **Fixed:** explicit restore matching pending native text, deferred A→C→A/project round-trip writes, operation-owned interrupted-target retirement, exact-byte binding comparisons and reproduced generated BackendClient release crash. One production native-editor factory; no fake constant control bindings in real-model cases.
+- **Proof:** final signed54/0/0, unchanged original direct typingUI1/0/0, Mac scaffold compile0, D009 Screen−15/Bridge−35/other3zero versus fetched831. Earlier pure policy12/0 on identical final bodies; no unchanged broad rerun or paid call. All initial48/1 crash, import build65, intermediate52/0 and bad-fixture53/1 results retained honestly.
+- **Limits:** hosted964 still red at831; no live/phone claim. Legacy no-op/immediate cross-owner/persistence byte paths and direct finish-target callbacks remain open. Root/whole-backend/workflows/projects unchanged; original416 and broader rehearsalb5 retained.
+- **Next:** preserving foundation integration with inspector8688, then complete required foundation gates before original964 advancement/review. Evidence, exact files and publication receipt: `docs/foundation-editor-ownership-proof-2026-11-12.md`. Production held; READY FOR CONTINUE.
+
+
 ### T-1080 — Wait for the seeded page before injecting offline edits
 
 - **Owner:** codex. **Branch:** `codex/T-1080-recovery-fixture-readiness`.
