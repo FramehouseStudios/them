@@ -5,6 +5,13 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### Original979 on landed recovery main — T-1465 (2026-11-12)
+
+- **Owner:** Einstein, bounded preserving integration assigned by Jarvis; only new `codex/T-1465-979-recovery-main-sync` worktree. Merge6f7913c6 preserves original9796c + protected main71; six conflict stages/two outputs backed up before three contextual hunks.
+- **Source:** runtime/unit/Packages/scripts/workflows exactmain71; dependency bytes exact6c. Retain all41 UI test identities and original selected-Them assertion; adapt original readiness guards to canonical shared content helper. Both TASKS blocks retained; no recovery/auth/content assertion removed.
+- **Fresh proof:** cached isolated Node20.20.2/npm10.8.2, offlineci/ls/compiler0; focused12/0/1, fullbackend2758/0/2 once. Existing talk-preview skip, plus unconfigured live-Postgres skip in full. All1408 frozen/worktree source files unchanged. Exact71 canonical D009 five0, parse/diff0; no native/providers/host ports.
+- **Attribution/next:** audit0 inherited only from unchanged6c dependencies; parent hosted native evidence remains inherited. Local-only candidate; root reviews before normal original979 advancement, fresh exact-head checks and genuine independent human review. No GitHub/main/production change; root's unresolved reconnect freeze remains separate. Evidence: `docs/original-979-recovery-main-sync-2026-11-12.md`. Production held; READY FOR CONTINUE.
+
 ### Original979 on landed foundation — T-1461 (2026-11-12)
 
 - **Owner:** Einstein, bounded integration assigned by Jarvis; only new `codex/T-1461-979-foundation-sync` worktree. Original979c508 and landedmainbc retained by no-ff85f957c5; no conflicts or source overwrite.
