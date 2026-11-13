@@ -5,10 +5,20 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### Current history-sync handoff — T-1446 (2026-11-12)
+
+- **Owner:** Codex (Jarvis); actual Zora recovery investigation and Luna topology/source challenge. Einstein/Howard/Alfred idle; no human review substituted.
+- **Source:** runtime `8e4518c2`, branch `codex/T-1446-history-hydration-handoff`, preserving combined parent `8fbb15bf` and every original #964/editor/inspector commit. Original PR/main unchanged.
+- **Fixed:** history observer attempted server persistence before acknowledgement hydration cleared its deferral flags. Move the existing call after the refresh; same captured values/key, local write, canonical scheduler and24-entry cap. No new state/framework or god-file growth.
+- **Verified:** unchanged real authenticated backend project-restore UI **1/0/0**, signed/erased owned81F. Parent checkpoint full backend Node20 **2752/0/2**, signed units **655/0/0**, writer **1/0/0**, offline quality pass (retained initial missing-curl tooling failure), CI-safety **18/0/0**, Mac compile0. These broad results belong to8f, not a full rerun on8e.
+- **Still red:** parent full V1 **29/3/6**; focused remaining save cases on8e **0/2/0**, both initial durable-queue setup. No retry loop/weak assertion or paid call. DEBUG launch ack masking verified separately; no shipping-path cause inferred from that probe.
+- **GitHub/deployment:** main78b8c94f; original964831 still draft/Quality red/review dismissed; original904909 still draft/conflicted. Strict3checks+genuine review/admin protection intact. TLS api.them.io health still302parking. Production held; real-phone/intended-backend journey unproved.
+- **Next:** original904 preserving rehearsal at `codex-T1447-904-history-handoff` has HEADb2/MERGE_HEAD8e/base831, nine explicit conflicts/21hunks and23 preserved stage blobs. Reconcile these, do not reimplement or overwrite original work. Evidence: `docs/foundation-history-hydration-handoff-2026-11-12.md`. READY FOR CONTINUE.
+
 ### Current combined foundation checkpoint — T-1445 (2026-11-12)
 
 - **Owner:** Codex (Jarvis). Preserving merge of inspector8688 and editorc6ec7720; both scoped published parents and all original commits retained. No main/original PR/rehearsal-backup change.
-- **Status:** combined source not yet runtime-proven. Parent proof remains attributed to its exact source: editor54/0/0 plus typingUI1/0/0 and inspector5/0/0 plus UI2/0/0. Do not add these into a combined-suite claim.
+- **Status:** completed checkpoint at8f is RED: full V1 29/3/6 exposed restored-history and offline-queue failures; backend2752/0/2, signed units655/0/0 and writer1/0/0 passed. Original individual parent proof remains separately attributable. T1446 above fixes only the reproduced history-sync handoff.
 - **Next:** inspect the canonical CI invocation and run full Node20 backend, signed full themTests on erased owned81F, required writer/essential UI and Mac/god-file gates on this combined foundation before any original964 advancement. No paid calls, review bypass, new replacement PR or production change.
 - **Limits:** inherited direct completion/immediate-owner/persistence-byte paths remain open; physical-phone/intended-backend journey unproved. READY FOR CONTINUE.
 
