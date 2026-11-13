@@ -52,8 +52,8 @@ Root reviewed both implementations and existing transaction comparisons.
 Canonical D009 against exactmain71 passes: four protected files have zero growth,
 BackendMemoryAPI shrinks80 lines (10865→10785). Actual gate JSON is retained at
 `/private/tmp/them-t1477-root-proof/D009.json`. Diff check passes. Agents' Swift
-parse/source-preservation checks pass. **Semantic compilation and runtime after
-proof have not yet executed at this source commit.**
+parse/source-preservation checks pass. At source preparation semantic compilation and after proof were pending;
+root subsequently executed the exact source commit, as recorded below.
 
 Residual synchronous entry points remain: intent reservation, ContentView's
 startup pending-delete retry, shared identity/token writers, account-deletion
@@ -78,3 +78,71 @@ branch protections and production hold remain unchanged. The human deferred979
 review; do not repeat the request or merge. Clementine, orb, aesthetic and D017
 remain. No paid-model, microphone, real-phone, outside-app export or product
 completion claim. READY FOR CONTINUE.
+
+## Root execution — exact sourcea3df031b
+
+VERIFIED fresh results, not inherited:
+
+| Check | Result |
+| --- | --- |
+| Full signed themTests | 725 passed / 0 failed / 0 skipped; all unique identities and both new controls verified. |
+| Same real-login / controlled-expiry ordinary recovery identity | 1 passed / 0 failed / 0 skipped; native canonical producer exit0. |
+| Actual local HTTP sequence | Initial seed201, normal login200, save401, refresh200, save replay201. |
+| macOS scaffold compile | BUILD SUCCEEDED / exit0. |
+| Canonical D009 against exactmain71 | Four zero deltas; BackendMemoryAPI -80. |
+| Diff check | Passed. |
+
+Native tests kept normal signing and erased only reserved81F, iOS26.2/Xcode26.3.
+All1,444 tracked source inputs,3,303 copied exact-lock dependency entries and
+frozen private driver hashes were verified unchanged. The copied dependency
+directory was moved back to private proof storage; the source worktree is clean.
+No npm install or registry call occurred. Backend fixture ran on owned loopback
+31337, required auth and verified PID/nonce before Xcode; all provider values were
+dummy and Muse/embeddings disabled. Known Node guards and observer errors were0.
+This is not OS-wide egress isolation or physical-device proof.
+
+Before is retained0/1/0 with the actual blocked stacks and native main-thread-
+busy failure. After uses the preserved same ordinary recovery identity and
+full text/project/version/one-save/restoration assertions. Its normal real
+Keychain login excludes immutable app bearer overrides on both launches.
+This proves the observed local auth-refresh recovery failure is repaired;
+it does not certify the residual synchronous writers or every auth workflow.
+
+The AFTER profiler itself exits2: its anchored sample header matches, but the
+strict post-sample identity check correctly rejects a process the test has
+terminated/relaunched. The native workflow independently passes its unchanged
+strict native-summary guard at exit0. Keep those separate results; no retry was
+run to force a green sample, and the invalid sample is not the product pass.
+The BEFORE collector's false unredacted-header result and all source/setup
+failures remain preserved rather than overwritten.
+
+Receipts:
+
+- `/private/tmp/them-t1477-unit-proof/unit/completion.json`
+- `/private/tmp/them-t1477-after-proof/run-2629212b-8634-439a-9c9c-49ccb2562622/root-native-summary.json`
+- `/private/tmp/them-t1477-unit-proof/macos/completion.json`
+- `/private/tmp/them-t1477-unit-proof/ROOT-ALL-PROOF.json`
+- Durable BEFORE archive: `/Users/halfmutantfilms/io.them-worktrees/_proof/T-1476-auth-lock-cycle-before-20261113`;
+  manifestSHA256 `f5f282e3897c5d7810ca8c2305b02fbe1db8f6ef41b638205220d5d530c65ac2`.
+
+### Required session report
+
+1. **Completed:** repaired the captured auth-refresh/SwiftUI lock cycle and
+   preserved real-login recovery coverage; observed the same local case pass.
+2. **Files changed:** BackendMemoryAPI.swift, new BackendAuthMutation.swift,
+   BackendAccountDataControlsTests.swift, V1SmokeUITests.swift, TASKS.md and this
+   proof document. No backend, project, package, workflow or runner source change.
+3. **Root issue fixed:** async token/defaults persistence held auth serialization
+   while native KVO waited on SwiftUI; whole commits now enter main first without
+   weakening the existing atomic transaction or save authority.
+4. **Verification:** fresh725/0/0 signed units,1/0/0 real-auth UI, Mac build,
+   D009/diff; before0/1/0 retained. Profiler exit2 remains separate. Full backend
+  2783/0/2 is inherited exact07af backend proof, not a newly executed suite.
+5. **GitHub status:** this is a scoped verified backup branch, not a replacement
+   PR or main merge. Original9792ea checks remain green; the human deferred its
+   genuine current-head review. No repeated review request, bypass or deploy.
+6. **Next active task:** review remaining synchronous/bootstrap/account-deletion
+   writer confinement with actor completion/partition guards, then continue
+   original PR landing through actual bases when genuine review is available.
+7. **Continue status:** READY FOR CONTINUE. Production hold and phone/live-model/
+   export-outside gaps remain; do not call THEM complete.
