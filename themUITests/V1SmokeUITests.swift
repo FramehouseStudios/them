@@ -1868,7 +1868,8 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(
             waitForRestoreSnapshot(in: app, timeout: 60) { snapshot in
                 queuedSnapshot = snapshot
-                return stringValue(snapshot["selected_project_id"]).lowercased() == fixture.projectID.lowercased()
+                return intValue(snapshot["load_project_ack_token"]) == fixture.loadToken
+                    && stringValue(snapshot["selected_project_id"]).lowercased() == fixture.projectID.lowercased()
                     && stringValue(snapshot["draft_tail_preview"]).contains(marker)
                     && intValue(snapshot["queued_draft_save_count"]) == 1
                     && intValue(snapshot["parked_draft_save_count"]) == 0
@@ -1995,7 +1996,8 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(
             waitForRestoreSnapshot(in: app, timeout: 60) { snapshot in
                 queuedSnapshot = snapshot
-                return stringValue(snapshot["draft_tail_preview"]).contains(marker)
+                return intValue(snapshot["load_project_ack_token"]) == fixture.loadToken
+                    && stringValue(snapshot["draft_tail_preview"]).contains(marker)
                     && intValue(snapshot["queued_draft_save_count"]) == 1
                     && intValue(snapshot["parked_draft_save_count"]) == 0
                     && boolValue(snapshot["has_unsaved_draft_changes"])

@@ -5,6 +5,14 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### Current original904 hosted-ACK repair — T-1452 (2026-11-12)
+
+- **Owner:** Jarvis; Luna independent hosted/native artifact inspection. Einstein reviewed parked973 wire seam; no human approval substituted.
+- **First red:** original904ce run43349363467 required recovery0/2/0 on iOS26.5: both initial ACK0 assertions. Full tree also runnerexit75 before conflict case finished; downstream assertions/cause not assumed. Verified artifact14005523220 SHAae266429 retained; old run stays red.
+- **Repair:** add exact actual loadACK to both existing60s initial queued-state predicates; keep outerACK/fulltext/exactly-one assertions and removed CLI override. No app/timeout/action retry change.
+- **Proof:** canonical signed/erased owned81F recovery2/0/0 on iOS26.2; sourceunchanged, actualauthrequired fixture/PID/nonce and no paid call. App/backend/unit sources identicalce; inherited676units/2758backend(2skips), no unchanged broad rerun. Actual975 D009Studio−4/Bridge−2/other3zero; diff pass. Local proof does not clear hosted26.5/runner75.
+- **GitHub/next:** original904 normal preserving advancement only, fresh checks/genuine review; propagate parent into919/923 before further973 publication. Original9234b published;973bb local+2dirtyfiles held (721units/8Macwire pass, fixture startup needs bound). Main78b unchanged, production held; phone journey unproved. Evidence: `docs/original-904-load-ack-readiness-2026-11-12.md`. READY FOR CONTINUE.
+
 ### Current original904 recovery checkpoint — T-1447 (2026-11-12)
 
 - **Owner:** Codex (Jarvis); scoped Luna package/topology work and Zora recovery investigation. Original909, foundation831, history975 and all incoming commits preserved through no-ff merges. No replacement PR/main mutation.
