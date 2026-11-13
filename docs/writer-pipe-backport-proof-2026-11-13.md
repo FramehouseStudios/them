@@ -36,10 +36,16 @@ provider key, microphone, model or phone was involved. No Autosave binding/AX
 probe, action retry, longer deadline or UI assertion change is included.
 
 Canonical D009 against exactmain71 passes five zero deltas; syntax/diff pass.
-Fresh published4af Node20 backend2758/0/2 is separate unchanged-runtime/dependency
-proof, not a new full suite on this two-file descendant. No repeated unchanged
-full unit/backend/Mac run is attributed here; broader required gates remain for
-an integrated published head.
+After the focused pressure and native checks, one complete Node20.20.2 backend
+suite on exactd899 passed2759/0/2 (2761total), including the new regression. The
+existing skips are the unconfigured live-Postgres query and talk preview-header
+case. All1412 frozen tracked inputs and the read-only dependency contents stayed
+unchanged. The cached container had no external network; no install/model/native
+run was part of this backend pass. Receipt:
+/private/tmp/them-t1471-full-backend/completion.json.
+No unchanged full Swift-unit or macOS cohort was repeated. Fresh required hosted
+gates still belong to the eventual integrated published head; this is not main
+or shipping-backend certification.
 
 ## Limits and next step
 
