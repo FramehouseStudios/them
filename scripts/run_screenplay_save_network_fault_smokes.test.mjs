@@ -10,7 +10,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 const script = path.join(repoRoot, "scripts", "run_screenplay_save_network_fault_smokes.sh");
 
-function runSmoke({ withXcconfig = true, destination = "platform=iOS Simulator,id=deterministic-save-fault-smoke", bootFailure = false, testIdentifier = "" } = {}) {
+function runSmoke({ withXcconfig = true, destination = "platform=iOS Simulator,id=deterministic-save-fault-smoke", bootFailure = false, testIdentifier = "", includeMacOS = "1" } = {}) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-save-network-fault-"));
   const log = path.join(tmp, "xcodebuild.calls");
   const fakeXcodebuild = path.join(tmp, "xcodebuild");
@@ -49,6 +49,7 @@ function runSmoke({ withXcconfig = true, destination = "platform=iOS Simulator,i
       PATH: tmp + path.delimiter + process.env.PATH,
       IOS_SIMULATOR_NAME: "",
       SCREENPLAY_SAVE_TEST_IDENTIFIER: testIdentifier,
+      SCREENPLAY_SAVE_INCLUDE_MACOS: includeMacOS,
       XCODEBUILD: fakeXcodebuild,
       XCRUN: fakeXcrun,
       TEST_SIMULATOR_CALLS: simulatorLog,
@@ -85,6 +86,12 @@ test("[screenplay-save-network-fault-smokes] runs the recovery UI smoke on iPhon
   assert.match(simulatorCalls, /simctl bootstatus deterministic-save-fault-smoke -b/);
   assert.equal(ios.includes("CODE_SIGNING_ALLOWED=NO"), false);
   assert.equal(ios.includes("CODE_SIGNING_REQUIRED=NO"), false);
+  assert.ok(ios.includes("-default-test-execution-time-allowance"));
+  assert.ok(ios.includes("-maximum-test-execution-time-allowance"));
+  assert.equal(ios.includes("-default-test-execution-allowance"), false);
+  assert.equal(ios.includes("-maximum-test-execution-allowance"), false);
+  assert.ok(ios.includes("-parallel-testing-enabled"));
+  assert.ok(ios.includes("-resultBundlePath"));
   assert.ok(macos.includes("platform=macOS"));
   assert.ok(macos.includes("them-macOS-scaffold"));
   assert.ok(macos.includes("Mac Scaffold Debug"));
@@ -97,6 +104,13 @@ test("[screenplay-save-network-fault-smokes] runs the recovery UI smoke on iPhon
     assert.ok(call.includes("-only-testing:themUITests/V1SmokeUITests/test_screenplay_save_outbox_survives_relaunch_and_reconnects_once"));
     assert.ok(call.includes("-only-testing:themUITests/V1SmokeUITests/test_screenplay_save_outbox_refreshes_auth_and_resolves_stale_conflict_once"));
   }
+});
+
+test("[screenplay-save-network-fault-smokes] preserves original iPhone-only proof without macOS UI auth", () => {
+  const {result,calls}=runSmoke({includeMacOS:"0"});
+  assert.equal(result.status,0,result.stderr);
+  assert.equal(calls.length,1);
+  assert.match(result.stdout,/Signed iPhone queued screenplay saves/);
 });
 
 test("[screenplay-save-network-fault-smokes] unspecified local destinations cannot erase or run tests", () => {
