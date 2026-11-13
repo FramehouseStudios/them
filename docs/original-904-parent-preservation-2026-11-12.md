@@ -2,6 +2,10 @@
 
 ## Combined source
 
+This record describes preserving checkpoint039c8d7a. Its UI identity
+statements apply to that checkpoint; the later shared-navigation follow-up
+has its own record in original-904-shared-navigation-readiness-2026-11-12.md.
+
 Preserve original #904 remote76f53cf7, its local documentation-only correction
 807d1328b0a3c076374d38dda86b1e0e6a6f7aff, and original #964 parent
 32a8197dd5111c8115d7e90f02621023848c9367 through a no-ff merge.
