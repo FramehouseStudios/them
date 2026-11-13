@@ -4286,10 +4286,13 @@ final class ScreenplayStudioViewModel: ObservableObject {
     func runQueuedSaveNetworkFaultUITest(marker: String) async -> Bool {
         let cleanMarker = marker.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanMarker.isEmpty else { return false }
-        for _ in 0..<40 where selectedProject == nil || isLoading || draftSaveSlot.isClaimed || isSaving {
+        for _ in 0..<40 where selectedProject?.id != selectedProjectID || loadedDraftProjectID != selectedProjectID
+            || isLoading || draftSaveSlot.isClaimed || isSaving {
+            guard !Task.isCancelled else { return false }
             try? await Task.sleep(for: .milliseconds(250))
         }
-        guard selectedProject != nil, !isLoading, !draftSaveSlot.isClaimed, !isSaving else { return false }
+        guard !Task.isCancelled, !selectedProjectID.isEmpty, selectedProject?.id == selectedProjectID,
+              loadedDraftProjectID == selectedProjectID, !isLoading, !draftSaveSlot.isClaimed, !isSaving else { return false }
         autosaveEnabled = false
         if !fountainDraft.contains(cleanMarker) {
             let separator = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
