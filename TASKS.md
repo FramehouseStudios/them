@@ -9,7 +9,7 @@
 
 - **Owner:** Codex (Jarvis), bounded read-only Luna integration review. Atlas/Howard currently unavailable due workspace credit errors; Alfred idle; prior Zora/Einstein custody handoffs retained, not independently re-proven this pass.
 - **Scope:** preserving merge8688c30f into5f48066e on `codex/T-1443-inspector-routing-integration`. Keep original commits, full Page/autosave/held-preview diagnostic APIs and unrelated dependency link. Separate filtered navigation trace ID from existing Page trace. No backend/auth change.
-- **Status:** in-progress; signed combined hit-testing/Page units, essential inspector/Page UI, Mac scaffold and D009/diff are pending. Parent proof below is inherited evidence, not proof of this combined tree.
+- **Status:** combined runtime93927aeb VERIFIED: signed units18/0/0, essential inspector/Page UI3/0/0, Mac scaffold compile0, exact5f D009 five0. One routed/applied Them receipt and one Page preparation chain; original UI bodies unchanged. Proof and publication receipt: `docs/inspector-routing-integration-proof-2026-11-12.md`. Full backend/unit reruns omitted for unchanged sources; main/phone/live claims remain open.
 - **Hold:** no paid calls, production/main/original PR mutation, review bypass or new phone claim. Private editor416 requires external-mutation authority; account-formcbd requires verified-origin authority.
 
 ### Current parent checkpoint — T-1438 / T-1441 (2026-11-12)

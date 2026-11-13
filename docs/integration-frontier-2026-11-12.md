@@ -1,5 +1,11 @@
 # Actual integration frontier — 2026-11-12
 
+## Latest rehearsal boundary — T1443, 2026-11-12
+
+VERIFIED: preserving93927aeb combines full5f and published inspector8688, keeping both histories. Combined signed units18/0/0, affected inspector/Page UI3/0/0, Mac scaffold compile0 and exact5f D009 five0. Existing diagnostics remain; Page/navigation surfaces have unique filtered IDs. No backend/Packages/workflow/project changes or repeated unchanged broad suite. Full evidence/limits: [inspector integration proof](inspector-routing-integration-proof-2026-11-12.md).
+
+Fresh GitHub: main78 unchanged, original964831 Quality43260656345 remains red, original997f68 run43244758406 green. Protections still require all three checks and genuine review. Scoped backup publication preserves original heads; it is not main integration. TLS-verified api.them.io/healthz still302 parking; no production or paid call. Next: safe foundation editor external-mutation ownership and unchanged typing proof; hold private416/cbd. Physical-phone/intended-backend journey remains unproved.
+
 ## Latest verified boundary — T1434/T1435, 2026-11-12
 
 This checkpoint supersedes pending/older-head statements in the retained inventory below. It is not a full branch-code audit.
