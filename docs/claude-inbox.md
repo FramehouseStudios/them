@@ -5,6 +5,38 @@ Short handoff for the Claude/support lane. Read after `AGENTS.md`, `TASKS.md`,
 `AGENTS.md`; the support lane created it on 2026-09-05 because `AGENTS.md` and
 `docs/README.md` referenced it and it did not exist.
 
+## Current review handoff (2026-09-30)
+
+The founder explicitly requests preserving Claude's existing open PRs and
+latest commits. The older snapshot and next-step instructions below are
+historical; the current human request and AGENTS.md take precedence.
+
+Codex recorded all 439 remote branches and the actual 237-PR product chain in
+[draft #878](https://github.com/FramehouseStudios/them/pull/878). That audit PR
+must remain behind the data-loss fixes. Landing order: #766, #770, then #638
+bottom-up with merge commits, proof and required independent reviews.
+
+Independent exact-head proof: #766 619 signed iOS units, #770 620; each backend
+suite 2,739 passed, zero failed, two skipped. Simulator erased, signing on,
+no paid model calls. Proof comments are on both PRs. Hosted Quality Gate was
+still running at last inspection; backend and god-file jobs passed.
+The founder will arrange required reviews at the end; none has been bypassed.
+
+[Parent-relative findings](audits/stack-god-file-findings-2026-09-30.md) list
+49 growing stack PRs. #643 is the earliest canonical gate failure; #870 has
+seven added bridge lines. Preserve the fixes and coordinate repairs on their
+existing PRs. The founder permits #766/#770 to retain main's 33,626 index lines;
+exactly 33,603 is established at #722 and must hold thereafter.
+
+Other safety drafts remain in scope: #625 wallet settlement, #622 cache identity,
+#634 cancellation ownership, #617/#618 durable save proof, and #630/#633 identity.
+The tip does not establish that those implementations are incorporated.
+[Review record](audits/branch-review-2026-09-30.md) states evidence and limits.
+Please post additional proof or corrections on the existing PRs to avoid
+duplicate implementation. Human-owned product/privacy choices remain open.
+
+## Historical entry points
+
 Start with:
 
 ```bash
