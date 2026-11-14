@@ -5,6 +5,9 @@ import test from "node:test";
 const blueprint = readFileSync(new URL("../render.yaml", import.meta.url), "utf8");
 const dockerfile = readFileSync(new URL("../Dockerfile", import.meta.url), "utf8");
 const databaseBlock = blueprint.match(/^databases:\n([\s\S]*)$/m)?.[1] ?? "";
+const backendService = blueprint.match(
+  /^  - type: web\n    name: them-backend\n([\s\S]*?)(?=\n  - type: web\n    name: them-public\n)/m,
+)?.[1] ?? "";
 
 test("[render-blueprint] production Postgres uses a supported flexible compute plan", () => {
   assert.match(databaseBlock, /^\s+- name: them-postgres$/m);
@@ -23,6 +26,11 @@ test("[render-blueprint] production resources remain single-region and manually 
   assert.equal((blueprint.match(/^\s+- type: web$/gm) ?? []).length, 2);
   assert.equal((blueprint.match(/^\s+- name: them-postgres$/gm) ?? []).length, 1);
   assert.equal((blueprint.match(/^\s+region: oregon$/gm) ?? []).length, 2);
+});
+
+test("[render-blueprint] API custom domain belongs to the backend service", () => {
+  assert.match(backendService, /^    domains:\n      - api\.them\.io$/m);
+  assert.doesNotMatch(backendService, /^      - them\.io$/m);
 });
 
 test("[render-blueprint] production database and JWT credentials are provisioned safely", () => {

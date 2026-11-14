@@ -1,0 +1,4 @@
+// Public default only. Config.xcconfig includes the ignored private release
+// settings afterwards, so an explicitly configured BACKEND_URL takes precedence.
+BACKEND_URL = https:/$()/them-backend.onrender.com
+#include "Config.xcconfig"

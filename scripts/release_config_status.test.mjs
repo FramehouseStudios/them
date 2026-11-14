@@ -70,7 +70,7 @@ test("[release-config-status] text output gives the first env-file recovery step
 test("[release-config-status] release env template stays secret-free and complete", () => {
   const body = fs.readFileSync(template, "utf8");
   assert.match(body, /^DEVELOPMENT_TEAM_ID=/m);
-  assert.match(body, /^BACKEND_URL=https:\/\/api\.them\.io$/m);
+  assert.match(body, /^BACKEND_URL=https:\/\/them-backend\.onrender\.com$/m);
   assert.match(body, /^APP_TOKEN_RELEASE=/m);
   assert.match(body, /^OPENAI_API_KEY=/m);
   assert.match(body, /^PRIVACY_POLICY_URL=https:\/\/them\.io\/privacy$/m);
@@ -86,7 +86,7 @@ test("[release-docs] operator docs point at the iPhone release wrapper", () => {
   assert.match(checklist, /^# io\.them iPhone TestFlight Submission Checklist/);
   assert.match(combined, /scripts\/run_release_preflight\.sh/);
   assert.match(combined, /them\/Release\.local\.env\.example/);
-  assert.match(combined, /Keep `BACKEND_URL=https:\/\/api\.them\.io`/);
+  assert.match(combined, /Keep `BACKEND_URL=https:\/\/them-backend\.onrender\.com`/);
   assert.match(combined, /Mac Studio scaffold is outside V1|macOS command is a separate scaffold diagnostic/i);
   assert.doesNotMatch(combined, /macOS App Store/);
   assert.doesNotMatch(combined, /macOS is dormant scaffolding/);
