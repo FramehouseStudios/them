@@ -1,9 +1,9 @@
-// talk_clementine_headers — D009 strangler: x-suggestion / x-uncertainty / x-collab-cursor + samantha presence/voice for talk_handler.
+// talk_clementine_headers — D009 strangler: x-suggestion / x-uncertainty / x-collab-cursor + Clementine presence/voice for talk_handler.
 // No backend/index.js growth. Pure helpers, tested via talk_handler + unit test.
 // Wire: talk_handler calls applyClementineTalkHeaders(res, { project, draft, parsed, quality, collabCursor, ownerKey }).
-import { shouldSuggest, buildSuggestion } from "./samantha_intuition.js";
-import { getSamanthaPresence } from "./samantha_presence.js";
-import { getWriterVoiceProfile, buildVulnerabilityAsk } from "./samantha_voice.js";
+import { shouldSuggest, buildSuggestion } from "./clementine_intuition.js";
+import { getClementinePresence } from "./clementine_presence.js";
+import { getWriterVoiceProfile, buildVulnerabilityAsk } from "./clementine_voice.js";
 
 function toTrimmed(v) { return String(v||"").trim(); }
 
@@ -45,7 +45,7 @@ export function buildCollabCursorHeader({ collabCursor, project, draft } = {}) {
 
 export function buildPresenceHeaders({ project } = {}) {
   try {
-    const p = getSamanthaPresence(project);
+    const p = getClementinePresence(project);
     const state = String(p?.state || "idle");
     const hist = Array.isArray(p?.history) ? p.history.slice(-20) : [];
     return { state, history: hist, lastBargeInAt: p?.lastBargeInAt || null, lastBargeInReason: p?.lastBargeInReason || null };
@@ -81,15 +81,16 @@ export function applyClementineTalkHeaders(res, { project, draft, parsed, qualit
     const enc = encodeURIComponent(cursorJson.slice(0, 500));
     res.setHeader("x-collab-cursor", enc);
   }
-  // Samantha presence 20-history (header-wired)
+  // Clementine presence 20-history (header-wired)
   try {
     const pres = buildPresenceHeaders({ project });
-    res.setHeader("x-samantha-presence", encodeURIComponent(String(pres.state).slice(0, 40)));
+    res.setHeader("x-clementine-presence", encodeURIComponent(String(pres.state).slice(0, 40)));
+    res.setHeader("x-samantha-presence", encodeURIComponent(String(pres.state).slice(0, 40))); // Old supported clients.
     if (pres.history.length) res.setHeader("x-presence-history", encodeURIComponent(JSON.stringify(pres.history).slice(0, 800)));
     if (pres.lastBargeInAt) res.setHeader("x-presence-barge-at", String(pres.lastBargeInAt));
     if (pres.lastBargeInReason) res.setHeader("x-presence-barge-reason", encodeURIComponent(String(pres.lastBargeInReason).slice(0, 80)));
   } catch {}
-  // Samantha voice + vulnerability ask (writer voice learn)
+  // Clementine voice + vulnerability ask (writer voice learn)
   try {
     const voice = buildVoiceHeaders({ project, parsed, draft, quality, ownerKey });
     res.setHeader("x-voice-learn", encodeURIComponent(`${voice.voice}|${voice.cadence}|${voice.learned}`.slice(0, 120)));

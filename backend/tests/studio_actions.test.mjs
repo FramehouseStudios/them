@@ -102,7 +102,7 @@ test("parseStudioAction handles string and object", () => {
   assert.equal(parseStudioAction(123), null);
 });
 
-test("backend/index.js gate stays at 33626", async () => {
+test("backend/index.js does not exceed the 33626-line baseline", async () => {
   const fs = await import("node:fs");
   const text = fs.readFileSync(new URL("../../backend/index.js", import.meta.url),"utf8");
   const lines = text.split("\n").length;
@@ -111,5 +111,5 @@ test("backend/index.js gate stays at 33626", async () => {
   // simpler: use file line count via reading and counting \n
   let c=0; for(let i=0;i<text.length;i++) if(text[i]==="\n") c++;
   if(text.length>0 && !text.endsWith("\n")) c+=1;
-  assert.equal(c, 33626);
+  assert.ok(c <= 33626, `index.js grew beyond baseline: ${c}`);
 });

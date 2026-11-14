@@ -3,6 +3,18 @@ import { describe, it } from "node:test";
 import { buildSuggestionHeader, buildUncertaintyHeader, buildCollabCursorHeader, applyClementineTalkHeaders } from "../lib/clementine/talk_clementine_headers.js";
 
 describe("talk_clementine_headers", () => {
+  it("canonical presence wins and is emitted for new and legacy clients without mutation", () => {
+    const project = {
+      clementinePresence: { state: "speaking", history: ["present", "speaking"] },
+      samanthaPresence: { state: "idle", history: ["idle"] },
+    };
+    const before = structuredClone(project);
+    const headers = {};
+    applyClementineTalkHeaders({ setHeader(k, v) { headers[k] = v; } }, { project });
+    assert.equal(headers["x-clementine-presence"], "speaking");
+    assert.equal(headers["x-samantha-presence"], "speaking");
+    assert.deepEqual(project, before);
+  });
   it("x-suggestion present when pressure high or draft thin", () => {
     const project = { tone: "tense", characterContexts: [{ name: "John", arcState: { pressure: 6 } }] };
     const s = buildSuggestionHeader({ project, draft: "x", parsed: { genre: "horror" } });

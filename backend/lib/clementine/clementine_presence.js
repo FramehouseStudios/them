@@ -1,13 +1,14 @@
-// D009 strangler — Samantha presence for industry writers: presence-memory, intuition-proactive, voice-growth.
+// D009 strangler — Clementine presence for industry writers: presence-memory, intuition-proactive, voice-growth.
 // Persists characterContexts memory across sessions via commitScreenplayOwnerMutation + barge-in presence.
 // No backend/index.js growth. Pure wrapper, injected deps only.
 import { pushCharacterMemory, ensureCharacterContexts, getCharacterContext } from "./short_film_character_context.js";
+import { readPresenceRecord, ensurePresenceRecord } from "./presence_record.js";
 
 function trimToString(v) { return v == null ? "" : String(v).trim(); }
 
 export const PRESENCE_STATES = Object.freeze(["idle", "listening", "speaking", "barge_in", "recovering", "present"]);
 export const DEFAULT_PRESENCE = "idle";
-export const SAMANTHA_PRESENCE_STATES = PRESENCE_STATES;
+export const CLEMENTINE_PRESENCE_STATES = PRESENCE_STATES;
 
 function normalizePresence(v) {
   const t = trimToString(v).toLowerCase();
@@ -29,11 +30,7 @@ function findProject(owner, projectId) {
 }
 
 function ensurePresenceContainer(project) {
-  if (!project.samanthaPresence || typeof project.samanthaPresence !== "object" || Array.isArray(project.samanthaPresence)) {
-    project.samanthaPresence = { state: DEFAULT_PRESENCE, updatedAt: Date.now(), history: [] };
-  }
-  if (!Array.isArray(project.samanthaPresence.history)) project.samanthaPresence.history = [];
-  return project.samanthaPresence;
+  return ensurePresenceRecord(project);
 }
 
 function pushPresenceHistory(container, state) {
@@ -47,7 +44,7 @@ function pushPresenceHistory(container, state) {
 }
 
 // Core: persist characterContexts memory across sessions (same contract as memory_persist, adds presence)
-export async function persistSamanthaMemory({
+export async function persistClementineMemory({
   ownerKey,
   projectId = "",
   name,
@@ -72,7 +69,7 @@ export async function persistSamanthaMemory({
       }
       const updated = pushCharacterMemory(project, { name, text, page, role });
       if (!updated) return { commit: false, reason: "character_not_found" };
-      // presence-memory: record Samantha presence alongside memory mutation
+      // presence-memory: record Clementine presence alongside memory mutation
       const container = ensurePresenceContainer(project);
       pushPresenceHistory(container, pres);
       // also stamp character-level presence for intuition-proactive
@@ -86,11 +83,11 @@ export async function persistSamanthaMemory({
 }
 
 // Alias for memory_persist contract compatibility
-export const persistCharacterMemoryWithPresence = persistSamanthaMemory;
-export const persistSamanthaPresence = persistSamanthaMemory;
+export const persistCharacterMemoryWithPresence = persistClementineMemory;
+export const persistClementinePresence = persistClementineMemory;
 
 // Ensure characterContexts exist and snapshot presence across sessions
-export async function persistSamanthaContexts({
+export async function persistClementineContexts({
   ownerKey,
   projectId = "",
   parsed,
@@ -204,45 +201,45 @@ export function buildPresencePayload({ presence = DEFAULT_PRESENCE, characterCon
   };
 }
 
-export function getSamanthaPresence(project) {
+export function getClementinePresence(project) {
   if (!project || typeof project !== "object") return { state: DEFAULT_PRESENCE, history: [] };
-  const c = project.samanthaPresence;
+  const c = readPresenceRecord(project);
   if (!c || typeof c !== "object") return { state: DEFAULT_PRESENCE, history: [] };
   return { state: normalizePresence(c.state), history: Array.isArray(c.history) ? [...c.history] : [], lastBargeInAt: c.lastBargeInAt || null, lastBargeInReason: c.lastBargeInReason || null };
 }
 
-export function createSamanthaPresence({ commitScreenplayOwnerMutation, cancelOnBargeIn, cancelByOwner, pageReservationStore } = {}) {
+export function createClementinePresence({ commitScreenplayOwnerMutation, cancelOnBargeIn, cancelByOwner, pageReservationStore } = {}) {
   if (typeof commitScreenplayOwnerMutation !== "function") throw new Error("commitScreenplayOwnerMutation required");
   return {
-    persistSamanthaMemory: (opts = {}) => persistSamanthaMemory({ ...opts, commitScreenplayOwnerMutation }),
-    persistCharacterMemory: (opts = {}) => persistSamanthaMemory({ ...opts, commitScreenplayOwnerMutation }),
-    persistSamanthaPresence: (opts = {}) => persistSamanthaPresence({ ...opts, commitScreenplayOwnerMutation }),
-    persistSamanthaContexts: (opts = {}) => persistSamanthaContexts({ ...opts, commitScreenplayOwnerMutation }),
-    persistCharacterContexts: (opts = {}) => persistSamanthaContexts({ ...opts, commitScreenplayOwnerMutation }),
+    persistClementineMemory: (opts = {}) => persistClementineMemory({ ...opts, commitScreenplayOwnerMutation }),
+    persistCharacterMemory: (opts = {}) => persistClementineMemory({ ...opts, commitScreenplayOwnerMutation }),
+    persistClementinePresence: (opts = {}) => persistClementinePresence({ ...opts, commitScreenplayOwnerMutation }),
+    persistClementineContexts: (opts = {}) => persistClementineContexts({ ...opts, commitScreenplayOwnerMutation }),
+    persistCharacterContexts: (opts = {}) => persistClementineContexts({ ...opts, commitScreenplayOwnerMutation }),
     handleBargeIn: (opts = {}) => handleBargeIn({ ...opts, commitScreenplayOwnerMutation, cancelOnBargeIn, cancelByOwner, pageReservationStore }),
     handleBargeInPresence: (opts = {}) => handleBargeIn({ ...opts, commitScreenplayOwnerMutation, cancelOnBargeIn, cancelByOwner, pageReservationStore }),
     onBargeIn: (opts = {}) => handleBargeIn({ ...opts, commitScreenplayOwnerMutation, cancelOnBargeIn, cancelByOwner, pageReservationStore }),
     buildPresencePayload,
-    getPresence: getSamanthaPresence,
+    getPresence: getClementinePresence,
     normalizePresence,
     isValidPresence,
   };
 }
 
-export const createPresencePersister = createSamanthaPresence;
-export const createSamanthaPresencePersister = createSamanthaPresence;
+export const createPresencePersister = createClementinePresence;
+export const createClementinePresencePersister = createClementinePresence;
 
 export default {
   PRESENCE_STATES,
   DEFAULT_PRESENCE,
   normalizePresence,
   isValidPresence,
-  persistSamanthaMemory,
-  persistSamanthaPresence,
-  persistSamanthaContexts,
+  persistClementineMemory,
+  persistClementinePresence,
+  persistClementineContexts,
   handleBargeIn,
   handleBargeInPresence,
   buildPresencePayload,
-  getSamanthaPresence,
-  createSamanthaPresence,
+  getClementinePresence,
+  createClementinePresence,
 };
