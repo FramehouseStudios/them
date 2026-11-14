@@ -9,6 +9,72 @@ final class BackendScreenplayProjectActivationTests: XCTestCase {
         super.tearDown()
     }
 
+    func testProjectListReusesETagOnlyForMatchingVariantAndClearsOnReset() async throws {
+        ScreenplayProjectActivationURLProtocolStub.handler = { request in
+            if request.url?.path == "/session" {
+                return ScreenplayProjectActivationHTTPStub(status: 200, headers: [:], body:
+                    Data(#"{"client_token":"client-test","expires_in":3600,"remembered_names":[]}"#.utf8))
+            }
+            XCTAssertEqual(request.url?.path, "/screenplay/projects")
+            if let etag = request.value(forHTTPHeaderField: "If-None-Match") {
+                XCTAssertEqual(etag, "W/\"projects-v7\"")
+                return ScreenplayProjectActivationHTTPStub(status: 304, headers: [:], body: Data())
+            }
+            return ScreenplayProjectActivationHTTPStub(status: 200,
+                headers: ["ETag": "W/\"projects-v7\""], body:
+                    Data(#"{"state_version":"projects-v7","screenplay_projects":[]}"#.utf8))
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ScreenplayProjectActivationURLProtocolStub.self]
+        let api = BackendMemoryAPI(session: URLSession(configuration: configuration),
+            baseURL: URL(string: "https://screenplay-project-activation.test")!)
+        let first = try await api.fetchScreenplayProjects()
+        XCTAssertFalse(first.notModified)
+        let cached = try await api.fetchScreenplayProjects()
+        XCTAssertTrue(cached.notModified)
+        XCTAssertEqual(cached.payload.stateVersion, "projects-v7")
+        XCTAssertEqual(cached.sync.stateVersion, first.sync.stateVersion)
+        let drafts = try await api.fetchScreenplayProjects(includeDrafts: true)
+        XCTAssertFalse(drafts.notModified)
+        let versions = try await api.fetchScreenplayProjects(includeVersions: true)
+        XCTAssertFalse(versions.notModified)
+        let limit = try await api.fetchScreenplayProjects(limit: 2)
+        XCTAssertFalse(limit.notModified)
+        await api.invalidateResolvedSessionCaches()
+        let reset = try await api.fetchScreenplayProjects()
+        XCTAssertFalse(reset.notModified)
+    }
+
+    func testProjectListRejectsResponseAfterSessionInvalidation() async throws {
+        let started = expectation(description: "project request in flight")
+        let release = DispatchSemaphore(value: 0)
+        ScreenplayProjectActivationURLProtocolStub.handler = { request in
+            if request.url?.path == "/session" {
+                return ScreenplayProjectActivationHTTPStub(status: 200, headers: [:], body:
+                    Data(#"{"client_token":"client-test","expires_in":3600,"remembered_names":[]}"#.utf8))
+            }
+            started.fulfill()
+            guard release.wait(timeout: .now() + 5) == .success else { throw URLError(.timedOut) }
+            return ScreenplayProjectActivationHTTPStub(status: 200,
+                headers: ["ETag": "W/\"old-account\""], body:
+                    Data(#"{"screenplay_projects":[]}"#.utf8))
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ScreenplayProjectActivationURLProtocolStub.self]
+        let api = BackendMemoryAPI(session: URLSession(configuration: configuration),
+            baseURL: URL(string: "https://screenplay-project-activation.test")!)
+        let pending = Task { try await api.fetchScreenplayProjects() }
+        await fulfillment(of: [started], timeout: 3)
+        await api.invalidateResolvedSessionCaches()
+        release.signal()
+        do {
+            _ = try await pending.value
+            XCTFail("A stale session response must not be returned or cached")
+        } catch is CancellationError {
+            // Expected: the session changed while the request was in flight.
+        }
+    }
+
     func testActivateScreenplayProjectPostsToActivationRoute() async throws {
         let recorder = ScreenplayProjectActivationRequestRecorder()
         ScreenplayProjectActivationURLProtocolStub.handler = { request in
