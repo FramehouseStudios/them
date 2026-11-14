@@ -744,17 +744,13 @@ struct RootExperienceView: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
 
-    @State private var showPrompt = true
     @State private var isThinking = false
     @State private var transcript = ""
     @State private var livePartialTranscript = ""
     @State private var lastNonEmptyPartialTranscriptHint = ""
     @State private var recentTurnWindow: [(user: String, assistant: String)] = []
     @State private var recentTurnWindowHistoryUpdatedAt: TimeInterval = 0
-    @State private var onboardingName = ""
-    @State private var onboardingSceneSeed = ""
-    @State private var isMagicMomentSubmitting = false
-    @State private var magicMomentOnboardingError = ""
+    @StateObject private var firstPageOnboarding = ScreenplayFirstPageOnboardingModel()
     @AppStorage("auth_signed_in") private var authSignedIn: Bool = false
     @AppStorage("auth_session_token_deletion_pending")
     private var authSessionTokenDeletionPending: Bool = false
@@ -873,7 +869,7 @@ struct RootExperienceView: View {
     @State private var activeTurnBasedLatencyTurnID = ""
     @State private var lastRealtimeStudioPreviewAt: Date = .distantPast
     @State private var lastRealtimeStudioPreviewCharacterCount: Int = 0
-    @State private var studioTypedPromptRoutingMode: ScreenplayStudioScreen.PromptRoutingMode = .automatic
+    @StateObject private var studioTypedSubmission = StudioTypedSubmissionScope()
     @AppStorage("show_live_script_preview") private var showLiveScriptPreview: Bool = true
     @AppStorage(ClementineVoiceSettings.voiceSpeedKey) private var clementineSpeakingPace: Double = 1.0
     @AppStorage("studio_typed_reply_audio_enabled") private var studioTypedReplyAudioEnabled: Bool = true
@@ -1221,7 +1217,7 @@ struct RootExperienceView: View {
         if evolution.needsOnboardingName {
             onboardingOverlay
                 .transition(.opacity)
-                .zIndex(10)
+                .zIndex(30)
         }
 
         if voiceTransportMode == .realtimePreview {
@@ -1380,6 +1376,18 @@ struct RootExperienceView: View {
                     offlineTalkOutboxSnapshot = snapshot
                     if let status = snapshot.userVisibleStatus, snapshot.hasWork {
                         showOfflineTalkOutboxBanner(status)
+                    }
+                }
+                .onReceive(screenplayDraftBridge.$lastCommittedWrite) { write in
+                    guard firstPageOnboarding.hasExplicitVoicePageIntent, let write else { return }
+                    let generation = studioAccountIdentityGeneration
+                    DispatchQueue.main.async {
+                        guard generation == studioAccountIdentityGeneration else { return }
+                        firstPageOnboarding.acknowledgeCommittedPage(
+                            isAuthoritative: write.isAuthoritativeWrite,
+                            insertedText: write.insertedText,
+                            committedAt: write.committedAt
+                        )
                     }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .themOpenStudioRequested)) { _ in
@@ -2477,7 +2485,7 @@ struct RootExperienceView: View {
             studioWasAuthenticatedSnapshot = session.isAuthenticated && !session.accessExpired
         }
         ensureSessionBumped()
-        onboardingName = evolution.preferredName
+        firstPageOnboarding.name = evolution.preferredName
         if evolution.needsOnboardingName {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
                 onboardingNameFocused = true
@@ -2520,12 +2528,6 @@ struct RootExperienceView: View {
         #if DEBUG
         openUITestLaunchSurfaceIfNeeded()
         #endif
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
-            withAnimation(.easeInOut(duration: 2)) {
-                showPrompt = false
-            }
-        }
 
         installMacKeyMonitorIfNeeded()
     }
@@ -3190,7 +3192,7 @@ struct RootExperienceView: View {
                     )
                     .themDesktopSheetFrame(minWidth: 900, minHeight: 680)
                 }
-                .sheet(isPresented: $showingProfileAccount) {
+                .sheet(isPresented: $showingProfileAccount, onDismiss: handleAccountSheetDismissed) {
                     ProfileAccountScreen(onSessionChanged: handleAccountSessionChanged)
                 }
         )
@@ -3366,7 +3368,7 @@ struct RootExperienceView: View {
 
                 homeSessionContinuityCard
 
-                if showPrompt {
+                Group {
                     VStack(spacing: 14) {
                         Text("Talk")
                             .font(.system(size: 30, weight: .semibold, design: .default))
@@ -3892,185 +3894,80 @@ struct RootExperienceView: View {
     }
 
     private var onboardingOverlay: some View {
-        ZStack {
-            Color.black.opacity(0.12)
-                .ignoresSafeArea()
-
-            VStack(spacing: 16) {
-                VStack(spacing: 6) {
-                    Text("Start your first page")
-                        .font(.system(size: 30, weight: .semibold, design: .default))
-                        .foregroundColor(.herText.opacity(0.94))
-                        .multilineTextAlignment(.center)
-
-                    Text("Tell io.them who you are and the scene you want to hear first.")
-                        .font(.system(size: 13, weight: .regular, design: .default))
-                        .foregroundColor(.herText.opacity(0.72))
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                VStack(spacing: 10) {
-                    TextField("Your name", text: $onboardingName)
-                        .font(.system(size: 17, weight: .regular, design: .default))
-                        .textFieldStyle(.roundedBorder)
-                        .focused($onboardingNameFocused)
-                        .submitLabel(.next)
-                        .onSubmit {
-                            if canSubmitOnboarding {
-                                onboardingSceneFocused = true
-                            }
-                        }
-                        .accessibilityIdentifier("onboarding.name.field")
-
-                    TextField("A detective finds a letter under a motel door...", text: $onboardingSceneSeed, axis: .vertical)
-                        .font(.system(size: 16, weight: .regular, design: .default))
-                        .textFieldStyle(.roundedBorder)
-                        .lineLimit(3...5)
-                        .focused($onboardingSceneFocused)
-                        .submitLabel(.go)
-                        .onSubmit {
-                            startMagicMomentOnboarding()
-                        }
-                        .accessibilityIdentifier("onboarding.scene.field")
-                }
-
-                HStack(spacing: 10) {
-                    Button {
-                        startMagicMomentVoiceOnboarding()
-                    } label: {
-                        Text("Voice to Scene")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 15, weight: .semibold, design: .default))
-                    .foregroundColor(.herText.opacity(canStartMagicMoment ? 0.90 : 0.45))
-                    .padding(.vertical, 11)
-                    .background(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(Color.white.opacity(canStartMagicMoment ? 0.16 : 0.08))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .stroke(Color.white.opacity(0.18), lineWidth: 1)
-                    )
-                    .disabled(!canStartMagicMoment)
-                    .accessibilityIdentifier("onboarding.voice-to-scene")
-
-                    Button {
-                        startMagicMomentOnboarding()
-                    } label: {
-                        Text(isMagicMomentSubmitting ? "Writing..." : "Start Page")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 15, weight: .semibold, design: .default))
-                    .foregroundColor(.herText.opacity(canStartMagicMoment ? 0.94 : 0.45))
-                    .padding(.vertical, 11)
-                    .background(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(Color.white.opacity(canStartMagicMoment ? 0.26 : 0.12))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .stroke(Color.white.opacity(0.24), lineWidth: 1)
-                    )
-                    .disabled(!canStartMagicMoment)
-                    .accessibilityIdentifier("onboarding.start-page")
-                }
-
-                if !magicMomentOnboardingError.isEmpty {
-                    Text(magicMomentOnboardingError)
-                        .font(.system(size: 12, weight: .regular, design: .default))
-                        .foregroundColor(.red.opacity(0.86))
-                        .multilineTextAlignment(.center)
-                        .lineLimit(3)
-                }
-            }
-            .padding(24)
-            .frame(maxWidth: 430)
-            .background(
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .fill(Color.white.opacity(0.18))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .stroke(Color.white.opacity(0.22), lineWidth: 1)
-            )
-            .padding(.horizontal, 20)
-        }
-    }
-
-    private var canSubmitOnboarding: Bool {
-        !onboardingName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    private var canStartMagicMoment: Bool {
-        canSubmitOnboarding && !isMagicMomentSubmitting
+        ScreenplayFirstPageOnboardingView(
+            model: firstPageOnboarding,
+            nameFocused: $onboardingNameFocused,
+            sceneFocused: $onboardingSceneFocused,
+            onStartPage: startMagicMomentOnboarding,
+            onStartVoice: startMagicMomentVoiceOnboarding
+        )
     }
 
     @MainActor
     private func startMagicMomentOnboarding() {
-        guard !isMagicMomentSubmitting else { return }
-        guard completeOnboarding(askForPersonality: false) else { return }
-
-        let cleanName = onboardingName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let sceneSeed = normalizedMagicMomentSceneSeed()
-        let prompt = magicMomentFirstPagePrompt(name: cleanName, sceneSeed: sceneSeed)
-        let requestID = "magic-moment-\(UUID().uuidString.lowercased())"
-        let startedAt = Date()
-
-        isMagicMomentSubmitting = true
-        magicMomentOnboardingError = ""
+        guard firstPageOnboarding.queue(kind: .page) != nil else { return }
         openStudio()
-        screenplayDraftBridge.autoInsertStatusText = "io.them is writing the first page..."
-        magicMomentPerceivedResponseMs = Date().timeIntervalSince(startedAt) * 1_000
-
-        Task { @MainActor in
-            await Task.yield()
-            let error = await submitStudioPrompt(prompt, routingMode: .page, requestID: requestID)
-            magicMomentLastDurationMs = Date().timeIntervalSince(startedAt) * 1_000
-            isMagicMomentSubmitting = false
-
-            if let error = error?.trimmingCharacters(in: .whitespacesAndNewlines), !error.isEmpty {
-                magicMomentOnboardingError = error
-                lastIssueSummary = error
-                screenplayDraftBridge.autoInsertStatusText = error
-                return
-            }
-
-            onboardingSceneSeed = ""
-            magicMomentOnboardingError = ""
-        }
     }
 
     @MainActor
     private func startMagicMomentVoiceOnboarding() {
-        guard !isMagicMomentSubmitting else { return }
-        guard completeOnboarding(askForPersonality: false) else { return }
-        magicMomentOnboardingError = ""
+        guard firstPageOnboarding.queue(kind: .voice) != nil else { return }
         openStudio()
-        startConversationLoopIfNeeded()
     }
 
-    private func normalizedMagicMomentSceneSeed() -> String {
-        let clean = onboardingSceneSeed.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !clean.isEmpty { return clean }
-        return "someone walks into a room carrying a secret they cannot say out loud yet"
+    @MainActor
+    private func resumeFirstPageOnboardingIfReady() {
+        guard let request = firstPageOnboarding.beginPendingRequest(
+            workspaceReady: isStudioSurfaceActive
+        ) else { return }
+        switch request.kind {
+        case .voice:
+            guard firstPageOnboarding.finishVoiceLaunch(requestID: request.id) else { return }
+            guard completeOnboarding(askForPersonality: false, submittedName: request.name) else { return }
+            startConversationLoopIfNeeded()
+        case .page:
+            screenplayDraftBridge.autoInsertStatusText = "Clementine is writing your first page…"
+            magicMomentPerceivedResponseMs = Date().timeIntervalSince(request.startedAt) * 1_000
+            let accountGeneration = studioAccountIdentityGeneration
+            Task { @MainActor in
+                let accountChangedMessage = "Your account changed. Your scene idea is still here; sign in and try again."
+                guard accountGeneration == studioAccountIdentityGeneration else {
+                    _ = firstPageOnboarding.finishPage(requestID: request.id, error: accountChangedMessage)
+                    return
+                }
+                let submissionError = await submitStudioPrompt(
+                    request.pagePrompt,
+                    routingMode: .page,
+                    requestID: request.id,
+                    expectedAccountGeneration: accountGeneration
+                )
+                guard accountGeneration == studioAccountIdentityGeneration else {
+                    _ = firstPageOnboarding.finishPage(requestID: request.id, error: accountChangedMessage)
+                    return
+                }
+                guard studioTypedSubmission.activeID == nil else {
+                    _ = firstPageOnboarding.finishPage(requestID: request.id, error: "The Studio request was superseded.")
+                    return
+                }
+                let error: String? = submissionError ?? (screenplayDraftBridge.draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        ? "Clementine did not add a screenplay page. Your scene idea is still here; try Start Page again."
+                        : nil)
+                magicMomentLastDurationMs = Date().timeIntervalSince(request.startedAt) * 1_000
+                if firstPageOnboarding.finishPage(requestID: request.id, error: error) {
+                    completeOnboarding(askForPersonality: false, submittedName: request.name)
+                } else if let error, !error.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    lastIssueSummary = error
+                    screenplayDraftBridge.autoInsertStatusText = error
+                }
+            }
+        }
     }
 
-    private func magicMomentFirstPagePrompt(name: String, sceneSeed: String) -> String {
-        let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanSeed = sceneSeed.trimmingCharacters(in: .whitespacesAndNewlines)
-        let displayName = cleanName.isEmpty ? "the writer" : cleanName
-        let impulse = cleanSeed.isEmpty ? normalizedMagicMomentSceneSeed() : cleanSeed
-        return """
-        Write the first page of a screenplay scene for \(displayName).
-
-        Scene impulse: \(impulse)
-
-        Write only the page content in clean Fountain/Hollywood screenplay format: one slugline, visual action, character cues, and dialogue. Keep it to roughly one page. Do not explain the formatting.
-        """
+    private func handleAccountSheetDismissed() {
+        let session = BackendAuthClient.currentAuthSessionState()
+        if !session.isAuthenticated || session.accessExpired {
+            firstPageOnboarding.cancelPendingRequest()
+        }
     }
 
     private var shouldDefaultLaunchIntoStudio: Bool {
@@ -4159,6 +4056,7 @@ struct RootExperienceView: View {
         }
         persistWorkspaceSurface(.studio)
         promoteRestoredLiveDraftToStudioProjectIfNeeded()
+        resumeFirstPageOnboardingIfReady()
         if voiceTransportMode == .realtimePreview {
             Task { @MainActor in
                 await prewarmRealtimeIfNeeded(isScreenplayMode: true)
@@ -4215,6 +4113,12 @@ struct RootExperienceView: View {
             studioAccountIdentityGeneration = studioAccountIdentityGeneration == Int.max
                 ? 1
                 : studioAccountIdentityGeneration + 1
+            if studioTypedSubmission.activeID != nil {
+                isTurnSubmitting = false
+                isThinking = false
+                typedReplySpeaker.cancel()
+            }
+            studioTypedSubmission.activeID = nil
             liveScreenplayProjectID = ""
             liveScreenplayVersionID = ""
             sessionContinuitySnapshot = nil
@@ -4241,6 +4145,7 @@ struct RootExperienceView: View {
     }
 
     private func closeStudio() {
+        firstPageOnboarding.cancelVoicePageIntent()
         cancelRealtimeStudioDraftStream(restorePreview: true)
         if !conversationLoopEnabled && (realtimeTransport.isLive || realtimeTransport.isBusy) {
             realtimeTransport.disconnect()
@@ -4876,8 +4781,10 @@ You're okay. Let's slow it down for one beat and get our footing back. Pick the 
     @MainActor
     @discardableResult
     private func applyConversationalStudioCorrectionIfNeeded(
-        _ rawText: String
+        _ rawText: String,
+        expectedAccountGeneration: Int? = nil
     ) async -> Bool {
+        guard expectedAccountGeneration == nil || expectedAccountGeneration == studioAccountIdentityGeneration else { return false }
         let clean = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else { return false }
         guard isStudioSurfaceActive || screenplayDraftBridge.latestAppliedMemory.hasContent else {
@@ -4889,12 +4796,14 @@ You're okay. Let's slow it down for one beat and get our footing back. Pick the 
 
         do {
             let character = try await screenplayDraftBridge.saveInlineAppliedMemoryCorrection(correction)
+            guard expectedAccountGeneration == nil || expectedAccountGeneration == studioAccountIdentityGeneration else { return false }
             speculativeTalk.cancel()
             let confirmation = "Saved correction for \(character)."
             screenplayDraftBridge.autoInsertStatusText = confirmation
             showStudioCommandNotice(confirmation)
             return true
         } catch {
+            guard expectedAccountGeneration == nil || expectedAccountGeneration == studioAccountIdentityGeneration else { return false }
             let message = "Memory correction failed: \(error.localizedDescription)"
             screenplayDraftBridge.autoInsertStatusText = message
             showStudioCommandNotice(message)
@@ -4932,8 +4841,10 @@ You're okay. Let's slow it down for one beat and get our footing back. Pick the 
     private func syncEvolutionForMemoryDomain(
         userMessage: String,
         memoryDomain: StudioMemoryDomain,
-        isScreenplayMode: Bool
+        isScreenplayMode: Bool,
+        expectedAccountGeneration: Int? = nil
     ) async {
+        guard expectedAccountGeneration == nil || expectedAccountGeneration == studioAccountIdentityGeneration else { return }
         let cleanUser = userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanUser.isEmpty else { return }
 
@@ -4943,7 +4854,7 @@ You're okay. Let's slow it down for one beat and get our footing back. Pick the 
 
         if memoryDomain == .companion || memoryDomain == .mixed {
             if let detectedName = evolution.updatePreferredNameFromUserTextIfPresent(cleanUser) {
-                onboardingName = detectedName
+                firstPageOnboarding.name = detectedName
             }
             _ = evolution.updatePersonaFromUserTextIfPresent(cleanUser)
             evolution.recordUserMessage(cleanUser)
@@ -5009,10 +4920,12 @@ You're okay. Let's slow it down for one beat and get our footing back. Pick the 
         let shouldAutoOpenStudioForTurn = isScreenplayModeOverride == nil
             ? shouldAutoOpenStudioForScriptIntent(directorText)
             : false
-        let useScreenplayModeForTurn = isScreenplayModeOverride
-            ?? (isStudioSurfaceActive || shouldAutoOpenStudioForTurn)
+        let firstPageVoiceIntent = firstPageOnboarding.hasExplicitVoicePageIntent
+        let voiceTarget: ScreenplayStudioScreen.PromptRoutingMode = firstPageVoiceIntent ? .page : .automatic
+        let useScreenplayModeForTurn = firstPageVoiceIntent || (isScreenplayModeOverride
+            ?? (isStudioSurfaceActive || shouldAutoOpenStudioForTurn))
         let memoryDomain = useScreenplayModeForTurn
-            ? studioMemoryDomain(for: directorText, preferredTarget: .automatic)
+            ? studioMemoryDomain(for: directorText, preferredTarget: voiceTarget)
             : .companion
 
         let director = HerDirectorContext.build(from: store, userText: directorText)
@@ -5026,12 +4939,9 @@ You're okay. Let's slow it down for one beat and get our footing back. Pick the 
             for: memoryDomain,
             isScreenplayMode: useScreenplayModeForTurn
         )
-        let shouldWriteToPage = useScreenplayModeForTurn
-            ? shouldRouteStudioPromptToPage(
-                directorText,
-                preferredTarget: .automatic
-            )
-            : false
+        let shouldWriteToPage = firstPageVoiceIntent || (useScreenplayModeForTurn
+            ? shouldRouteStudioPromptToPage(directorText, preferredTarget: voiceTarget)
+            : false)
         let confirmedStudioStoryContext = useScreenplayModeForTurn
             ? confirmedStudioPageWriteContext(for: directorText)
             : nil
@@ -6038,10 +5948,12 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
     @MainActor
     private func stopCurrentInteraction() {
+        firstPageOnboarding.cancelVoicePageIntent()
         conversationLoopEnabled = false
         pendingGoodbyeStopAfterPlayback = false
         inFlightTalkTask?.cancel()
         inFlightTalkTask = nil
+        studioTypedSubmission.activeID = nil
         isTurnSubmitting = false
         isThinking = false
         realtimeAssistantTranscriptFallbackTask?.cancel()
@@ -6080,11 +5992,11 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
     @MainActor
     @discardableResult
-    private func completeOnboarding(askForPersonality: Bool = true) -> Bool {
-        let clean = onboardingName.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func completeOnboarding(askForPersonality: Bool = true, submittedName: String? = nil) -> Bool {
+        let clean = (submittedName ?? firstPageOnboarding.name).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else { return false }
         evolution.setPreferredName(clean)
-        onboardingName = clean
+        firstPageOnboarding.name = clean
         onboardingNameFocused = false
         onboardingSceneFocused = false
         if askForPersonality {
@@ -7612,7 +7524,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             if let persistedName = result.userName?.trimmingCharacters(in: .whitespacesAndNewlines),
                !persistedName.isEmpty {
                 evolution.setPreferredName(persistedName)
-                onboardingName = persistedName
+                firstPageOnboarding.name = persistedName
             }
             await onTurnCommitted(
                 result.commit,
@@ -7763,11 +7675,23 @@ Write this approved story direction directly into screenplay pages now. Maintain
     }
 
     @MainActor
+    private func isCurrentStudioTypedSubmission(_ id: UUID, accountGeneration: Int) -> Bool {
+        studioTypedSubmission.isCurrent(id, accountGeneration: accountGeneration,
+            currentAccountGeneration: studioAccountIdentityGeneration, isCancelled: Task.isCancelled)
+    }
+
+    @MainActor
     private func submitStudioPrompt(
         _ prompt: String,
         routingMode: ScreenplayStudioScreen.PromptRoutingMode = .automatic,
-        requestID: String? = nil
+        requestID: String? = nil,
+        expectedAccountGeneration: Int? = nil
     ) async -> String? {
+        let accountGeneration = expectedAccountGeneration ?? studioAccountIdentityGeneration
+        let supersededMessage = "The Studio request was superseded. Your scene idea is still here."
+        guard accountGeneration == studioAccountIdentityGeneration, !Task.isCancelled else {
+            return supersededMessage
+        }
         let cleanPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanPrompt.isEmpty else { return "Enter a Studio prompt first." }
 #if DEBUG || os(macOS)
@@ -7815,17 +7739,23 @@ Write this approved story direction directly into screenplay pages now. Maintain
             at: clientLatencyStartedAt
         )
 
+        let submissionID = UUID()
+        studioTypedSubmission.activeID = submissionID
         isTurnSubmitting = true
         isThinking = true
-        studioTypedPromptRoutingMode = routingMode
         defer {
-            isTurnSubmitting = false
-            isThinking = false
-            studioTypedPromptRoutingMode = .automatic
+            if studioTypedSubmission.activeID == submissionID,
+               accountGeneration == studioAccountIdentityGeneration {
+                studioTypedSubmission.activeID = nil
+                isTurnSubmitting = false
+                isThinking = false
+            }
         }
         _ = await applyConversationalStudioCorrectionIfNeeded(
-            cleanPrompt
+            cleanPrompt,
+            expectedAccountGeneration: accountGeneration
         )
+        guard isCurrentStudioTypedSubmission(submissionID, accountGeneration: accountGeneration) else { return supersededMessage }
 
         let store = HerEvolutionStore.shared
         let directorText = cleanPrompt
@@ -7970,8 +7900,10 @@ Write this approved story direction directly into screenplay pages now. Maintain
             includeVisualContext: !shouldSkipVisualContextForStudioDraftTurn(
                 isScreenplayMode: true,
                 shouldWriteToPage: shouldWriteToPage
-            )
+            ),
+            expectedAccountGeneration: accountGeneration
         )
+        guard isCurrentStudioTypedSubmission(submissionID, accountGeneration: accountGeneration) else { return supersededMessage }
         let studioRenderMetadata = studioRenderRequestMetadata(
             promptSource: .typed,
             shouldWriteToPage: shouldWriteToPage,
@@ -8009,9 +7941,13 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 realtimeStudioRenderUserMessage = cleanPrompt
                 realtimeStudioRenderedReply = ""
                 resetRealtimeStudioDraftPreviewThrottle()
-                let requestRender = {
+                let requestRender = { @MainActor in
+                    guard isCurrentStudioTypedSubmission(submissionID, accountGeneration: accountGeneration) else { throw CancellationError() }
                     do {
                         return try await withStudioRenderTimeout(seconds: studioRenderTimeoutSeconds) {
+                            guard await MainActor.run(body: {
+                                self.isCurrentStudioTypedSubmission(submissionID, accountGeneration: accountGeneration)
+                            }) else { throw CancellationError() }
                             let result = try await backend.streamRealtimeStudioResult(
                                 transcript: renderTranscript,
                                 systemPrompt: systemPrompt,
@@ -8019,6 +7955,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                                 studioMetadata: studioRenderMetadata,
                                 onPartial: { partial in
                                     await MainActor.run {
+                                        guard self.isCurrentStudioTypedSubmission(submissionID, accountGeneration: accountGeneration) else { return }
                                         guard self.realtimeStudioRenderUserMessage == cleanPrompt else { return }
                                         self.realtimeStudioRenderedReply = partial
                                         if !partial.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -8041,6 +7978,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                                 onTrace: { trace in
                                     guard let memoryApplied = trace.memoryApplied else { return }
                                     await MainActor.run {
+                                        guard self.isCurrentStudioTypedSubmission(submissionID, accountGeneration: accountGeneration) else { return }
                                         self.screenplayDraftBridge.noteStudioAppliedMemory(
                                             memoryApplied,
                                             source: "typed_stream_\(trace.kind)"
@@ -8049,6 +7987,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                                 }
                             )
                             await MainActor.run {
+                                guard self.isCurrentStudioTypedSubmission(submissionID, accountGeneration: accountGeneration) else { return }
                                 self.screenplayDraftBridge.noteStudioAppliedMemory(
                                     result.memoryApplied,
                                     source: "typed_stream_done"
@@ -8058,6 +7997,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                             return result.reply
                         }
                     } catch {
+                        guard isCurrentStudioTypedSubmission(submissionID, accountGeneration: accountGeneration) else { throw CancellationError() }
                         guard shouldFallbackToNonStreamingStudioRender(for: error) else { throw error }
                         restoreRealtimeStudioDraftPreview()
                         if shouldSpeakTypedReply {
@@ -8067,6 +8007,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
                         }
                         HerLog.talk.info("STUDIO render stream unconfirmed -> fallback to one-shot render")
                         return try await withStudioRenderTimeout(seconds: studioRenderTimeoutSeconds) {
+                            guard await MainActor.run(body: {
+                                self.isCurrentStudioTypedSubmission(submissionID, accountGeneration: accountGeneration)
+                            }) else { throw CancellationError() }
                             let result = try await backend.renderRealtimeStudioResult(
                                 transcript: renderTranscript,
                                 systemPrompt: systemPrompt,
@@ -8074,6 +8017,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                                 studioMetadata: studioRenderMetadata
                             )
                             await MainActor.run {
+                                guard self.isCurrentStudioTypedSubmission(submissionID, accountGeneration: accountGeneration) else { return }
                                 self.screenplayDraftBridge.noteStudioAppliedMemory(
                                     result.memoryApplied,
                                     source: "typed_fallback"
@@ -8087,6 +8031,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 do {
                     renderedReply = try await requestRender()
                 } catch {
+                    guard isCurrentStudioTypedSubmission(submissionID, accountGeneration: accountGeneration) else { throw CancellationError() }
                     restoreRealtimeStudioDraftPreview()
                     guard shouldRetryTalkOnce(for: error) else { throw error }
                     if shouldSpeakTypedReply {
@@ -8099,8 +8044,12 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     renderedReply = try await requestRender()
                 }
             } else {
-                let requestRender = {
-                    try await withStudioRenderTimeout(seconds: studioRenderTimeoutSeconds) {
+                let requestRender = { @MainActor in
+                    guard isCurrentStudioTypedSubmission(submissionID, accountGeneration: accountGeneration) else { throw CancellationError() }
+                    return try await withStudioRenderTimeout(seconds: studioRenderTimeoutSeconds) {
+                        guard await MainActor.run(body: {
+                            self.isCurrentStudioTypedSubmission(submissionID, accountGeneration: accountGeneration)
+                        }) else { throw CancellationError() }
                         let result = try await backend.renderRealtimeStudioResult(
                             transcript: renderTranscript,
                             systemPrompt: systemPrompt,
@@ -8108,6 +8057,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                             studioMetadata: studioRenderMetadata
                         )
                         await MainActor.run {
+                            guard self.isCurrentStudioTypedSubmission(submissionID, accountGeneration: accountGeneration) else { return }
                             self.screenplayDraftBridge.noteStudioAppliedMemory(
                                 result.memoryApplied,
                                 source: "typed_sync"
@@ -8121,6 +8071,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 do {
                     renderedReply = try await requestRender()
                 } catch {
+                    guard isCurrentStudioTypedSubmission(submissionID, accountGeneration: accountGeneration) else { throw CancellationError() }
                     guard shouldRetryTalkOnce(for: error) else { throw error }
                     HerLog.talk.info("transient STUDIO render failure, retrying once")
                     try await Task.sleep(nanoseconds: 250_000_000)
@@ -8128,6 +8079,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 }
             }
 
+            guard isCurrentStudioTypedSubmission(submissionID, accountGeneration: accountGeneration) else { return supersededMessage }
             if !renderedReply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 clientLatency.recordFirstText(turnID: clientLatencyTurnID)
             }
@@ -8197,46 +8149,57 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 let deferredRequestID = requestID
                 let deferredInsertedText = insertedScreenplayText
                 Task { @MainActor in
+                    guard accountGeneration == studioAccountIdentityGeneration else { return }
                     await syncEvolutionForMemoryDomain(
                         userMessage: deferredPrompt,
                         memoryDomain: deferredMemoryDomain,
-                        isScreenplayMode: true
+                        isScreenplayMode: true,
+                        expectedAccountGeneration: accountGeneration
                     )
+                    guard accountGeneration == studioAccountIdentityGeneration else { return }
                     await commitRealtimePreviewTurnIfNeeded(
                         userMessage: deferredPrompt,
                         assistantMessage: deferredReply,
                         promptSource: .typed,
                         requestId: deferredRequestID,
                         targetOverride: .page,
-                        insertedTextOverride: deferredInsertedText
+                        insertedTextOverride: deferredInsertedText,
+                        expectedAccountGeneration: accountGeneration
                     )
+                    guard accountGeneration == studioAccountIdentityGeneration else { return }
                     await annotateLatestRealtimeStudioTurnIfNeeded(
                         promptSource: .typed,
                         targetOverride: .page,
                         insertedTextOverride: deferredInsertedText,
-                        requestID: deferredRequestID
+                        requestID: deferredRequestID,
+                        expectedAccountGeneration: accountGeneration
                     )
                 }
             } else {
                 await syncEvolutionForMemoryDomain(
                     userMessage: cleanPrompt,
                     memoryDomain: memoryDomain,
-                    isScreenplayMode: true
+                    isScreenplayMode: true,
+                    expectedAccountGeneration: accountGeneration
                 )
+                guard isCurrentStudioTypedSubmission(submissionID, accountGeneration: accountGeneration) else { return supersededMessage }
                 await commitRealtimePreviewTurnIfNeeded(
                     userMessage: cleanPrompt,
                     assistantMessage: cleanReply,
                     promptSource: .typed,
                     requestId: requestID,
                     targetOverride: .voicePin,
-                    insertedTextOverride: insertedScreenplayText
+                    insertedTextOverride: insertedScreenplayText,
+                    expectedAccountGeneration: accountGeneration
                 )
+                guard isCurrentStudioTypedSubmission(submissionID, accountGeneration: accountGeneration) else { return supersededMessage }
             }
 #if DEBUG || os(macOS)
             setStudioDebugPreferenceString("root_submit_finished", forKey: "studio_debug_root_submit_stage")
 #endif
             return nil
         } catch BackendError.continueListening {
+            guard isCurrentStudioTypedSubmission(submissionID, accountGeneration: accountGeneration) else { return supersededMessage }
             typedReplySpeaker.cancel()
             backendConnectionState = .up
             backendFailureCount = 0
@@ -8245,6 +8208,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
 #endif
             return "Try giving io.them a little more detail."
         } catch {
+            guard isCurrentStudioTypedSubmission(submissionID, accountGeneration: accountGeneration) else { return supersededMessage }
             typedReplySpeaker.cancel()
             realtimeStudioRenderUserMessage = ""
             realtimeStudioRenderedReply = ""
@@ -9892,12 +9856,14 @@ Write this approved story direction directly into screenplay pages now. Maintain
         let cleanFallback = fallbackAssistantMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         guard isStudioSurfaceActive else { return cleanFallback }
         guard !cleanUser.isEmpty else { return cleanFallback }
+        let voiceTarget: ScreenplayStudioScreen.PromptRoutingMode = firstPageOnboarding.hasExplicitVoicePageIntent ? .page : .automatic
         let confirmedContext = confirmedStudioPageWriteContext(for: cleanUser)
         let renderTranscript = studioRenderTranscript(
             for: cleanUser,
-            confirmedContext: confirmedContext
+            confirmedContext: confirmedContext,
+            preferredTarget: voiceTarget
         )
-        let shouldWriteToPage = shouldRouteStudioPromptToPage(cleanUser, preferredTarget: .automatic)
+        let shouldWriteToPage = shouldRouteStudioPromptToPage(cleanUser, preferredTarget: voiceTarget)
 
         var renderedReply = ""
         var hasValidatedPageReply = false
@@ -9946,7 +9912,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 userMessage: cleanUser,
                 assistantMessage: resolvedReply
             )
-            let realtimeMemoryDomain = studioMemoryDomain(for: cleanUser, preferredTarget: .automatic)
+            let realtimeMemoryDomain = studioMemoryDomain(for: cleanUser, preferredTarget: voiceTarget)
             let shouldInsertValidatedPage = shouldWriteToPage && hasValidatedPageReply
             let insertedScreenplayText = shouldInsertValidatedPage
                 ? applyLiveScreenplayPreview(
@@ -10051,8 +10017,10 @@ Write this approved story direction directly into screenplay pages now. Maintain
         isScreenplayMode: Bool,
         shouldWriteToPage: Bool,
         featureWorkflowRequestID: String? = nil,
-        includeVisualContext: Bool = true
+        includeVisualContext: Bool = true,
+        expectedAccountGeneration: Int? = nil
     ) async -> String {
+        guard expectedAccountGeneration == nil || expectedAccountGeneration == studioAccountIdentityGeneration else { return basePrompt }
         let projectId = screenplayDraftBridge.preferredProjectID
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .isEmpty ? liveScreenplayProjectID : screenplayDraftBridge.preferredProjectID
@@ -10119,6 +10087,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 craftFrameworkId: ""
             )
         )
+        guard expectedAccountGeneration == nil || expectedAccountGeneration == studioAccountIdentityGeneration else { return basePrompt }
 #if DEBUG || os(macOS)
         setStudioDebugPreferenceString(
             result.screenplayTaskIntent,
@@ -12288,8 +12257,10 @@ Write this approved story direction directly into screenplay pages now. Maintain
         promptSource: ScreenplayStudioUserPrompt.Source = .voice,
         requestId: String? = nil,
         targetOverride: ScreenplayStudioUserPrompt.Target? = nil,
-        insertedTextOverride: String? = nil
+        insertedTextOverride: String? = nil,
+        expectedAccountGeneration: Int? = nil
     ) async {
+        guard expectedAccountGeneration == nil || expectedAccountGeneration == studioAccountIdentityGeneration else { return }
         let cleanUser = userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanAssistant = assistantMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanUser.isEmpty, !cleanAssistant.isEmpty else { return }
@@ -12313,6 +12284,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 targetOverride: targetOverride,
                 insertedTextOverride: insertedTextOverride
             )
+            guard expectedAccountGeneration == nil || expectedAccountGeneration == studioAccountIdentityGeneration else { return }
             let studioMetadata = studioThreadCommitMetadata(
                 promptSource: promptSource,
                 targetOverride: targetOverride,
@@ -12327,6 +12299,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     : "rt-\(fingerprint)",
                 studioMetadata: studioMetadata
             )
+            guard expectedAccountGeneration == nil || expectedAccountGeneration == studioAccountIdentityGeneration else { return }
             presentCanonClarificationIfNeeded(result.payload.canonClarification)
             lastRealtimeCommittedTurnID = result.payload.turnId ?? result.payload.lastTurnId ?? result.sync.lastTurnId
             lastRealtimeCommitAt = now
@@ -12348,9 +12321,11 @@ Write this approved story direction directly into screenplay pages now. Maintain
             await syncEvolutionForMemoryDomain(
                 userMessage: cleanUser,
                 memoryDomain: memoryDomain,
-                isScreenplayMode: isStudioSurfaceActive
+                isScreenplayMode: isStudioSurfaceActive,
+                expectedAccountGeneration: expectedAccountGeneration
             )
         } catch {
+            guard expectedAccountGeneration == nil || expectedAccountGeneration == studioAccountIdentityGeneration else { return }
             lastRealtimeCommitError = error.localizedDescription
         }
     }
@@ -12361,8 +12336,10 @@ Write this approved story direction directly into screenplay pages now. Maintain
         targetOverride: ScreenplayStudioUserPrompt.Target? = nil,
         insertedTextOverride: String? = nil,
         requestID: String? = nil,
-        turnIdOverride: String? = nil
+        turnIdOverride: String? = nil,
+        expectedAccountGeneration: Int? = nil
     ) async {
+        guard expectedAccountGeneration == nil || expectedAccountGeneration == studioAccountIdentityGeneration else { return }
         let turnId = (turnIdOverride ?? lastRealtimeCommittedTurnID)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !turnId.isEmpty else { return }
@@ -12370,6 +12347,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             targetOverride: targetOverride,
             insertedTextOverride: insertedTextOverride
         )
+        guard expectedAccountGeneration == nil || expectedAccountGeneration == studioAccountIdentityGeneration else { return }
         guard let studioMetadata = studioThreadCommitMetadata(
             promptSource: promptSource,
             targetOverride: targetOverride,
@@ -12382,10 +12360,12 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 turnId: turnId,
                 studioMetadata: studioMetadata
             )
+            guard expectedAccountGeneration == nil || expectedAccountGeneration == studioAccountIdentityGeneration else { return }
             if !annotation.sync.stateVersion.isEmpty {
                 localStateVersion = annotation.sync.stateVersion
             }
         } catch {
+            guard expectedAccountGeneration == nil || expectedAccountGeneration == studioAccountIdentityGeneration else { return }
             HerLog.talk.error("studio turn post-commit annotate error=\(error.localizedDescription, privacy: .public)")
         }
     }
@@ -12571,10 +12551,12 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
     @MainActor
     private func stopStudioTalkFlow() {
+        firstPageOnboarding.cancelVoicePageIntent()
         conversationLoopEnabled = false
         pendingGoodbyeStopAfterPlayback = false
         inFlightTalkTask?.cancel()
         inFlightTalkTask = nil
+        studioTypedSubmission.activeID = nil
         isTurnSubmitting = false
         isThinking = false
         realtimeAssistantTranscriptFallbackTask?.cancel()

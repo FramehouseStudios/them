@@ -5,6 +5,14 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### First-page intent survives authentication — T1480 (2026-11-14)
+
+- **Owner:** Jarvis scoped integration/runtime; Zora first-page/submission capability and focused cases; Einstein read-only timeout/owner-boundary review. New isolated `codex/T-1480-first-page-handoff` from38fe; original heads and installed build preserved.
+- **Fixed locally:** defer Page/microphone execution until authenticated Studio; retain immutable input/action across sign-in, editable form on cancel/failure, explicit first-voice Page target for both transports until authoritative editor acknowledgment; keep Home controls/errors visible. Extract onboarding view/model and fence stale typed UI callbacks with capability-owned invocation ID plus existing account generation. Root −18 lines; other god files do not grow.
+- **Fresh proof:** signed erased-owned simulator31/0/0; existing stubbed first-page UI1/0/0; macOS scaffold compile pass with canonical local ad-hoc flags; exact-main71 D009/diff pass, frozen1,449 inputs unchanged. Earlier11pass/15testteardown crashes retained (async test entry correction), intervening compile0executed retained/corrected, initial Mac signing-command failure retained/canonical flags restored. No full-suite unchanged reruns or live-model tests.
+- **Physical facts/limits:** signed38fe installed and normal app observed on newer phone; normal signup and STT/TTS requests occurred, but human's story did not become a verified reply/page/save. STTtransport failure and aborted talk retained;1200ms optional sidecalls do not establish reply timeout. Human deferred; exact development backend stopped0 with source/modules unchanged and state retained. T1480 not installed; no fresh paid calls without authorization, production held.
+- **Next:** canonical API post-bootstrap captured-owner/epoch boundary before whole-app account-safety claim; inner evolution/correction/prompt suspension gaps and pre-submit form force-kill retention remain. Original979 current2ea still requires genuine human review; no repeated request/merge/deploy. See docs/first-page-signin-handoff-2026-11-14.md. READY FOR CONTINUE.
+
 ### Captured auth / SwiftUI lock inversion — T1477 (2026-11-13)
 
 - **Owner:** Jarvis review/runtime; Zora canonical async-auth boundary; Einstein preserved real-login fixture. New isolated codex/T-1477-auth-render-lock-cycle from07af; originals untouched.
