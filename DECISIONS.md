@@ -1,4 +1,4 @@
-# DECISIONS.md — io.them
+# DECISIONS.md — THEM
 
 Product and architecture decisions. The human owns this file. Codex may propose changes, but accepted decisions require explicit human direction.
 
@@ -16,7 +16,7 @@ Each entry follows the ADR pattern:
 ## D001 — `io.them` is the canonical product name
 
 - **Date:** 2026-05-09
-- **Status:** accepted
+- **Status:** superseded by D017
 - **Context:** The codebase had several parallel identities: `Framehouse` for parent collateral, `them` for the app folder, `io.them` for the product, `Clementine` for the companion, and legacy internal names in older Swift files. User-facing identity was undeclared.
 - **Decision:** The canonical product name is **`io.them`**. Internal code identifiers may remain where rename cost exceeds benefit, but no user-visible surface should introduce a competing product name.
 - **Consequences:** README, app display name, App Store metadata, marketing copy, onboarding, and launch proof should use `io.them`.
@@ -164,3 +164,41 @@ Each entry follows the ADR pattern:
   2. M1 is PR1 only: flag (`short_film_beta.js`), pure parser (`short_film_intent.js` → `{totalPages,requestedPages,genre,setting,characters}`), 3-line gate in `intents.js:35` + `lanes.js` mapping to `Page`. No store/prompt/lane/wallet changes in M1.
   3. Follow-on PRs (prompt, lane/wallet, store/bridge, evals) stay additive under `backend/lib/clementine/`, never `backend/index.js`.
 - **Consequences:** Flag off → same utterance → `UNKNOWN`/legacy (no side effects). Flag on → beta intent verified by parser tests + offline eval. See `docs/product/short-film-beta.md`. Strangler check: `git diff --stat backend/index.js` stays empty for M1.
+
+## D017 — THEM, Clementine, and the orb are the product identity
+
+- **Date:** 2026-09-19
+- **Status:** accepted
+- **Context:** The human explicitly directed that the app be named THEM, that
+  Clementine and the orb be preserved, and that the Samantha naming be retired.
+  The latest instruction asks for one identity decision before a rename PR.
+  D017 follows main's highest existing ID, D016; earlier discussion of D014/D015
+  is not a second competing identity policy or permission to renumber history.
+- **Decision:**
+  1. The product is **THEM**. Its creative companion is **Clementine**. The orb
+     remains a core interface element. Neither companion nor orb may be removed
+     as part of cleanup, renaming, or platform adaptation.
+  2. **Samantha is not a product or companion identity.** Rename active internal
+     modules, symbols, tests, and user-facing copy to Clementine. New contracts
+     use Clementine naming; legacy names exist only at documented migration or
+     compatibility boundaries, not as a parallel persona.
+  3. This supersedes D001's product name. The writing-focused north star and
+     other decisions retain their substance; historical wording is not rewritten
+     to disguise what was previously decided.
+  4. Rename persisted `samanthaPresence` with an idempotent, owner/project-scoped
+     migration to `clementinePresence`. Read legacy records without losing
+     history; preserve a valid canonical record when both names exist. Prove
+     restart, retry, rollback and cross-project isolation before promotion.
+  5. Introduce `x-clementine-presence` and update the client parser together.
+     Keep legacy `x-samantha-presence` compatibility while old supported clients
+     need it; prefer the canonical header when both exist. Remove the alias only
+     with explicit version/support evidence, not a blind search-and-replace.
+  6. User-visible product copy drops `io.`. Do not rename bundle IDs, Keychain
+     services/access groups, Apple audiences, StoreKit IDs, database keys or
+     deployed addresses solely for branding. Each identity-bearing technical
+     change needs its own migration and signing/auth/persistence proof.
+- **Consequences:** A separate rename PR implements and tests the migration,
+  response-header/client compatibility and display copy. This decision alone
+  does not claim that implementation, App Store metadata or deployment changed.
+  Required checks and review still apply; existing writer data and sessions must
+  survive the rename. Keep one canonical implementation, not duplicated personas.
