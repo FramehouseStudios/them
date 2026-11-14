@@ -85,18 +85,7 @@ fi
 if is_missing_value "${APP_TOKEN_RELEASE:-}"; then
   missing+=("APP_TOKEN_RELEASE")
 fi
-requires_openai=0
-if [[ "${RUN_LIVE_STUDIO_STRUCTURAL_CANARY}" == "1" ]]; then
-  requires_openai=1
-fi
-if [[ "${RUN_QUALITY_GATE}" == "1" ]] && { \
-  [[ "${RUN_EVAL}" == "1" ]] \
-  || [[ "${RUN_TALK_RECOVERY_GATE}" == "1" ]] \
-  || [[ "${RUN_SPECULATIVE_REUSE_GATE}" == "1" ]] \
-  || [[ "${RUN_SMOKE}" == "1" ]]; \
-}; then
-  requires_openai=1
-fi
+requires_openai="$(node "${ROOT}/scripts/release_gate_policy.mjs")"
 if [[ "${requires_openai}" == "1" ]] && is_missing_value "${OPENAI_API_KEY:-}"; then
   missing+=("OPENAI_API_KEY")
 fi
