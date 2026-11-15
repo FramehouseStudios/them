@@ -49,3 +49,13 @@ Unresolved, with no silent completion claim:
 Fresh read: main remains `71c637d8`; original #979 remains draft at `2ea20422`, four current hosted checks green, `REVIEW_REQUIRED`. Human review is deferred. No original head/base was replaced, no main merge/force-push/protection bypass/deployment occurred.
 
 Save the scoped T1480 history normally. Next: close the canonical post-bootstrap account-identity boundary with captured owner/epoch checks, then finish the next physical attempt only when the human resumes and authorizes its bounded live calls. Preserve existing device data and the isolated backend state.
+
+## Hosted design-guard correction — 2026-11-15
+
+VERIFIED original #1000 head6573263d completed hosted745 unit cases with **744 passed / 1 failed / 0 skipped**. The failure was `DesignSystemGuardTests.testNewSwiftFilesDoNotBypassDesignSystemTokens`: the extracted form copied seven raw system-font declarations from the allowlisted legacy Root into a new file. Writer/V1/recovery/voice/Mac downstream steps were skipped after that red; they did not pass. Backend2783/0/2 and D009 passed on that exact head.
+
+The correction adds three exact missing declarations to canonical `IOThemTypography.UI` (30pt semibold default,17pt regular default,16pt regular default) and uses those plus existing callout/bodyStrong/caption tokens. The new view imports ScreenplayStudio and replaces deprecated text-color aliases and exactly matching spacing/radius literals with existing canonical tokens. It does not change font size, weight, design, color/opacity, dimensional values, controls, actions or routing. Howard supplied a read-only exact-token review; Jarvis implemented it. The guard and its allowlist remain unchanged.
+
+Fresh signed focused proof on an erased owned iOS26.2 simulator, explicit Xcode26.3/17C529: **3 passed / 0 failed / 0 skipped**, all three existing DesignSystemGuard cases. All1,450 frozen source inputs and exact test identities were checked. A reverse token substitution restores the original view byte-for-byte; removing only the three additive token declarations restores the previous typography owner byte-for-byte. This establishes source-level style equivalence, not a pixel/Dynamic Type/physical-phone claim. D009 versus exact PR parent38fe and diff check pass; no protected file changed in this follow-up.
+
+The previous31-case/UI1/Mac proofs are inherited from657 for their unchanged behavior; those workflows and the backend were not repeated locally. Fresh hosted integration gates are required on the new descendant. Old failed results/logs are preserved. Main/reviews/production and the unresolved API authority, STT and real-phone gaps remain unchanged.

@@ -5,6 +5,13 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### First-page design-token gate correction — T1480 follow-up (2026-11-15)
+
+- **First red VERIFIED:** hosted original1000@657 fullunits744pass/1fail/0skip; raw system fonts in extracted form violate existing DesignSystemGuard. Backend2783/0/2 and D009 pass; downstream UI/recovery/voice/Mac skipped after unit failure.
+- **Fix:** shared exact30/17/16pt typography declarations plus existing tokens/import; lossless text-color/spacing/radius aliases. Guard/allowlist/actions/routing untouched. Howard read-only mapping; Jarvis source/runtime owner. Same existing branch/PR/history.
+- **Fresh proof:** signed erased-owned design guards3/0/0,1,450 inputs unchanged; reverse-token original view byte-exact, existing typography byte-exact after removing only3additions; D009 exact parent38fe/diff pass. No unchanged31/UI1/Mac/backend local reruns or paid calls. New hosted checkpoint required after normal follow-up push.
+- **Next/holds:** fix first new hosted failure if any; canonical API captured-owner/epoch boundary remains next implementation. Human deferred live phone; installed38fe/production unchanged; original979 still REVIEW_REQUIRED, no repeated request or merge. READY FOR CONTINUE.
+
 ### First-page intent survives authentication — T1480 (2026-11-14)
 
 - **Owner:** Jarvis scoped integration/runtime; Zora first-page/submission capability and focused cases; Einstein read-only timeout/owner-boundary review. New isolated `codex/T-1480-first-page-handoff` from38fe; original heads and installed build preserved.
