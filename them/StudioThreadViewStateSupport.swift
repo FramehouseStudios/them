@@ -398,3 +398,15 @@ enum StudioThreadSceneLabelSupport {
         return nil
     }
 }
+
+@MainActor
+struct StudioDialogueAnchorMetadata {
+    let startLine: Int?
+    let endLine: Int?
+    let sceneLabel: String
+    let draftSceneID: String
+    let outlineSceneID: String
+    let outlineBeatIDs: [String]
+    let scriptNodeID: String
+    let documentRevisionID: String
+}

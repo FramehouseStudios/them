@@ -23,6 +23,12 @@ nonisolated struct BackendAuthRequestIdentity: Equatable, Sendable {
         self.sessionIntentGeneration = sessionIntentGeneration
     }
 
+    // Match the existing authenticated-session lease's durable-user authority.
+    // Signed-out/legacy callers retain the existing secure-store fallback.
+    static func preferredUserID(authenticatedUserID: String, fallback: () -> String) -> String {
+        authenticatedUserID.isEmpty ? fallback() : authenticatedUserID
+    }
+
     var ownerContext: ScreenplayStudioAuthContext {
         ScreenplayStudioAuthContext(userID: userID, sessionIntentGeneration: sessionIntentGeneration)
     }

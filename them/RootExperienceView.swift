@@ -7471,6 +7471,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 insertedTextOverride: effectiveInsertedScreenplayText,
                 expectedOwner: owner
             )
+            guard BackendAuthClient.requestOwnerIsCurrent(owner) else { return }
 
             let confirmedTranscript = result.transcript?.trimmingCharacters(in: .whitespacesAndNewlines)
             let confirmedReply = result.reply?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -7521,8 +7522,10 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 await syncEvolutionForMemoryDomain(
                     userMessage: text,
                     memoryDomain: preparedPrompt.memoryDomain,
-                    isScreenplayMode: preparedPrompt.useScreenplayMode
+                    isScreenplayMode: preparedPrompt.useScreenplayMode,
+                    expectedOwner: owner
                 )
+                guard BackendAuthClient.requestOwnerIsCurrent(owner) else { return }
                 if containsStudioOpenCommand(text) {
                     let turnId = result.commit?.turnId ?? ""
                     if turnId.isEmpty || turnId != lastAutoOpenedStudioTurnID {
@@ -11799,18 +11802,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
         ].joined(separator: " ")
     }
 #endif
-
-    @MainActor
-    private struct StudioDialogueAnchorMetadata {
-        let startLine: Int?
-        let endLine: Int?
-        let sceneLabel: String
-        let draftSceneID: String
-        let outlineSceneID: String
-        let outlineBeatIDs: [String]
-        let scriptNodeID: String
-        let documentRevisionID: String
-    }
 
     @MainActor
     private func resolvedStudioDialogueAnchorMetadata(

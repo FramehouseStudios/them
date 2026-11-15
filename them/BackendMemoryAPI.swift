@@ -3872,7 +3872,8 @@ nonisolated enum BackendAuthClient {
             )
         }
 
-        var userID = sharedUserIDLocked(defaults: defaults) ?? ""
+        let authenticatedUserID = authSessionStorageIsReadable(defaults: defaults) ? normalizedStoredUserID(storedAuthUserPayload(defaults: defaults)?.userId) : ""
+        var userID = BackendAuthRequestIdentity.preferredUserID(authenticatedUserID: authenticatedUserID) { sharedUserIDLocked(defaults: defaults) ?? "" }
         if userID.isEmpty, generateUserIDIfMissing {
             userID = generatedStableUserID()
             if !persistSharedUserIDLocked(userID, defaults: defaults) {
