@@ -774,7 +774,10 @@ struct RootExperienceView: View {
     @State private var studioOwnerUserIDSnapshot: String?
     @State private var studioWasAuthenticatedSnapshot: Bool?
     @State private var studioAccountIdentityGeneration = 0
-    @State private var inFlightTalkTask: Task<Void, Never>?
+    @StateObject private var voiceTaskScope = StudioVoiceTaskScope()
+    private var inFlightTalkTask: Task<Void, Never>? {
+        voiceTaskScope.task
+    }
     @State private var didBumpSessionThisLaunch = false
     @FocusState private var onboardingNameFocused: Bool
     @FocusState private var onboardingSceneFocused: Bool
@@ -2668,8 +2671,7 @@ struct RootExperienceView: View {
                 activeTurnBasedLatencyTurnID = ""
             }
             voice.markAssistantPlaybackEnded()
-            inFlightTalkTask?.cancel()
-            inFlightTalkTask = nil
+            cancelVoiceTask()
             isThinking = false
             requestPageLaneCancelOnInterrupt(reason: .bargeIn)
         }
@@ -2776,8 +2778,8 @@ struct RootExperienceView: View {
 
             guard inFlightTalkTask == nil else { return }
             let owner = BackendAuthClient.currentRequestOwner()
-            inFlightTalkTask = Task {
-                await sendUtterance(wavData, expectedOwner: owner)
+            voiceTaskScope.start { invocationID in
+                await sendUtterance(wavData, expectedOwner: owner, voiceInvocationID: invocationID)
             }
         }
     }
@@ -3019,8 +3021,7 @@ struct RootExperienceView: View {
         realtimeAssistantTranscriptFallbackTask?.cancel()
         realtimeAssistantTranscriptFallbackTask = nil
         cancelRealtimeRecovery(clearTurn: true)
-        inFlightTalkTask?.cancel()
-        inFlightTalkTask = nil
+        cancelVoiceTask()
         realtimeTransport.disconnect()
         orbAudio.stop()
         promptSpeaker.stop()
@@ -3593,8 +3594,7 @@ struct RootExperienceView: View {
                     .buttonStyle(.plain)
 
                     Button {
-                        inFlightTalkTask?.cancel()
-                        inFlightTalkTask = nil
+                        cancelVoiceTask()
                         voice.teardown()
                         orbAudio.stop()
                         showingMemories = false
@@ -3615,8 +3615,7 @@ struct RootExperienceView: View {
                     .buttonStyle(.plain)
 
                     Button {
-                        inFlightTalkTask?.cancel()
-                        inFlightTalkTask = nil
+                        cancelVoiceTask()
                         voice.teardown()
                         orbAudio.stop()
                         showingMemories = false
@@ -3637,8 +3636,7 @@ struct RootExperienceView: View {
                     .buttonStyle(.plain)
 
                     Button {
-                        inFlightTalkTask?.cancel()
-                        inFlightTalkTask = nil
+                        cancelVoiceTask()
                         voice.teardown()
                         orbAudio.stop()
                         showingMemories = false
@@ -3658,8 +3656,7 @@ struct RootExperienceView: View {
                     .buttonStyle(.plain)
 
                     Button {
-                        inFlightTalkTask?.cancel()
-                        inFlightTalkTask = nil
+                        cancelVoiceTask()
                         voice.teardown()
                         orbAudio.stop()
                         showingMemories = false
@@ -3679,8 +3676,7 @@ struct RootExperienceView: View {
                     .buttonStyle(.plain)
 
                     Button {
-                        inFlightTalkTask?.cancel()
-                        inFlightTalkTask = nil
+                        cancelVoiceTask()
                         voice.teardown()
                         orbAudio.stop()
                         showingMemories = false
@@ -3736,8 +3732,7 @@ struct RootExperienceView: View {
                     .accessibilityIdentifier("home.open-account")
 
                     Button {
-                        inFlightTalkTask?.cancel()
-                        inFlightTalkTask = nil
+                        cancelVoiceTask()
                         voice.teardown()
                         orbAudio.stop()
                         showingMemories = false
@@ -3757,8 +3752,7 @@ struct RootExperienceView: View {
                     .buttonStyle(.plain)
 
                     Button {
-                        inFlightTalkTask?.cancel()
-                        inFlightTalkTask = nil
+                        cancelVoiceTask()
                         voice.teardown()
                         orbAudio.stop()
                         showingMemories = false
@@ -3779,8 +3773,7 @@ struct RootExperienceView: View {
                     .buttonStyle(.plain)
 
                     Button {
-                        inFlightTalkTask?.cancel()
-                        inFlightTalkTask = nil
+                        cancelVoiceTask()
                         voice.teardown()
                         orbAudio.stop()
                         showingMemories = false
@@ -4006,8 +3999,7 @@ struct RootExperienceView: View {
     }
 
     private func openMemories() {
-        inFlightTalkTask?.cancel()
-        inFlightTalkTask = nil
+        cancelVoiceTask()
         voice.teardown()
         orbAudio.stop()
         showingConversationHistory = false
@@ -4916,7 +4908,7 @@ You're okay. Let's slow it down for one beat and get our footing back. Pick the 
         turnKeyNamespace: String = "voice"
     ) -> PreparedTurnPrompt {
         let store = HerEvolutionStore.shared
-        let directorText = richerTurnText(
+        let directorText = StudioTurnTextSupport.richerTurnText(
             confirmedTranscript: confirmedTranscript,
             partialHint: partialHint
         )
@@ -5966,8 +5958,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         firstPageOnboarding.cancelVoicePageIntent()
         conversationLoopEnabled = false
         pendingGoodbyeStopAfterPlayback = false
-        inFlightTalkTask?.cancel()
-        inFlightTalkTask = nil
+        cancelVoiceTask()
         studioTypedSubmission.activeID = nil
         isTurnSubmitting = false
         isThinking = false
@@ -6113,14 +6104,30 @@ Write this approved story direction directly into screenplay pages now. Maintain
     }
 
     @MainActor
+    private func cancelVoiceTask() {
+        if voiceTaskScope.cancel(), studioTypedSubmission.activeID == nil {
+            isTurnSubmitting = false
+        }
+    }
+
+    @MainActor
     private func sendUtterance(
         _ wavData: Data,
         clientTranscriptOverride: String? = nil,
         debugVoiceTurnToken: Int? = nil,
-        expectedOwner: ScreenplayStudioAuthContext? = nil
+        expectedOwner: ScreenplayStudioAuthContext? = nil,
+        voiceInvocationID: UUID? = nil
     ) async {
+        guard let invocationID = voiceInvocationID ?? voiceTaskScope.beginDirectIfIdle() else { return }
         let owner = expectedOwner ?? BackendAuthClient.currentRequestOwner()
-        guard BackendAuthClient.requestOwnerIsCurrent(owner) else { return }
+        guard voiceTaskScope.isCurrent(invocationID), !Task.isCancelled, BackendAuthClient.requestOwnerIsCurrent(owner) else {
+            if voiceTaskScope.finish(invocationID) {
+                voice.teardown()
+                conversationLoopEnabled = false
+                showStudioCommandNotice("Sign-in changed. Tap Talk to try again.")
+            }
+            return
+        }
         // Phase 1 latency pass: start playback on the first streamed segment as soon
         // as it is ready. We stop recording before playback begins to avoid bleed.
         let allowEarlyStreamPlayback = true
@@ -6529,9 +6536,10 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
         defer {
             debugSyncedInsertCancelTask?.cancel()
-            screenplayDraftBridge.onSyncedInsertLifecycleEvent = nil
-            inFlightTalkTask = nil
-            isTurnSubmitting = false
+            if voiceTaskScope.finish(invocationID) {
+                screenplayDraftBridge.onSyncedInsertLifecycleEvent = nil
+                if studioTypedSubmission.activeID == nil { isTurnSubmitting = false }
+            }
         }
 
         isTurnSubmitting = true
@@ -7238,7 +7246,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 try await Task.sleep(nanoseconds: 250_000_000)
                 result = try await requestTalk()
             }
-            guard BackendAuthClient.requestOwnerIsCurrent(owner) else { return }
+            guard voiceTaskScope.isCurrent(invocationID), BackendAuthClient.requestOwnerIsCurrent(owner) else { return }
             didReceiveTalkResponse = true
             if !(result.reply ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 clientLatency.recordFirstText(turnID: clientLatencyTurnID)
@@ -7471,7 +7479,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 insertedTextOverride: effectiveInsertedScreenplayText,
                 expectedOwner: owner
             )
-            guard BackendAuthClient.requestOwnerIsCurrent(owner) else { return }
+            guard voiceTaskScope.isCurrent(invocationID), BackendAuthClient.requestOwnerIsCurrent(owner) else { return }
 
             let confirmedTranscript = result.transcript?.trimmingCharacters(in: .whitespacesAndNewlines)
             let confirmedReply = result.reply?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -7525,7 +7533,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     isScreenplayMode: preparedPrompt.useScreenplayMode,
                     expectedOwner: owner
                 )
-                guard BackendAuthClient.requestOwnerIsCurrent(owner) else { return }
+                guard voiceTaskScope.isCurrent(invocationID), BackendAuthClient.requestOwnerIsCurrent(owner) else { return }
                 if containsStudioOpenCommand(text) {
                     let turnId = result.commit?.turnId ?? ""
                     if turnId.isEmpty || turnId != lastAutoOpenedStudioTurnID {
@@ -7618,6 +7626,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             finalizeDebugVoiceTurn(status: "error", error: "Backend requested continue listening.")
 #endif
         } catch is CancellationError {
+            guard voiceTaskScope.isCurrent(invocationID), BackendAuthClient.requestOwnerIsCurrent(owner) else { return }
             isThinking = false
             if shouldUseSyncedStudioVoiceInsert {
                 screenplayDraftBridge.interruptSyncedVoiceTurn(reason: .cancel)
@@ -7639,6 +7648,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             finalizeDebugVoiceTurn(status: "error", error: "Talk request cancelled.")
 #endif
         } catch let queued as BackendTalkQueuedError {
+            guard voiceTaskScope.isCurrent(invocationID), BackendAuthClient.requestOwnerIsCurrent(owner) else { return }
             backendConnectionState = .reconnecting
             backendFailureCount = max(backendFailureCount, 1)
             offlineTalkOutboxSnapshot = queued.snapshot
@@ -7665,6 +7675,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             finalizeDebugVoiceTurn(status: "queued", error: queued.localizedDescription)
 #endif
         } catch {
+            guard voiceTaskScope.isCurrent(invocationID), BackendAuthClient.requestOwnerIsCurrent(owner) else { return }
             let authRequiredMessage = noteAuthRequiredIfNeeded(error)
             let failureReason = authRequiredMessage ?? error.localizedDescription
             if authRequiredMessage == nil {
@@ -11293,24 +11304,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
         return digest.prefix(12).map { String(format: "%02x", $0) }.joined()
     }
 
-    private func richerTurnText(confirmedTranscript: String, partialHint: String) -> String {
-        let transcript = confirmedTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
-        let partial = partialHint.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if transcript.isEmpty { return partial }
-        if partial.isEmpty { return transcript }
-
-        let transcriptWords = transcript.split(whereSeparator: \.isWhitespace).count
-        let partialWords = partial.split(whereSeparator: \.isWhitespace).count
-
-        // Prefer the partial hint when it clearly carries richer current-turn detail.
-        if partialWords >= transcriptWords + 2 { return partial }
-        if partial.count >= transcript.count + 18 { return partial }
-        if transcriptWords <= 1 && partialWords >= 2 { return partial }
-
-        return transcript
-    }
-
     private func currentRealtimePendingUserMessage() -> String {
         let pendingUser = realtimePendingUserTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
         if !pendingUser.isEmpty {
@@ -11550,10 +11543,13 @@ Write this approved story direction directly into screenplay pages now. Maintain
         livePartialTranscript = ""
         cancelRealtimeStudioDraftStream(restorePreview: true)
         clearRealtimeRecoveryTurn()
-        inFlightTalkTask = Task { @MainActor in
+        let owner = BackendAuthClient.currentRequestOwner()
+        voiceTaskScope.start { invocationID in
             await sendUtterance(
                 silentTalkWavData(durationMs: 180),
-                clientTranscriptOverride: repairTranscript
+                clientTranscriptOverride: repairTranscript,
+                expectedOwner: owner,
+                voiceInvocationID: invocationID
             )
         }
     }
@@ -12544,8 +12540,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         firstPageOnboarding.cancelVoicePageIntent()
         conversationLoopEnabled = false
         pendingGoodbyeStopAfterPlayback = false
-        inFlightTalkTask?.cancel()
-        inFlightTalkTask = nil
+        cancelVoiceTask()
         studioTypedSubmission.activeID = nil
         isTurnSubmitting = false
         isThinking = false
