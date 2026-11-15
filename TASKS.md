@@ -5,6 +5,13 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### Preserve support-safe STT transport causes — T1484 (2026-11-15)
+
+- **Root fixed:** primary STT conversion discarded underlying fetch cause. Canonical diagnostics now retain only one of23 known transport codes through bounded own-data cause/aggregate traversal into private support logs; raw exceptions/messages/stacks/private data excluded. Public classification/body/headers byte-identical; no retry/timeout/model/wallet/draft change. Reviewed opaque-error/coercion defect fixed fail-closed before publication.
+- **Ownership/history:** Jarvis scoped integration/runtime; Zora four-file patch ed5; Einstein read-only adversarial probes. Preserve mergeee52 and normal Root correctiond571 over original1002@885. No original-head replacement/squash/forcepush/main/deploy.
+- **Fresh proof:** offline cached Node20.20.2 focused11/0/0; full npm2789/0/2 (2791 total), zero cancelled/todo.1464source/3303deps unchanged, read-only source/deps, networknone, no install/pull/providers. PostgreSQL and live page-sync skips retained. Incorrect private expectedhead guard stopped before any container/test, corrected with no app change. D009 exact885 fivezero/diff/JS syntaxpass; native/lock/workflow bytes unchanged, no redundant native run.
+- **Next/limits:** actual PHY017 DNS/TLS/socket cause stillunknown; not a connectivity/deadline repair. Old strict phone collector filters the new support line, so wire a safe allowlisted collector before next fresh-authorized phone call. Phone38fe/real journey unproven; hosted full integration and genuine review stillrequired; productionheld. See docs/stt-transport-cause-2026-11-15.md. READY FOR CONTINUE.
+
 ### Failed voice turns and immutable talk transport owner — T1483 (2026-11-15)
 
 - **Executed:** opened requested draft1001@0ba over original1000@8729; original heads/history intact. New isolated `codex/T-1483-voice-failure-recovery` preserves Rootb09 plus Zorac307/5a91 through merge, then connects admittedowner at8c and decoded failure policy at033. No main/deploy/provider action.
