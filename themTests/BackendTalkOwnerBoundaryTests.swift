@@ -89,6 +89,34 @@ final class BackendTalkOwnerBoundaryTests: XCTestCase {
         XCTAssertEqual(callbacks.events().count, 3)
     }
 
+    func testResolvedBackendTokenOwnsTalkAndMetadataHeadersDespiteUnrelatedSnapshotToken() async throws {
+        let snapshot = BackendAuthRequestIdentity(sessionEpoch: TalkOwnerFixture.ownerA.sessionEpoch,
+            userID: TalkOwnerFixture.ownerA.userID, clientToken: "unrelated-backend-client-token",
+            accessToken: TalkOwnerFixture.ownerA.accessToken,
+            sessionIntentGeneration: TalkOwnerFixture.ownerA.sessionIntentGeneration)
+        for resolvedToken in ["", "correct-target-client-token"] {
+            let fixture = TalkOwnerFixture(initial: snapshot, tokenResolver: { _ in resolvedToken },
+                handler: { request, _, _ in
+                    if request.url?.path == "/talk" {
+                        return .audio(extraHeaders: ["x-turn-id": "test-turn", "x-turn-meta-available": "1"])
+                    }
+                    return .json(status: 200, body: #"{"turn_id":"test-turn","reply":"Test reply."}"#)
+                })
+            defer { fixture.close() }
+            let result = try await fixture.client.talkText(transcript: "Test story.")
+            defer { cleanupAudio(result) }
+            let requests = fixture.requests.snapshot()
+            XCTAssertEqual(requests.map(\.path), ["/talk", "/talk/turn/test-turn"])
+            for request in requests {
+                XCTAssertEqual(request.clientToken, resolvedToken)
+                XCTAssertEqual(request.hasClientTokenHeader, !resolvedToken.isEmpty)
+                XCTAssertEqual(request.authorization, "Bearer access-a")
+                XCTAssertEqual(request.userID, "owner-a")
+            }
+            XCTAssertEqual(result.reply, "Test reply.")
+        }
+    }
+
     func testOwnerSwitchOnSuccessfulResponseDropsResultAndAllContentCallbacks() async throws {
         let fixture = TalkOwnerFixture(handler: { _, identity, _ in
             identity.replace(TalkOwnerFixture.ownerB)
@@ -281,7 +309,11 @@ private final class TalkOwnerIdentityBox: @unchecked Sendable {
 }
 
 private final class TalkOwnerRequestLog: @unchecked Sendable {
-    struct Entry { let path: String, authorization: String, userID: String, clientToken: String, idempotencyKey: String; let body: Data }
+    struct Entry {
+        let path: String, authorization: String, userID: String, clientToken: String, idempotencyKey: String
+        let hasClientTokenHeader: Bool
+        let body: Data
+    }
     private let lock = NSLock()
     private var entries: [Entry] = []
     private var tokenCallCount = 0
@@ -297,7 +329,8 @@ private final class TalkOwnerRequestLog: @unchecked Sendable {
         }
         let entry = Entry(path: request.url?.path ?? "", authorization: request.value(forHTTPHeaderField: "Authorization") ?? "",
             userID: request.value(forHTTPHeaderField: "X-User-Id") ?? "", clientToken: request.value(forHTTPHeaderField: "X-Client-Token") ?? "",
-            idempotencyKey: request.value(forHTTPHeaderField: "X-Idempotency-Key") ?? "", body: body)
+            idempotencyKey: request.value(forHTTPHeaderField: "X-Idempotency-Key") ?? "",
+            hasClientTokenHeader: request.value(forHTTPHeaderField: "X-Client-Token") != nil, body: body)
         lock.lock(); defer { lock.unlock() }; entries.append(entry)
     }
     func recordTokenCall() { lock.lock(); defer { lock.unlock() }; tokenCallCount += 1 }

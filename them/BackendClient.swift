@@ -3064,7 +3064,7 @@ final class BackendClient {
                 allowClientTokenRefresh: true,
                 allowAudioValidationRetry: maxAudioValidationRetries > 0,
                 forceNoStreamAudio: false,
-            expectedOwner: owner
+                expectedOwner: owner
             )
         } catch {
             let nsError = error as NSError
@@ -3152,7 +3152,7 @@ final class BackendClient {
             allowClientTokenRefresh: true,
             allowAudioValidationRetry: maxAudioValidationRetries > 0,
             forceNoStreamAudio: false,
-                expectedOwner: owner
+            expectedOwner: owner
         )
     }
 
@@ -4342,9 +4342,10 @@ final class BackendClient {
             request.setValue(identity.userID, forHTTPHeaderField: "X-User-Id")
         }
         request.setValue(personaFlowKey, forHTTPHeaderField: "X-Persona-Key")
-        let currentClientToken = identity.clientToken.isEmpty ? clientToken : identity.clientToken
-        if !currentClientToken.isEmpty {
-            request.setValue(currentClientToken, forHTTPHeaderField: "X-Client-Token")
+        // Client tokens belong to the resolved backend; the identity snapshot
+        // carries no token-origin metadata and cannot replace this decision.
+        if !clientToken.isEmpty {
+            request.setValue(clientToken, forHTTPHeaderField: "X-Client-Token")
         }
         let appToken = appToken()
         if let token = appToken {
@@ -5434,14 +5435,15 @@ final class BackendClient {
         if !userID.isEmpty {
             request.setValue(userID, forHTTPHeaderField: "X-User-Id")
         }
-        request.setValue(clientToken, forHTTPHeaderField: "X-Client-Token")
+        if !clientToken.isEmpty {
+            request.setValue(clientToken, forHTTPHeaderField: "X-Client-Token")
+        }
         if let token = appToken() {
             request.setValue(token, forHTTPHeaderField: "X-APP-TOKEN")
         }
         if let owner = expectedOwner {
             let identity = try talkIdentity(requiring: owner)
             request.setValue(identity.userID, forHTTPHeaderField: "X-User-Id")
-            request.setValue(identity.clientToken.isEmpty ? clientToken : identity.clientToken, forHTTPHeaderField: "X-Client-Token")
             if !identity.accessToken.isEmpty {
                 request.setValue("Bearer \(identity.accessToken)", forHTTPHeaderField: "Authorization")
             }
