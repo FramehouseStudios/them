@@ -60,4 +60,18 @@ final class StudioTypedSubmissionScopeTests: XCTestCase {
         XCTAssertEqual(scope.activeID, restartedAttempt)
         XCTAssertTrue(scope.isCurrent(restartedAttempt, accountGeneration: 3, currentAccountGeneration: 3, isCancelled: false))
     }
+    func testCanonicalOwnerChangeRejectsResultBeforeTheUIGenerationChanges() async {
+        let scope = StudioTypedSubmissionScope()
+        let attempt = UUID()
+        let owner = BackendAuthClient.currentRequestOwner()
+        scope.activeID = attempt
+        scope.ownerContext = owner
+        XCTAssertTrue(scope.isCurrent(attempt, accountGeneration: 3, currentAccountGeneration: 3, isCancelled: false))
+        scope.ownerContext = ScreenplayStudioAuthContext(userID: owner.userID,
+            sessionIntentGeneration: owner.sessionIntentGeneration == Int.max ? 0 : owner.sessionIntentGeneration + 1)
+        XCTAssertFalse(scope.isCurrent(attempt, accountGeneration: 3, currentAccountGeneration: 3, isCancelled: false),
+            "The UI generation can lag the canonical authentication intent.")
+        XCTAssertEqual(scope.activeID, attempt, "Rejecting content must not change invocation ownership.")
+    }
+
 }

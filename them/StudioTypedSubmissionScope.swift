@@ -4,6 +4,7 @@ import Foundation
 @MainActor
 final class StudioTypedSubmissionScope: ObservableObject {
     var activeID: UUID?
+    var ownerContext: ScreenplayStudioAuthContext?
 
     func isCurrent(
         _ id: UUID,
@@ -11,6 +12,7 @@ final class StudioTypedSubmissionScope: ObservableObject {
         currentAccountGeneration: Int,
         isCancelled: Bool
     ) -> Bool {
-        !isCancelled && activeID == id && accountGeneration == currentAccountGeneration
+        guard !isCancelled, activeID == id, accountGeneration == currentAccountGeneration else { return false }
+        return ownerContext.map { BackendAuthClient.requestOwnerIsCurrent($0) } ?? true
     }
 }
