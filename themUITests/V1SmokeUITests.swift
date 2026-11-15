@@ -4796,7 +4796,7 @@ final class V1SmokeUITests: XCTestCase {
         let app = launchApp(launchEnvironment: launchEnvironment)
         defer { app.terminate() }
         let account = app.buttons["home.open-account"]
-        let homeRail = app.scrollViews["home.surface"]
+        let homeRail = app.scrollViews["home.navigation"]
         guard homeRail.waitForExistence(timeout: 8), account.exists else {
             throw NSError(domain: "themUITests.recovery", code: 5,
                 userInfo: [NSLocalizedDescriptionKey: "The normal home Account shortcut is missing."])

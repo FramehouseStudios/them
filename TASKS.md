@@ -5,6 +5,28 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### Stable Home navigation for authenticated recovery — T1481 follow-up (2026-11-15)
+
+- **First red VERIFIED:** original1000@9f hosted745/0/0 units, writer1/0/0, V1 33/0/9, backend2783/0/2 onNode20.20.2 and D009 pass; recovery1/1/0 fails before ordinary-case sign-in because its ScrollView selector uses the outer Home ZStack ID. Later voice/Mac skipped, not green.
+- **Smallest fix:** stable home.navigation identifier on the real horizontal rail; existing normal-login helper targets it. Outer home.surface, navigation actions, all42 UI identities, swipe/deadline/hittability/auth/Keychain/refresh/text/version/idempotency/relaunch assertions unchanged. Root still -17 versus exactparent38fe. Zora read-only diagnosis; Jarvis source/runtime/publication.
+- **Fresh proof:** signed erased-owned recovery2/0/0 once, Xcode26.3/iOS26.2, fixtureNode24.19.0; actual login200/save401/refresh200/replay201,1,450 inputs and3,303 dependency entries unchanged; backendPID/nonce/auth verified; known external Node attempts0. Created module copy returned intact. D009 exact38fe/diff pass. No unchanged broad local suites or paid calls; new-head hosted checks still required.
+- **Coordination/next:** Einstein verified main71 and original9792ea still green checks/REVIEW_REQUIRED; no repeated human ask. Reuse existing stable user+sessionIntentGeneration for API ownership: sessionEpoch rotates on valid refresh, so it is unsuitable alone. Root must fence bootstrap/response/delayed notification delivery before whole-app owner-safety claim. Luna/Howard/Alfred idle this pass. Physical38fe failed story journey remains deferred; production held. See docs/first-page-signin-handoff-2026-11-14.md. READY FOR CONTINUE.
+
+### First-page design-token gate correction — T1480 follow-up (2026-11-15)
+
+- **First red VERIFIED:** hosted original1000@657 fullunits744pass/1fail/0skip; raw system fonts in extracted form violate existing DesignSystemGuard. Backend2783/0/2 and D009 pass; downstream UI/recovery/voice/Mac skipped after unit failure.
+- **Fix:** shared exact30/17/16pt typography declarations plus existing tokens/import; lossless text-color/spacing/radius aliases. Guard/allowlist/actions/routing untouched. Howard read-only mapping; Jarvis source/runtime owner. Same existing branch/PR/history.
+- **Fresh proof:** signed erased-owned design guards3/0/0,1,450 inputs unchanged; reverse-token original view byte-exact, existing typography byte-exact after removing only3additions; D009 exact parent38fe/diff pass. No unchanged31/UI1/Mac/backend local reruns or paid calls. New hosted checkpoint required after normal follow-up push.
+- **Next/holds:** fix first new hosted failure if any; canonical API captured-owner/epoch boundary remains next implementation. Human deferred live phone; installed38fe/production unchanged; original979 still REVIEW_REQUIRED, no repeated request or merge. READY FOR CONTINUE.
+
+### First-page intent survives authentication — T1480 (2026-11-14)
+
+- **Owner:** Jarvis scoped integration/runtime; Zora first-page/submission capability and focused cases; Einstein read-only timeout/owner-boundary review. New isolated `codex/T-1480-first-page-handoff` from38fe; original heads and installed build preserved.
+- **Fixed locally:** defer Page/microphone execution until authenticated Studio; retain immutable input/action across sign-in, editable form on cancel/failure, explicit first-voice Page target for both transports until authoritative editor acknowledgment; keep Home controls/errors visible. Extract onboarding view/model and fence stale typed UI callbacks with capability-owned invocation ID plus existing account generation. Root −18 lines; other god files do not grow.
+- **Fresh proof:** signed erased-owned simulator31/0/0; existing stubbed first-page UI1/0/0; macOS scaffold compile pass with canonical local ad-hoc flags; exact-main71 D009/diff pass, frozen1,449 inputs unchanged. Earlier11pass/15testteardown crashes retained (async test entry correction), intervening compile0executed retained/corrected, initial Mac signing-command failure retained/canonical flags restored. No full-suite unchanged reruns or live-model tests.
+- **Physical facts/limits:** signed38fe installed and normal app observed on newer phone; normal signup and STT/TTS requests occurred, but human's story did not become a verified reply/page/save. STTtransport failure and aborted talk retained;1200ms optional sidecalls do not establish reply timeout. Human deferred; exact development backend stopped0 with source/modules unchanged and state retained. T1480 not installed; no fresh paid calls without authorization, production held.
+- **Next:** canonical API post-bootstrap captured-owner/epoch boundary before whole-app account-safety claim; inner evolution/correction/prompt suspension gaps and pre-submit form force-kill retention remain. Original979 current2ea still requires genuine human review; no repeated request/merge/deploy. See docs/first-page-signin-handoff-2026-11-14.md. READY FOR CONTINUE.
+
 ### Captured auth / SwiftUI lock inversion — T1477 (2026-11-13)
 
 - **Owner:** Jarvis review/runtime; Zora canonical async-auth boundary; Einstein preserved real-login fixture. New isolated codex/T-1477-auth-render-lock-cycle from07af; originals untouched.
