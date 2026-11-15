@@ -7,6 +7,8 @@
 
 ### Preserve support-safe STT transport causes — T1484 (2026-11-15)
 
+- **Follow-up:** preserve-merge622 carries parentef2's byte-equivalent fixture compiler fix; backend exactd571/fixture exact7c91, no unchanged local reruns. Future strict phone collector prepared, gated on fresh paid authorization/current-head green checks and current LAN address; no server/key access. Original private controls/account state retained. Hosted new-head proof remains pending.
+
 - **Root fixed:** primary STT conversion discarded underlying fetch cause. Canonical diagnostics now retain only one of23 known transport codes through bounded own-data cause/aggregate traversal into private support logs; raw exceptions/messages/stacks/private data excluded. Public classification/body/headers byte-identical; no retry/timeout/model/wallet/draft change. Reviewed opaque-error/coercion defect fixed fail-closed before publication.
 - **Ownership/history:** Jarvis scoped integration/runtime; Zora four-file patch ed5; Einstein read-only adversarial probes. Preserve mergeee52 and normal Root correctiond571 over original1002@885. No original-head replacement/squash/forcepush/main/deploy.
 - **Fresh proof:** offline cached Node20.20.2 focused11/0/0; full npm2789/0/2 (2791 total), zero cancelled/todo.1464source/3303deps unchanged, read-only source/deps, networknone, no install/pull/providers. PostgreSQL and live page-sync skips retained. Incorrect private expectedhead guard stopped before any container/test, corrected with no app change. D009 exact885 fivezero/diff/JS syntaxpass; native/lock/workflow bytes unchanged, no redundant native run.
