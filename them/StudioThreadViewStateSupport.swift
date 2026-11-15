@@ -371,3 +371,30 @@ struct StudioFullThreadBrowseStateRestoreResult: Equatable {
         values.map(normalizedString).filter { !$0.isEmpty }.sorted()
     }
 }
+
+enum StudioThreadSceneLabelSupport {
+    static func label(atOrBeforeLine line: Int, scenes: [ScreenplayDraftSceneSnapshot], draftText: String) -> String? {
+        if let scene = scenes.last(where: { $0.line <= max(1, line) }) {
+            return scene.slugline
+        }
+        let cleanDraft = draftText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanDraft.isEmpty else { return nil }
+        let lines = cleanDraft.components(separatedBy: .newlines)
+        guard !lines.isEmpty else { return nil }
+        let clampedIndex = max(0, min(max(1, line) - 1, lines.count - 1))
+        for index in stride(from: clampedIndex, through: 0, by: -1) {
+            let candidate = lines[index].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !candidate.isEmpty else { continue }
+            let upper = candidate.uppercased()
+            if upper.hasPrefix("INT.") ||
+                upper.hasPrefix("EXT.") ||
+                upper.hasPrefix("INT./EXT.") ||
+                upper.hasPrefix("EXT./INT.") ||
+                upper.hasPrefix("INT/EXT.") ||
+                upper.hasPrefix("I/E.") {
+                return candidate
+            }
+        }
+        return nil
+    }
+}

@@ -2775,8 +2775,9 @@ struct RootExperienceView: View {
             }
 
             guard inFlightTalkTask == nil else { return }
+            let owner = BackendAuthClient.currentRequestOwner()
             inFlightTalkTask = Task {
-                await sendUtterance(wavData)
+                await sendUtterance(wavData, expectedOwner: owner)
             }
         }
     }
@@ -2933,16 +2934,18 @@ struct RootExperienceView: View {
                 return
             }
             realtimeAssistantTranscriptFallbackTask?.cancel()
+            let owner = BackendAuthClient.currentRequestOwner()
             realtimeAssistantTranscriptFallbackTask = Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 450_000_000)
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled, BackendAuthClient.requestOwnerIsCurrent(owner) else { return }
                 guard acceptRealtimeRecoveryResponseIfNeeded() else {
                     realtimeAssistantTranscriptFallbackTask = nil
                     return
                 }
                 await handleCompletedRealtimeTurn(
                     userMessage: currentRealtimePendingUserMessage(),
-                    assistantMessage: cleaned
+                    assistantMessage: cleaned,
+                    expectedOwner: owner
                 )
                 clearRealtimeRecoveryTurn()
                 realtimeAssistantTranscriptFallbackTask = nil
@@ -2954,11 +2957,14 @@ struct RootExperienceView: View {
             lastRealtimeAssistantTextAt = Date()
             realtimeAssistantTranscriptFallbackTask?.cancel()
             realtimeAssistantTranscriptFallbackTask = nil
+            let owner = BackendAuthClient.currentRequestOwner()
             Task { @MainActor in
+                guard BackendAuthClient.requestOwnerIsCurrent(owner) else { return }
                 guard acceptRealtimeRecoveryResponseIfNeeded() else { return }
                 await handleCompletedRealtimeTurn(
                     userMessage: currentRealtimePendingUserMessage(),
-                    assistantMessage: cleaned
+                    assistantMessage: cleaned,
+                    expectedOwner: owner
                 )
                 clearRealtimeRecoveryTurn()
             }
@@ -3884,7 +3890,8 @@ struct RootExperienceView: View {
                 setStudioDebugPreferenceString(prompt, forKey: "studio_debug_root_submit_prompt")
                 setStudioDebugPreferenceString(requestID, forKey: "studio_debug_root_submit_request_id")
 #endif
-                return await submitStudioPrompt(prompt, routingMode: routingMode, requestID: requestID)
+                let owner = BackendAuthClient.currentRequestOwner()
+                return await submitStudioPrompt(prompt, routingMode: routingMode, requestID: requestID, expectedOwner: owner)
             },
             shouldRoutePromptToPage: { prompt, routingMode in
                 shouldRouteStudioPromptToPage(prompt, preferredTarget: routingMode)
@@ -3930,6 +3937,7 @@ struct RootExperienceView: View {
             screenplayDraftBridge.autoInsertStatusText = "Clementine is writing your first page…"
             magicMomentPerceivedResponseMs = Date().timeIntervalSince(request.startedAt) * 1_000
             let accountGeneration = studioAccountIdentityGeneration
+            let owner = BackendAuthClient.currentRequestOwner()
             Task { @MainActor in
                 let accountChangedMessage = "Your account changed. Your scene idea is still here; sign in and try again."
                 guard accountGeneration == studioAccountIdentityGeneration else {
@@ -3940,7 +3948,8 @@ struct RootExperienceView: View {
                     request.pagePrompt,
                     routingMode: .page,
                     requestID: request.id,
-                    expectedAccountGeneration: accountGeneration
+                    expectedAccountGeneration: accountGeneration,
+                    expectedOwner: owner
                 )
                 guard accountGeneration == studioAccountIdentityGeneration else {
                     _ = firstPageOnboarding.finishPage(requestID: request.id, error: accountChangedMessage)
@@ -4036,6 +4045,7 @@ struct RootExperienceView: View {
         }
         #endif
         let evo = evolution
+        let owner = BackendAuthClient.currentRequestOwner()
         Task {
             await BackendMemoryAPI.shared.syncEvolutionState(
                 stage: evo.stage,
@@ -4049,7 +4059,8 @@ struct RootExperienceView: View {
                 lastThemeCue: evo.lastThemeCue,
                 preferredName: evo.preferredName,
                 isScreenwriter: evo.isScreenwriter,
-                latestUserMessage: nil
+                latestUserMessage: nil,
+                expectedOwner: owner
             )
         }
         withAnimation(.easeInOut(duration: 0.28)) {
@@ -4843,9 +4854,11 @@ You're okay. Let's slow it down for one beat and get our footing back. Pick the 
         userMessage: String,
         memoryDomain: StudioMemoryDomain,
         isScreenplayMode: Bool,
-        expectedAccountGeneration: Int? = nil
+        expectedAccountGeneration: Int? = nil,
+        expectedOwner: ScreenplayStudioAuthContext? = nil
     ) async {
-        guard expectedAccountGeneration == nil || expectedAccountGeneration == studioAccountIdentityGeneration else { return }
+        let owner = expectedOwner ?? BackendAuthClient.currentRequestOwner()
+        guard BackendAuthClient.requestOwnerIsCurrent(owner), expectedAccountGeneration == nil || expectedAccountGeneration == studioAccountIdentityGeneration else { return }
         let cleanUser = userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanUser.isEmpty else { return }
 
@@ -4874,7 +4887,8 @@ You're okay. Let's slow it down for one beat and get our footing back. Pick the 
             lastThemeCue: evo.lastThemeCue,
             preferredName: evo.preferredName,
             isScreenwriter: evo.isScreenwriter,
-            latestUserMessage: memoryDomain == .project ? nil : cleanUser
+            latestUserMessage: memoryDomain == .project ? nil : cleanUser,
+            expectedOwner: owner
         )
     }
 
@@ -6102,8 +6116,11 @@ Write this approved story direction directly into screenplay pages now. Maintain
     private func sendUtterance(
         _ wavData: Data,
         clientTranscriptOverride: String? = nil,
-        debugVoiceTurnToken: Int? = nil
+        debugVoiceTurnToken: Int? = nil,
+        expectedOwner: ScreenplayStudioAuthContext? = nil
     ) async {
+        let owner = expectedOwner ?? BackendAuthClient.currentRequestOwner()
+        guard BackendAuthClient.requestOwnerIsCurrent(owner) else { return }
         // Phase 1 latency pass: start playback on the first streamed segment as soon
         // as it is ready. We stop recording before playback begins to avoid bleed.
         let allowEarlyStreamPlayback = true
@@ -7221,6 +7238,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 try await Task.sleep(nanoseconds: 250_000_000)
                 result = try await requestTalk()
             }
+            guard BackendAuthClient.requestOwnerIsCurrent(owner) else { return }
             didReceiveTalkResponse = true
             if !(result.reply ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 clientLatency.recordFirstText(turnID: clientLatencyTurnID)
@@ -7450,7 +7468,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 result: result,
                 promptSource: .voice,
                 targetOverride: preparedPrompt.shouldWriteToPage ? .page : .voicePin,
-                insertedTextOverride: effectiveInsertedScreenplayText
+                insertedTextOverride: effectiveInsertedScreenplayText,
+                expectedOwner: owner
             )
 
             let confirmedTranscript = result.transcript?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -7686,11 +7705,13 @@ Write this approved story direction directly into screenplay pages now. Maintain
         _ prompt: String,
         routingMode: ScreenplayStudioScreen.PromptRoutingMode = .automatic,
         requestID: String? = nil,
-        expectedAccountGeneration: Int? = nil
+        expectedAccountGeneration: Int? = nil,
+        expectedOwner: ScreenplayStudioAuthContext? = nil
     ) async -> String? {
+        let owner = expectedOwner ?? BackendAuthClient.currentRequestOwner()
         let accountGeneration = expectedAccountGeneration ?? studioAccountIdentityGeneration
         let supersededMessage = "The Studio request was superseded. Your scene idea is still here."
-        guard accountGeneration == studioAccountIdentityGeneration, !Task.isCancelled else {
+        guard BackendAuthClient.requestOwnerIsCurrent(owner), accountGeneration == studioAccountIdentityGeneration, !Task.isCancelled else {
             return supersededMessage
         }
         let cleanPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -7742,6 +7763,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
         let submissionID = UUID()
         studioTypedSubmission.activeID = submissionID
+        studioTypedSubmission.ownerContext = owner
         isTurnSubmitting = true
         isThinking = true
         defer {
@@ -8155,7 +8177,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
                         userMessage: deferredPrompt,
                         memoryDomain: deferredMemoryDomain,
                         isScreenplayMode: true,
-                        expectedAccountGeneration: accountGeneration
+                        expectedAccountGeneration: accountGeneration,
+                        expectedOwner: owner
                     )
                     guard accountGeneration == studioAccountIdentityGeneration else { return }
                     await commitRealtimePreviewTurnIfNeeded(
@@ -8165,7 +8188,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
                         requestId: deferredRequestID,
                         targetOverride: .page,
                         insertedTextOverride: deferredInsertedText,
-                        expectedAccountGeneration: accountGeneration
+                        expectedAccountGeneration: accountGeneration,
+                        expectedOwner: owner
                     )
                     guard accountGeneration == studioAccountIdentityGeneration else { return }
                     await annotateLatestRealtimeStudioTurnIfNeeded(
@@ -8173,7 +8197,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
                         targetOverride: .page,
                         insertedTextOverride: deferredInsertedText,
                         requestID: deferredRequestID,
-                        expectedAccountGeneration: accountGeneration
+                        expectedAccountGeneration: accountGeneration,
+                        expectedOwner: owner
                     )
                 }
             } else {
@@ -8181,7 +8206,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     userMessage: cleanPrompt,
                     memoryDomain: memoryDomain,
                     isScreenplayMode: true,
-                    expectedAccountGeneration: accountGeneration
+                    expectedAccountGeneration: accountGeneration,
+                    expectedOwner: owner
                 )
                 guard isCurrentStudioTypedSubmission(submissionID, accountGeneration: accountGeneration) else { return supersededMessage }
                 await commitRealtimePreviewTurnIfNeeded(
@@ -8191,7 +8217,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     requestId: requestID,
                     targetOverride: .voicePin,
                     insertedTextOverride: insertedScreenplayText,
-                    expectedAccountGeneration: accountGeneration
+                    expectedAccountGeneration: accountGeneration,
+                    expectedOwner: owner
                 )
                 guard isCurrentStudioTypedSubmission(submissionID, accountGeneration: accountGeneration) else { return supersededMessage }
             }
@@ -9309,37 +9336,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
         userMessage: String,
         assistantMessage: String
     ) -> BackendTalkResult {
-        BackendTalkResult(
-            audioURL: URL(fileURLWithPath: "/dev/null"),
-            streamedFirstSegment: false,
-            streamedRemainderURL: nil,
-            audioDurationMs: nil,
-            renderContract: .default,
-            timingSource: nil,
-            transcript: userMessage,
-            reply: assistantMessage,
-            screenplayOutput: nil,
-            screenplayQuality: nil,
-            screenplayCues: [],
-            dialogueTimeline: nil,
-            assistantSelfName: nil,
-            userName: evolution.preferredName,
-            voiceEmotionLane: lastClementineEmotionLane,
-            ttsVoice: nil,
-            uiReflection: uiReflection,
-            knowledgeTrace: .empty,
-            creativeMemoryTrace: .empty,
-            screenplayTrace: currentRealtimeStudioScreenplayTrace(),
-            turnStatus: "responded",
-            turnContinueReason: nil,
-            turnErrorStage: nil,
-            turnErrorMessage: nil,
-            noteAction: nil,
-            taskAction: nil,
-            speculativeTrace: .none,
-            turnMetaRateLimitNotice: nil,
-            commit: nil
-        )
+        .studioRealtime(userMessage: userMessage, assistantMessage: assistantMessage,
+            userName: evolution.preferredName, voiceEmotionLane: lastClementineEmotionLane,
+            uiReflection: uiReflection, screenplayTrace: currentRealtimeStudioScreenplayTrace())
     }
 
     private func sanitizedRealtimeStudioRenderReply(_ reply: String) -> String {
@@ -9941,8 +9940,11 @@ Write this approved story direction directly into screenplay pages now. Maintain
     @MainActor
     private func handleCompletedRealtimeTurn(
         userMessage: String,
-        assistantMessage: String
+        assistantMessage: String,
+        expectedOwner: ScreenplayStudioAuthContext? = nil
     ) async {
+        let owner = expectedOwner ?? BackendAuthClient.currentRequestOwner()
+        guard BackendAuthClient.requestOwnerIsCurrent(owner) else { return }
         let cleanUser = userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanAssistant = assistantMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanUser.isEmpty, !cleanAssistant.isEmpty else { return }
@@ -9970,6 +9972,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             contextAssistantReply = cleanAssistant
         }
 
+        guard BackendAuthClient.requestOwnerIsCurrent(owner) else { return }
         let memoryDomain = isStudioSurfaceActive
             ? studioMemoryDomain(for: cleanUser, preferredTarget: .automatic)
             : .companion
@@ -9988,7 +9991,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
         await commitRealtimePreviewTurnIfNeeded(
             userMessage: cleanUser,
             assistantMessage: contextAssistantReply.isEmpty ? cleanAssistant : contextAssistantReply,
-            promptSource: .voice
+            promptSource: .voice,
+            expectedOwner: owner
         )
     }
 
@@ -12031,8 +12035,11 @@ Write this approved story direction directly into screenplay pages now. Maintain
         result: BackendTalkResult,
         promptSource: ScreenplayStudioUserPrompt.Source,
         targetOverride: ScreenplayStudioUserPrompt.Target? = nil,
-        insertedTextOverride: String? = nil
+        insertedTextOverride: String? = nil,
+        expectedOwner: ScreenplayStudioAuthContext? = nil
     ) async {
+        let owner = expectedOwner ?? BackendAuthClient.currentRequestOwner()
+        guard BackendAuthClient.requestOwnerIsCurrent(owner) else { return }
         guard isStudioSurfaceActive || result.screenplayTrace.modeEnabled else { return }
         guard let rawTurnId = result.commit?.turnId else { return }
         let turnId = rawTurnId.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -12041,6 +12048,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             targetOverride: targetOverride,
             insertedTextOverride: insertedTextOverride
         )
+        guard BackendAuthClient.requestOwnerIsCurrent(owner) else { return }
         guard let studioMetadata = studioThreadCommitMetadata(
             promptSource: promptSource,
             targetOverride: targetOverride,
@@ -12050,12 +12058,15 @@ Write this approved story direction directly into screenplay pages now. Maintain
         do {
             let annotation = try await BackendMemoryAPI.shared.annotateTurnHistory(
                 turnId: turnId,
-                studioMetadata: studioMetadata
+                studioMetadata: studioMetadata,
+                expectedOwner: owner
             )
+            guard BackendAuthClient.requestOwnerIsCurrent(owner) else { return }
             if !annotation.sync.stateVersion.isEmpty {
                 localStateVersion = annotation.sync.stateVersion
             }
         } catch {
+            guard BackendAuthClient.requestOwnerIsCurrent(owner) else { return }
             HerLog.talk.error("studio turn metadata annotate error=\(error.localizedDescription, privacy: .public)")
         }
     }
@@ -12227,28 +12238,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
     @MainActor
     private func studioSceneLabelForDraftLine(_ line: Int) -> String? {
-        if let scene = screenplayDraftBridge.structuredDraft.scenes.last(where: { $0.line <= max(1, line) }) {
-            return scene.slugline
-        }
-        let cleanDraft = screenplayDraftBridge.draftText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanDraft.isEmpty else { return nil }
-        let lines = cleanDraft.components(separatedBy: .newlines)
-        guard !lines.isEmpty else { return nil }
-        let clampedIndex = max(0, min(max(1, line) - 1, lines.count - 1))
-        for index in stride(from: clampedIndex, through: 0, by: -1) {
-            let candidate = lines[index].trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !candidate.isEmpty else { continue }
-            let upper = candidate.uppercased()
-            if upper.hasPrefix("INT.") ||
-                upper.hasPrefix("EXT.") ||
-                upper.hasPrefix("INT./EXT.") ||
-                upper.hasPrefix("EXT./INT.") ||
-                upper.hasPrefix("INT/EXT.") ||
-                upper.hasPrefix("I/E.") {
-                return candidate
-            }
-        }
-        return nil
+        StudioThreadSceneLabelSupport.label(atOrBeforeLine: line,
+            scenes: screenplayDraftBridge.structuredDraft.scenes, draftText: screenplayDraftBridge.draftText)
     }
 
     @MainActor
@@ -12259,9 +12250,11 @@ Write this approved story direction directly into screenplay pages now. Maintain
         requestId: String? = nil,
         targetOverride: ScreenplayStudioUserPrompt.Target? = nil,
         insertedTextOverride: String? = nil,
-        expectedAccountGeneration: Int? = nil
+        expectedAccountGeneration: Int? = nil,
+        expectedOwner: ScreenplayStudioAuthContext? = nil
     ) async {
-        guard expectedAccountGeneration == nil || expectedAccountGeneration == studioAccountIdentityGeneration else { return }
+        let owner = expectedOwner ?? BackendAuthClient.currentRequestOwner()
+        guard BackendAuthClient.requestOwnerIsCurrent(owner), expectedAccountGeneration == nil || expectedAccountGeneration == studioAccountIdentityGeneration else { return }
         let cleanUser = userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanAssistant = assistantMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanUser.isEmpty, !cleanAssistant.isEmpty else { return }
@@ -12285,7 +12278,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 targetOverride: targetOverride,
                 insertedTextOverride: insertedTextOverride
             )
-            guard expectedAccountGeneration == nil || expectedAccountGeneration == studioAccountIdentityGeneration else { return }
+            guard BackendAuthClient.requestOwnerIsCurrent(owner), expectedAccountGeneration == nil || expectedAccountGeneration == studioAccountIdentityGeneration else { return }
             let studioMetadata = studioThreadCommitMetadata(
                 promptSource: promptSource,
                 targetOverride: targetOverride,
@@ -12298,9 +12291,10 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 requestId: requestId?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
                     ? requestId?.trimmingCharacters(in: .whitespacesAndNewlines)
                     : "rt-\(fingerprint)",
-                studioMetadata: studioMetadata
+                studioMetadata: studioMetadata,
+                expectedOwner: owner
             )
-            guard expectedAccountGeneration == nil || expectedAccountGeneration == studioAccountIdentityGeneration else { return }
+            guard BackendAuthClient.requestOwnerIsCurrent(owner), expectedAccountGeneration == nil || expectedAccountGeneration == studioAccountIdentityGeneration else { return }
             presentCanonClarificationIfNeeded(result.payload.canonClarification)
             lastRealtimeCommittedTurnID = result.payload.turnId ?? result.payload.lastTurnId ?? result.sync.lastTurnId
             lastRealtimeCommitAt = now
@@ -12323,10 +12317,11 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 userMessage: cleanUser,
                 memoryDomain: memoryDomain,
                 isScreenplayMode: isStudioSurfaceActive,
-                expectedAccountGeneration: expectedAccountGeneration
+                expectedAccountGeneration: expectedAccountGeneration,
+                expectedOwner: owner
             )
         } catch {
-            guard expectedAccountGeneration == nil || expectedAccountGeneration == studioAccountIdentityGeneration else { return }
+            guard BackendAuthClient.requestOwnerIsCurrent(owner), expectedAccountGeneration == nil || expectedAccountGeneration == studioAccountIdentityGeneration else { return }
             lastRealtimeCommitError = error.localizedDescription
         }
     }
@@ -12338,9 +12333,11 @@ Write this approved story direction directly into screenplay pages now. Maintain
         insertedTextOverride: String? = nil,
         requestID: String? = nil,
         turnIdOverride: String? = nil,
-        expectedAccountGeneration: Int? = nil
+        expectedAccountGeneration: Int? = nil,
+        expectedOwner: ScreenplayStudioAuthContext? = nil
     ) async {
-        guard expectedAccountGeneration == nil || expectedAccountGeneration == studioAccountIdentityGeneration else { return }
+        let owner = expectedOwner ?? BackendAuthClient.currentRequestOwner()
+        guard BackendAuthClient.requestOwnerIsCurrent(owner), expectedAccountGeneration == nil || expectedAccountGeneration == studioAccountIdentityGeneration else { return }
         let turnId = (turnIdOverride ?? lastRealtimeCommittedTurnID)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !turnId.isEmpty else { return }
@@ -12348,7 +12345,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             targetOverride: targetOverride,
             insertedTextOverride: insertedTextOverride
         )
-        guard expectedAccountGeneration == nil || expectedAccountGeneration == studioAccountIdentityGeneration else { return }
+        guard BackendAuthClient.requestOwnerIsCurrent(owner), expectedAccountGeneration == nil || expectedAccountGeneration == studioAccountIdentityGeneration else { return }
         guard let studioMetadata = studioThreadCommitMetadata(
             promptSource: promptSource,
             targetOverride: targetOverride,
@@ -12359,14 +12356,15 @@ Write this approved story direction directly into screenplay pages now. Maintain
         do {
             let annotation = try await BackendMemoryAPI.shared.annotateTurnHistory(
                 turnId: turnId,
-                studioMetadata: studioMetadata
+                studioMetadata: studioMetadata,
+                expectedOwner: owner
             )
-            guard expectedAccountGeneration == nil || expectedAccountGeneration == studioAccountIdentityGeneration else { return }
+            guard BackendAuthClient.requestOwnerIsCurrent(owner), expectedAccountGeneration == nil || expectedAccountGeneration == studioAccountIdentityGeneration else { return }
             if !annotation.sync.stateVersion.isEmpty {
                 localStateVersion = annotation.sync.stateVersion
             }
         } catch {
-            guard expectedAccountGeneration == nil || expectedAccountGeneration == studioAccountIdentityGeneration else { return }
+            guard BackendAuthClient.requestOwnerIsCurrent(owner), expectedAccountGeneration == nil || expectedAccountGeneration == studioAccountIdentityGeneration else { return }
             HerLog.talk.error("studio turn post-commit annotate error=\(error.localizedDescription, privacy: .public)")
         }
     }
