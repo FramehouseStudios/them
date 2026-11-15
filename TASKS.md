@@ -5,6 +5,13 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### Failed voice turns and immutable talk transport owner — T1483 (2026-11-15)
+
+- **Executed:** opened requested draft1001@0ba over original1000@8729; original heads/history intact. New isolated `codex/T-1483-voice-failure-recovery` preserves Rootb09 plus Zorac307/5a91 through merge, then connects admittedowner at8c and decoded failure policy at033. No main/deploy/provider action.
+- **Root causes fixed:** HTTP200/error_recovered no longer clears issue/resumes mic or enters normal page/history success; persistent existing UI guidance, stopped capture/audio, no pretend saved claim. Three queued content callbacks check UUID+owner. Talk captures owner before health/bootstrap and keeps it through retries/headers/results/delivery; review corrected unscoped snapshot token override, preserving resolved target token/empty omission. Canonical defaults/payload/idempotency/retry counts retained.
+- **Fresh proof:** b09 signed14/0/0; combined033 actual API/pagecancel/authrotation20/0/0, deterministic existing UI2/0/0 and Mac scaffold compile0. Erased owned81F, source/IDs fenced, no native failures/skips or paid calls. D009 exact0ba/diffpass, Root−1/othergods0; backend/save/workflow/design unchanged. Static remote-ref setup corrected with task-only exact ref; no gate weakened. Final hosted integration pending, no unchanged full local suites repeated.
+- **Phone facts/next:** STT TypeError21324ms beforeheaders is proven; exact DNS/TLS/socket cause unknown, not shown key/quota/30s expiry. Different aborted22680ms request is not causal proof. Phone still38fe and live reply/page/save failed/unproven. Next safe diagnostic/deadline work then fresh-authorized physical proof; no silent paid retry, production held. Einstein read-only review; Luna/Howard/Alfred idle. See docs/voice-failure-and-talk-owner-2026-11-15.md. READY FOR CONTINUE.
+
 ### Captured turn owner and invocation-owned voice cleanup — T1482 (2026-11-15)
 
 - **Owner/scope:** Jarvis production/runtime; Zora actual API regressions and voice scope; Einstein read-only adversarial review. Isolated `codex/T-1482-captured-turn-owner` from original1000@8729; preserve original commits and scoped helper branches with non-squash merges. Luna/Howard/Alfred idle this bounded pass.
