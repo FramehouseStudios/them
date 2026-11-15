@@ -368,9 +368,20 @@ private struct TalkOwnerHTTPStub {
         let samples = Data(repeating: 0, count: 4096)
         func u16(_ value: UInt16) -> Data { var value = value.littleEndian; return Data(bytes: &value, count: 2) }
         func u32(_ value: UInt32) -> Data { var value = value.littleEndian; return Data(bytes: &value, count: 4) }
-        return Data("RIFF".utf8) + u32(UInt32(36 + samples.count)) + Data("WAVEfmt ".utf8) + u32(16)
-            + u16(1) + u16(1) + u32(16000) + u32(32000) + u16(2) + u16(16)
-            + Data("data".utf8) + u32(UInt32(samples.count)) + samples
+        var data = Data("RIFF".utf8)
+        data.append(u32(UInt32(36 + samples.count)))
+        data.append(Data("WAVEfmt ".utf8))
+        data.append(u32(16))
+        data.append(u16(1))
+        data.append(u16(1))
+        data.append(u32(16000))
+        data.append(u32(32000))
+        data.append(u16(2))
+        data.append(u16(16))
+        data.append(Data("data".utf8))
+        data.append(u32(UInt32(samples.count)))
+        data.append(samples)
+        return data
     }
 }
 
