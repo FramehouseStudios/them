@@ -7238,7 +7238,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
                             }
                         }
                     },
-                    onDebugEvent: onBackendTalkDebugEvent
+                    onDebugEvent: onBackendTalkDebugEvent,
+                    expectedOwner: owner
                 )
             }
             let result: BackendTalkResult
