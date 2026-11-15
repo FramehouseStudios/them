@@ -14,6 +14,8 @@
 
 ### Failed voice turns and immutable talk transport owner — T1483 (2026-11-15)
 
+- **Hosted first red/correction:**1002@885 Quality failed compiling fixture Data chain before any test; backend/D009 passed, later gates skipped. Normal7c91 fixture append rewrite preserves4140bytes/all assertions/production; fresh signed15/0/0 erased81F, no broad unchanged local reruns. Fresh hosted proof required; carry preserving into1003.
+
 - **Executed:** opened requested draft1001@0ba over original1000@8729; original heads/history intact. New isolated `codex/T-1483-voice-failure-recovery` preserves Rootb09 plus Zorac307/5a91 through merge, then connects admittedowner at8c and decoded failure policy at033. No main/deploy/provider action.
 - **Root causes fixed:** HTTP200/error_recovered no longer clears issue/resumes mic or enters normal page/history success; persistent existing UI guidance, stopped capture/audio, no pretend saved claim. Three queued content callbacks check UUID+owner. Talk captures owner before health/bootstrap and keeps it through retries/headers/results/delivery; review corrected unscoped snapshot token override, preserving resolved target token/empty omission. Canonical defaults/payload/idempotency/retry counts retained.
 - **Fresh proof:** b09 signed14/0/0; combined033 actual API/pagecancel/authrotation20/0/0, deterministic existing UI2/0/0 and Mac scaffold compile0. Erased owned81F, source/IDs fenced, no native failures/skips or paid calls. D009 exact0ba/diffpass, Root−1/othergods0; backend/save/workflow/design unchanged. Static remote-ref setup corrected with task-only exact ref; no gate weakened. Final hosted integration pending, no unchanged full local suites repeated.
