@@ -48,3 +48,9 @@ Open next steps: preserve an allowlisted transport-cause code through the existi
 Broader realtime connection-admission and inner stream/playback/capture ownership, typed correction waits, unsubmitted-form force-kill durability and failed-recording manual recovery remain outside this bounded fix. The physical phone still has38fe; none of these client fixes is installed. The live relevant-reply → formatted page → precise rewrite → acknowledged save → offline/relaunch → external export journey remains unproven. Development backend stopped/state preserved; production held under the human's App Store-credentials decision. No live model call without fresh human authorization.
 
 Next: fix the first exact-head hosted failure if one appears; otherwise finish the safe STT cause/deadline investigation, then install and observe the updated phone build after the necessary checks and fresh human session authorization. READY FOR CONTINUE.
+
+## Hosted compiler follow-up
+
+VERIFIED first red: original #1002@885 run43743286908 Quality job132900946723 failed compiling the new WAV fixture's chained Data expression before any tests executed. Backend/D009 passed; later writer/V1/recovery/voice/Mac steps were skipped. The local26.3 result was valid for its compiler and did not establish hosted compile success.
+
+Normal descendant7c91cbab splits only that fixture expression into append operations. Every production byte, test identity, assertion and generated audio byte is preserved. Standalone old/new execution proved identical4140-byte WAV data; fresh signed affected API cases15/0/0 on erased owned81F, source1463inputs unchanged. No unchanged broad local suite/UI/Mac/backend rerun. Fresh hosted checks remain mandatory; no compiler-budget increase, skip, allowlist change or test removal. Preserve the original failed job as evidence. This correction must also be preserve-merged into dependent #1003 before its next gate.
