@@ -7011,6 +7011,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     screenplayGenerationTranscriptOverride: talkScreenplayGenerationTranscript,
                     onResponseMetadataReady: { metadata in
                         Task { @MainActor in
+                            guard voiceTaskScope.isCurrent(invocationID), BackendAuthClient.requestOwnerIsCurrent(owner) else { return }
                             if preparedPrompt.useScreenplayMode {
                                 screenplayDraftBridge.updateScreenplayQualityStatus(
                                     quality: metadata.screenplayQuality,
@@ -7118,6 +7119,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     },
                     onFirstAudioSegmentReady: { firstSegmentURL in
                         Task { @MainActor in
+                            guard voiceTaskScope.isCurrent(invocationID), BackendAuthClient.requestOwnerIsCurrent(owner) else { return }
                             guard allowEarlyStreamPlayback else { return }
                             guard !didStartEarlyStreamPlayback else { return }
                             didStartEarlyStreamPlayback = true
@@ -7184,6 +7186,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     },
                     onTextReady: { rawReply in
                         Task { @MainActor in
+                            guard voiceTaskScope.isCurrent(invocationID), BackendAuthClient.requestOwnerIsCurrent(owner) else { return }
                             if !rawReply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                                 clientLatency.recordFirstText(turnID: clientLatencyTurnID)
                             }
@@ -7235,7 +7238,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
                             }
                         }
                     },
-                    onDebugEvent: onBackendTalkDebugEvent
+                    onDebugEvent: onBackendTalkDebugEvent,
+                    expectedOwner: owner
                 )
             }
             let result: BackendTalkResult
@@ -7249,6 +7253,31 @@ Write this approved story direction directly into screenplay pages now. Maintain
             }
             guard voiceTaskScope.isCurrent(invocationID), BackendAuthClient.requestOwnerIsCurrent(owner) else { return }
             didReceiveTalkResponse = true
+            if let failure = result.recoveredFailure {
+                backendConnectionState = .up
+                backendFailureCount = 0
+                lastIssueSummary = failure.message
+                isThinking = false
+                conversationLoopEnabled = false
+                pendingGoodbyeStopAfterPlayback = false
+                voice.stopRecording()
+                voice.teardown()
+                orbAudio.stop()
+                if shouldUseSyncedStudioVoiceInsert {
+                    screenplayDraftBridge.failSyncedVoiceTurn(reason: failure.message)
+                }
+                if didStartEarlyStudioDraftStream {
+                    cancelRealtimeStudioDraftStream(restorePreview: true,
+                        debugVoiceTurnToken: debugVoiceTurnToken,
+                        promptPreviewOverride: preparedPrompt.directorText)
+                }
+                screenplayDraftBridge.autoInsertStatusText = failure.message
+                updateTransientTurnBanner(from: result)
+#if DEBUG || os(macOS)
+                finalizeDebugVoiceTurn(status: "error", error: failure.message)
+#endif
+                return
+            }
             if !(result.reply ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 clientLatency.recordFirstText(turnID: clientLatencyTurnID)
             }
@@ -8580,52 +8609,22 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
     @MainActor
     private func updateTransientTurnBanner(from result: BackendTalkResult) {
-        if let notice = result.turnMetaRateLimitNotice {
-            transientTurnBannerTask?.cancel()
-            withAnimation(.easeInOut(duration: 0.18)) {
-                transientTurnBannerText = notice.bannerText
-            }
-            transientTurnBannerTask = Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 5_400_000_000)
-                guard !Task.isCancelled else { return }
-                withAnimation(.easeInOut(duration: 0.22)) {
-                    transientTurnBannerText = nil
-                }
-            }
+        transientTurnBannerTask?.cancel()
+        if let failure = result.recoveredFailure {
+            // A fallback voice response is a failed turn, not completed writing.
+            // Keep the retry guidance visible until the next requested turn.
+            transientTurnBannerText = failure.message
             return
         }
-
-        guard result.turnStatus == "error_recovered" else { return }
-
-        let stage = (result.turnErrorStage ?? "response")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        let stageLabel: String
-        switch stage {
-        case "stt":
-            stageLabel = "voice capture"
-        case "chat":
-            stageLabel = "response generation"
-        case "tts":
-            stageLabel = "voice playback"
-        case "upload":
-            stageLabel = "audio upload"
-        default:
-            stageLabel = stage.isEmpty ? "response" : stage
+        guard let notice = result.turnMetaRateLimitNotice else {
+            transientTurnBannerText = nil
+            return
         }
-
-        let fallback = "Recovered after a \(stageLabel) hiccup. Keep going."
-        let headerMessage = (result.turnErrorMessage ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedHeader = headerMessage.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-        let message = normalizedHeader.isEmpty ? fallback : "Recovered (\(stageLabel)): \(normalizedHeader)"
-
-        transientTurnBannerTask?.cancel()
         withAnimation(.easeInOut(duration: 0.18)) {
-            transientTurnBannerText = message
+            transientTurnBannerText = notice.bannerText
         }
         transientTurnBannerTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 4_200_000_000)
+            try? await Task.sleep(nanoseconds: 5_400_000_000)
             guard !Task.isCancelled else { return }
             withAnimation(.easeInOut(duration: 0.22)) {
                 transientTurnBannerText = nil
