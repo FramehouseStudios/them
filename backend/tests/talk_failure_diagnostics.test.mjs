@@ -176,3 +176,27 @@ test("[talk-diagnostics] transport inspection never invokes exception accessors"
   const diagnostic = createTalkFailureError({ providerStage: "stt", cause }).talkFailureDiagnostic;
   assert.equal(Object.hasOwn(diagnostic, "transportCode"), false);
 });
+
+
+test("[talk-diagnostics] opaque causes fail closed without array-length coercion", () => {
+  const baseline = createTalkFailureError({ providerStage: "stt" }).talkFailureDiagnostic;
+  const revoked = Proxy.revocable([], {});
+  revoked.revoke();
+  const aggregate = new AggregateError([], "private aggregate");
+  aggregate.errors = revoked.proxy;
+  for (const cause of [revoked.proxy, aggregate]) {
+    assert.deepEqual(createTalkFailureError({ providerStage: "stt", cause }).talkFailureDiagnostic, baseline);
+  }
+  let coercions = 0;
+  const hostileLength = { valueOf() { coercions += 1; throw new Error("private coercion must not run"); } };
+  const hostileArray = new Proxy([], {
+    getOwnPropertyDescriptor(target, key) {
+      if (key === "length") return { value: hostileLength, writable: true, enumerable: false, configurable: false };
+      return Reflect.getOwnPropertyDescriptor(target, key);
+    },
+  });
+  const opaqueAggregate = new AggregateError([], "private length");
+  opaqueAggregate.errors = hostileArray;
+  assert.deepEqual(createTalkFailureError({ providerStage: "stt", cause: opaqueAggregate }).talkFailureDiagnostic, baseline);
+  assert.equal(coercions, 0);
+});

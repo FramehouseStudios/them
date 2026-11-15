@@ -67,29 +67,36 @@ function ownDataValue(value, key) {
 }
 
 function extractTransportCode(error) {
-  const pending = [{ value: error, depth: 0 }];
-  const seen = new Set();
-  // Six cause edges, sixteen visited slots, four aggregate children per node.
-  // Bounds also apply to cycles and unknown cause entries.
-  for (let visited = 0; pending.length && visited < 16; visited += 1) {
-    const { value, depth } = pending.shift();
-    if (!value || typeof value !== "object" || seen.has(value)) continue;
-    seen.add(value);
-    const code = ownDataValue(value, "code");
-    if (typeof code === "string" && KNOWN_TRANSPORT_CODES.has(code)) return code;
-    if (depth >= 6) continue;
-    const cause = ownDataValue(value, "cause");
-    if (cause && typeof cause === "object") pending.push({ value: cause, depth: depth + 1 });
-    if (value instanceof AggregateError) {
-      const errors = ownDataValue(value, "errors");
-      if (Array.isArray(errors)) {
-        for (let index = 0; index < Math.min(4, ownDataValue(errors, "length") || 0); index += 1) {
-          pending.push({ value: ownDataValue(errors, String(index)), depth: depth + 1 });
+  try {
+    const pending = [{ value: error, depth: 0 }];
+    const seen = new Set();
+    // Six cause edges, sixteen visited slots, four aggregate children per node.
+    // Bounds also apply to cycles and unknown cause entries.
+    for (let visited = 0; pending.length && visited < 16; visited += 1) {
+      const { value, depth } = pending.shift();
+      if (!value || typeof value !== "object" || seen.has(value)) continue;
+      seen.add(value);
+      const code = ownDataValue(value, "code");
+      if (typeof code === "string" && KNOWN_TRANSPORT_CODES.has(code)) return code;
+      if (depth >= 6) continue;
+      const cause = ownDataValue(value, "cause");
+      if (cause && typeof cause === "object") pending.push({ value: cause, depth: depth + 1 });
+      if (value instanceof AggregateError) {
+        const errors = ownDataValue(value, "errors");
+        if (Array.isArray(errors)) {
+          const length = ownDataValue(errors, "length");
+          if (typeof length !== "number" || !Number.isSafeInteger(length) || length < 0) continue;
+          for (let index = 0; index < Math.min(4, length); index += 1) {
+            pending.push({ value: ownDataValue(errors, String(index)), depth: depth + 1 });
+          }
         }
       }
     }
+    return "";
+  } catch (_) {
+    // Opaque exceptions must never replace the original failure diagnostic.
+    return "";
   }
-  return "";
 }
 
 function extractProviderDetails(rawBody) {
