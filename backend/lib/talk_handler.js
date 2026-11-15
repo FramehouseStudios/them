@@ -1855,6 +1855,7 @@ function createTalkHandler(deps) {
           providerStage: "stt",
           status: Number(err?.status || 500),
           message: String(err?.message || "Transcription failed."),
+          cause: err,
         });
       }
       sttMs = Date.now() - sttStart;
