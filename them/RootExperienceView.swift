@@ -3832,6 +3832,7 @@ struct RootExperienceView: View {
                         .padding(.horizontal, 14)
                         .padding(.vertical, 12)
                     }
+                    .accessibilityIdentifier("home.navigation")
                     .frame(maxWidth: 1060)
                     .background(
                         RoundedRectangle(cornerRadius: 24, style: .continuous)

@@ -5,6 +5,13 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### Stable Home navigation for authenticated recovery — T1481 follow-up (2026-11-15)
+
+- **First red VERIFIED:** original1000@9f hosted745/0/0 units, writer1/0/0, V1 33/0/9, backend2783/0/2 onNode20.20.2 and D009 pass; recovery1/1/0 fails before ordinary-case sign-in because its ScrollView selector uses the outer Home ZStack ID. Later voice/Mac skipped, not green.
+- **Smallest fix:** stable home.navigation identifier on the real horizontal rail; existing normal-login helper targets it. Outer home.surface, navigation actions, all42 UI identities, swipe/deadline/hittability/auth/Keychain/refresh/text/version/idempotency/relaunch assertions unchanged. Root still -17 versus exactparent38fe. Zora read-only diagnosis; Jarvis source/runtime/publication.
+- **Fresh proof:** signed erased-owned recovery2/0/0 once, Xcode26.3/iOS26.2, fixtureNode24.19.0; actual login200/save401/refresh200/replay201,1,450 inputs and3,303 dependency entries unchanged; backendPID/nonce/auth verified; known external Node attempts0. Created module copy returned intact. D009 exact38fe/diff pass. No unchanged broad local suites or paid calls; new-head hosted checks still required.
+- **Coordination/next:** Einstein verified main71 and original9792ea still green checks/REVIEW_REQUIRED; no repeated human ask. Reuse existing stable user+sessionIntentGeneration for API ownership: sessionEpoch rotates on valid refresh, so it is unsuitable alone. Root must fence bootstrap/response/delayed notification delivery before whole-app owner-safety claim. Luna/Howard/Alfred idle this pass. Physical38fe failed story journey remains deferred; production held. See docs/first-page-signin-handoff-2026-11-14.md. READY FOR CONTINUE.
+
 ### First-page design-token gate correction — T1480 follow-up (2026-11-15)
 
 - **First red VERIFIED:** hosted original1000@657 fullunits744pass/1fail/0skip; raw system fonts in extracted form violate existing DesignSystemGuard. Backend2783/0/2 and D009 pass; downstream UI/recovery/voice/Mac skipped after unit failure.
