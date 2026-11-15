@@ -223,6 +223,8 @@ final class BackendTalkOwnerBoundaryTests: XCTestCase {
         defer { cleanupAudio(result, callbacks: callbacks) }
         XCTAssertEqual(result.turnStatus, "error_recovered")
         XCTAssertEqual(result.turnErrorStage, "stt")
+        XCTAssertEqual(result.recoveredFailure?.message,
+            "Clementine couldn't transcribe that recording. Tap Talk to retry, or type your story.")
         XCTAssertEqual(result.turnErrorMessage, "Speech service unavailable.")
         XCTAssertNil(result.transcript)
         XCTAssertNil(result.reply)
