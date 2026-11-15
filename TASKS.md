@@ -5,6 +5,13 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### Captured turn owner and invocation-owned voice cleanup — T1482 (2026-11-15)
+
+- **Owner/scope:** Jarvis production/runtime; Zora actual API regressions and voice scope; Einstein read-only adversarial review. Isolated `codex/T-1482-captured-turn-owner` from original1000@8729; preserve original commits and scoped helper branches with non-squash merges. Luna/Howard/Alfred idle this bounded pass.
+- **Root fixes:** canonical user+session-intent owner across bootstrap, headers, responses, deferred evolution and main-queue notifications; immutable Root owner handoffs; invocation-owned voice Task slot/cancellation/error cleanup cannot retire a successor. Same-owner token refresh remains valid. Exact constructor/anchor/transcript helper moves keep Root−14/API−3 versus8729; other god files unchanged. No backend/dependency/aesthetic changes.
+- **Proof attribution:** full signed761/0/0 onf6; reviewed7a source focused114/0/0, real local login/401/refresh recovery2/0/0, fixture writer1/0/0, UI2/0/0 and Mac compile; da5 actual task/typed/design14/0/0; finalae5 UI2/0/0 and Mac compile. Normal signing, erased owned81F, exact identities/hash fences. Earlier private-driver syntax and intermediate compile65/0executed preserved/corrected; final EOF-only diff failure corrected. Full final-head hosted proof pending, not inferred from prior761. No unchanged broad local/backend reruns or paid calls.
+- **Limits/next:** final bounded review answers callback cancellation/continueListening gaps; transport admission and inner stream/playback/typed correction ownership remain partial. Phone still38fe, live reply/page/save unproven and deferred; production held. Parent1000 hosted recovery now passes, later voice/Mac running; original979 still genuine-review-required, no repeated human ask. Fix first fresh hosted failure or inspect canonical talk owner next. See docs/captured-turn-owner-boundary-2026-11-15.md. READY FOR CONTINUE.
+
 ### Stable Home navigation for authenticated recovery — T1481 follow-up (2026-11-15)
 
 - **First red VERIFIED:** original1000@9f hosted745/0/0 units, writer1/0/0, V1 33/0/9, backend2783/0/2 onNode20.20.2 and D009 pass; recovery1/1/0 fails before ordinary-case sign-in because its ScrollView selector uses the outer Home ZStack ID. Later voice/Mac skipped, not green.

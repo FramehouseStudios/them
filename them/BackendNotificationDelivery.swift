@@ -19,4 +19,3 @@ nonisolated func postBackendNotificationOnMain(
         NotificationCenter.default.post(name: payload.name, object: nil, userInfo: payload.userInfo)
     }
 }
-
