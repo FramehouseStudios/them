@@ -85,6 +85,56 @@ final class BackendTurnOwnerBoundaryTests: XCTestCase {
         XCTAssertEqual(recorder.snapshot(), [name.rawValue], "A current, unguarded notification must still be delivered once.")
     }
 
+    func testDeferredEvolutionSyncRejectsOwnerChangedInsidePolicy() async throws {
+        let policyCalled = expectation(description: "Deferred evolution policy ran")
+        let fixture = TurnOwnerEvolutionFixture(replacement: TurnOwnerFixture.ownerB, policyCalled: policyCalled)
+        defer { fixture.close() }
+        await enqueueEvolution(on: fixture.api)
+        await fulfillment(of: [policyCalled], timeout: 3)
+        // The policy runs on the inherited API actor. This query cannot pass
+        // it until the child returned or reached its network await.
+        _ = await fixture.api.currentSyncState()
+        let activeTasks = await fixture.activeTaskCount()
+        XCTAssertEqual(activeTasks, 0, "A superseded evolution write must not even enqueue a URLSession task.")
+        XCTAssertTrue(fixture.requests.snapshot().isEmpty,
+            "A deferred update must not send the prior owner's state under the replacement account.")
+    }
+
+    func testDeferredEvolutionSyncUsesInjectedSessionAndFreshSameOwnerHeaders() async throws {
+        let policyCalled = expectation(description: "Deferred evolution policy ran")
+        let requestReceived = expectation(description: "Injected session received evolution PATCH")
+        let fixture = TurnOwnerEvolutionFixture(replacement: TurnOwnerFixture.refreshedA,
+            policyCalled: policyCalled, requestReceived: requestReceived)
+        defer { fixture.close() }
+        await enqueueEvolution(on: fixture.api, expectedOwner: TurnOwnerFixture.ownerA.ownerContext)
+        await fulfillment(of: [policyCalled, requestReceived], timeout: 3, enforceOrder: true)
+        let requests = fixture.requests.snapshot()
+        XCTAssertEqual(requests.map(\.path), ["/session/evolution"])
+        let request = try XCTUnwrap(requests.first)
+        XCTAssertEqual(request.method, "PATCH")
+        XCTAssertEqual(request.authorization, "Bearer access-a-refreshed")
+        XCTAssertEqual(request.clientToken, "client-a-refreshed")
+        XCTAssertEqual(request.userID, "owner-a")
+        let captured = try XCTUnwrap(fixture.payload.snapshot())
+        XCTAssertEqual(captured.timeout, 8)
+        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: captured.data) as? [String: Any])
+        XCTAssertEqual(payload["stage"] as? Int, 2)
+        XCTAssertEqual(payload["session_count"] as? Int, 3)
+        XCTAssertEqual(try XCTUnwrap(payload["depth_score"] as? Double), 1.23, accuracy: 0.00001)
+        XCTAssertEqual(try XCTUnwrap(payload["reassurance_need"] as? Double), 0.123, accuracy: 0.00001)
+        XCTAssertEqual(payload["last_theme_cue"] as? String, "revision")
+        XCTAssertEqual(payload["preferred_name"] as? String, "Test Writer")
+        XCTAssertEqual(payload["is_screenwriter"] as? Bool, true)
+        XCTAssertEqual(payload["latest_user_message"] as? String, "Please be direct about this scene.")
+    }
+
+    private func enqueueEvolution(on api: BackendMemoryAPI, expectedOwner: ScreenplayStudioAuthContext? = nil) async {
+        await api.syncEvolutionState(stage: 2, depthScore: 1.234, romanceTension: 0.456, sessionCount: 3,
+            reassuranceNeed: 0.1234, boundaryNeed: 0.2345, playfulMomentum: 0.3456, trustSignal: 0.4567,
+            lastThemeCue: "  revision  ", preferredName: "  Test Writer  ", isScreenwriter: true,
+            latestUserMessage: "  Please be direct about this scene.  ", expectedOwner: expectedOwner)
+    }
+
     private func verifyBootstrapSwitch(
         _ operation: TurnOwnerOperation,
         replacement: BackendAuthRequestIdentity,
@@ -367,4 +417,67 @@ private final class TurnOwnerURLProtocol: URLProtocol {
         } catch { client?.urlProtocol(self, didFailWithError: error) }
     }
     override func stopLoading() {}
+}
+
+private final class TurnOwnerEvolutionFixture {
+    let requests = TurnOwnerRequestLog()
+    let payload = TurnOwnerEvolutionPayload()
+    let api: BackendMemoryAPI
+    private let session: URLSession
+    private let host = "evolution-owner-\(UUID().uuidString.lowercased()).test"
+
+    init(replacement: BackendAuthRequestIdentity, policyCalled: XCTestExpectation,
+         requestReceived: XCTestExpectation? = nil) {
+        let identity = TurnOwnerIdentityBox(TurnOwnerFixture.ownerA)
+        let log = requests, capture = payload
+        TurnOwnerURLProtocol.register(host: host) { request in
+            log.record(request)
+            capture.record(request)
+            requestReceived?.fulfill()
+            return (204, Data())
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [TurnOwnerURLProtocol.self]
+        session = URLSession(configuration: configuration)
+        api = BackendMemoryAPI(session: session, baseURL: URL(string: "https://\(host)")!,
+            requestIdentityProvider: { _ in identity.snapshot() },
+            evolutionSyncPolicy: { _, _ in
+                identity.replace(with: replacement)
+                policyCalled.fulfill()
+                return true
+            })
+    }
+
+    func activeTaskCount() async -> Int {
+        await withCheckedContinuation { continuation in
+            session.getAllTasks { continuation.resume(returning: $0.count) }
+        }
+    }
+
+    func close() {
+        session.invalidateAndCancel()
+        TurnOwnerURLProtocol.unregister(host: host)
+    }
+}
+
+private final class TurnOwnerEvolutionPayload: @unchecked Sendable {
+    struct Snapshot { let data: Data; let timeout: TimeInterval }
+    private let lock = NSLock()
+    private var value: Snapshot?
+    func record(_ request: URLRequest) {
+        var data = request.httpBody ?? Data()
+        if data.isEmpty, let stream = request.httpBodyStream {
+            stream.open()
+            defer { stream.close() }
+            var buffer = [UInt8](repeating: 0, count: 1024)
+            while data.count < 65_536 {
+                let count = stream.read(&buffer, maxLength: min(buffer.count, 65_536 - data.count))
+                guard count > 0 else { break }
+                data.append(contentsOf: buffer.prefix(count))
+            }
+        }
+        let captured = Snapshot(data: data, timeout: request.timeoutInterval)
+        lock.lock(); defer { lock.unlock() }; value = captured
+    }
+    func snapshot() -> Snapshot? { lock.lock(); defer { lock.unlock() }; return value }
 }
