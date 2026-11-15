@@ -6105,8 +6105,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
     @MainActor
     private func cancelVoiceTask() {
-        if voiceTaskScope.cancel(), studioTypedSubmission.activeID == nil {
-            isTurnSubmitting = false
+        if voiceTaskScope.cancel() {
+            screenplayDraftBridge.onSyncedInsertLifecycleEvent = nil
+            if studioTypedSubmission.activeID == nil { isTurnSubmitting = false }
         }
     }
 
@@ -7603,6 +7604,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 }
             }
         } catch BackendError.continueListening {
+            guard voiceTaskScope.isCurrent(invocationID), BackendAuthClient.requestOwnerIsCurrent(owner) else { return }
             backendConnectionState = .up
             backendFailureCount = 0
             isThinking = false
