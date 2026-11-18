@@ -466,7 +466,8 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(share.waitForExistence(timeout: 6), "Export must offer the generated copy for sharing.")
         XCTAssertTrue(share.label.contains(".md"))
         share.tap()
-        let saveToFiles = app.buttons.matching(NSPredicate(format: "label == %@", "Save to Files")).firstMatch
+        let saveToFiles = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", "Save to Files")).firstMatch
         XCTAssertTrue(saveToFiles.waitForExistence(timeout: 8), "The system share sheet must offer Save to Files.")
 #else
         XCTAssertTrue(staticText(containing: ".md", in: app).waitForExistence(timeout: 6),
