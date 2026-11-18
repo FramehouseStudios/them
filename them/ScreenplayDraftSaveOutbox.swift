@@ -419,15 +419,15 @@ actor ScreenplayDraftSaveOutbox {
         return entries
     }
 
-    /// Newer held words do not replace the unresolved chain's original version authority.
-    func oldestConflictEntry(projectId: String, ownerUserId: String) throws -> ScreenplayDraftSaveOutboxEntry? {
+    /// Preserve a captured choice; otherwise newer held words cannot replace the original conflict base.
+    func conflictAuthorityEntry(projectId: String, ownerUserId: String) throws -> ScreenplayDraftSaveOutboxEntry? {
         try loadIfNeeded()
         let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         let owner = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
-        return entries.first {
-            $0.projectId == project && $0.ownerUserId == owner
-                && $0.status == .parked && $0.lastError == Self.conflictReason
-        }
+        let scoped = entries.filter { $0.projectId == project && $0.ownerUserId == owner }
+        return scoped.first {
+            ($0.status == .pending || $0.status == .inflight) && $0.source == "studio_conflict_resolve"
+        } ?? scoped.first { $0.status == .parked && $0.lastError == Self.conflictReason }
     }
 
     func pendingEntry(projectId: String, ownerUserId: String) throws -> ScreenplayDraftSaveOutboxEntry? {

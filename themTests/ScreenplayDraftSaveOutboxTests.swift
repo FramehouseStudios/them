@@ -98,7 +98,7 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         try await queue.enqueue(choice)
         let admitted = try await queue.markInflight(id: choice.id, resolvingConflict: true)
         XCTAssertTrue(admitted, "Keep Mine must remain connected to the canonical dispatch boundary.")
-        let copies = try await ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory).entriesForTesting()
+        let copies = try await queue.entriesForTesting()
         XCTAssertEqual(copies.first { $0.id == original.id }?.status, .parked)
         XCTAssertEqual(copies.first { $0.id == original.id }?.baseVersionId, "server-v1")
         XCTAssertEqual(copies.first { $0.id == choice.id }?.status, .inflight)
@@ -135,10 +135,80 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
             let admitted = try await queue.markInflight(id: entry.id)
             XCTAssertTrue(admitted, "Another writer or project must not inherit this unresolved choice.")
         }
-        let copies = try await ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory).entriesForTesting()
+        let copies = try await queue.entriesForTesting()
         XCTAssertEqual(Set(copies.filter { $0.status == .inflight }.map(\.id)),
             Set([otherOwner.id, otherProject.id]))
         XCTAssertEqual(copies.first { $0.id == original.id }?.status, .parked)
+        let reopened = try await ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory).entriesForTesting()
+        XCTAssertEqual(Set(reopened.filter { $0.status == .pending }.map(\.id)),
+            Set([otherOwner.id, otherProject.id]), "Only interrupted inflight entries become retryable after reload.")
+        XCTAssertEqual(reopened.first { $0.id == original.id }?.status, .parked)
+        for entry in [otherOwner, otherProject] {
+            let retained = try XCTUnwrap(reopened.first { $0.id == entry.id })
+            XCTAssertEqual(retained.ownerUserId, entry.ownerUserId)
+            XCTAssertEqual(retained.projectId, entry.projectId)
+            XCTAssertEqual(retained.baseVersionId, entry.baseVersionId)
+            XCTAssertEqual(Array(retained.draft.utf8), Array(entry.draft.utf8))
+        }
+    }
+
+    @MainActor
+    func testRelaunchedExplicitChoiceResumesOnlyAgainstItsCapturedServerBase() async throws {
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let original = makeEntry(id: "unresolved-original", draft: "Original submitted words", createdAt: 100,
+            ownerUserId: owner)
+        try await queue.enqueue(original)
+        _ = try await queue.retainConflict(projectId: original.projectId, ownerUserId: owner)
+        let raw = "  Chosen cafe\u{0301} writer words\r\n"
+        var choice = makeEntry(id: "interrupted-choice", draft: raw, createdAt: 200,
+            ownerUserId: owner, source: "studio_conflict_resolve")
+        choice.baseVersionId = "competing-v2"
+        try await queue.enqueue(choice)
+        let admitted = try await queue.markInflight(id: choice.id, resolvingConflict: true)
+        XCTAssertTrue(admitted)
+        let reopened = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let suite = "them.relaunched-chosen-save.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery, draftSaveOutbox: reopened)
+        model.autosaveEnabled = false
+        model.selectedProjectID = original.projectId
+        model.fountainDraft = ""
+        let data = try JSONSerialization.data(withJSONObject: ["id": original.projectId, "title": "Script",
+            "activeVersionId": "competing-v2", "versions": [["id": "competing-v2", "draft": "Collaborator words"]]])
+        let project = try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: data)
+        model.selectedProject = project
+        let restored = await model.restorePendingDraftSaveBeforeProjectHydration()
+        XCTAssertTrue(restored)
+        let hydrated = await model.hydrateDraftRestoringQueuedSaves(from: project)
+        XCTAssertTrue(hydrated)
+        XCTAssertNil(model.conflictState, "Relaunch must not ask again for a choice already captured against this head.")
+        XCTAssertEqual(model.latestVersionID, "competing-v2")
+        XCTAssertEqual(Array(model.fountainDraft.utf8), Array(raw.utf8))
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        let resumed = try await reopened.beginNext(projectId: original.projectId, ownerUserId: owner, force: true)
+        XCTAssertEqual(resumed?.id, choice.id, "The normal post-hydration drain must still admit the chosen request.")
+        XCTAssertEqual(resumed?.baseVersionId, "competing-v2")
+        XCTAssertEqual(resumed.map { Array($0.draft.utf8) }, Array(raw.utf8))
+
+        let advancedData = try JSONSerialization.data(withJSONObject: ["id": original.projectId, "title": "Script",
+            "activeVersionId": "advanced-v3", "versions": [["id": "advanced-v3", "draft": "New collaborator revision"]]])
+        let advanced = try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: advancedData)
+        model.selectedProject = advanced
+        let rechecked = await model.hydrateDraftRestoringQueuedSaves(from: advanced)
+        XCTAssertTrue(rechecked)
+        XCTAssertEqual(model.conflictState?.baseVersionId, "competing-v2")
+        XCTAssertEqual(model.conflictState?.serverVersionId, "advanced-v3")
+        XCTAssertEqual(Array(model.fountainDraft.utf8), Array(raw.utf8))
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        let copies = try await ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory).entriesForTesting()
+        XCTAssertEqual(copies.map(\.baseVersionId), ["server-v1", "competing-v2"])
+        XCTAssertTrue(copies.allSatisfy { $0.status == .parked &&
+            $0.lastError == ScreenplayDraftSaveOutbox.conflictReason })
+        let blocked = try await reopened.beginNext(projectId: original.projectId, ownerUserId: owner, force: true)
+        XCTAssertNil(blocked, "A newer canonical head requires a fresh explicit writer choice.")
     }
 
     @MainActor
