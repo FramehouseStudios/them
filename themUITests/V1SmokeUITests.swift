@@ -461,8 +461,17 @@ final class V1SmokeUITests: XCTestCase {
             app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "Markdown")).firstMatch.tap()
         }
 
+#if os(iOS)
+        let share = app.buttons["studio.export.share"]
+        XCTAssertTrue(share.waitForExistence(timeout: 6), "Export must offer the generated copy for sharing.")
+        XCTAssertTrue(share.label.contains(".md"))
+        share.tap()
+        let saveToFiles = app.buttons.matching(NSPredicate(format: "label == %@", "Save to Files")).firstMatch
+        XCTAssertTrue(saveToFiles.waitForExistence(timeout: 8), "The system share sheet must offer Save to Files.")
+#else
         XCTAssertTrue(staticText(containing: ".md", in: app).waitForExistence(timeout: 6),
             "Export must report its Markdown artifact, not match an earlier saved status.")
+#endif
     }
 
     @MainActor
@@ -668,10 +677,10 @@ final class V1SmokeUITests: XCTestCase {
         let markdownExport = app.buttons["studio.export.md"]
         XCTAssertTrue(markdownExport.waitForExistence(timeout: writerLoopWait(5)), "Export Copy did not offer Markdown.")
         markdownExport.tap()
-        XCTAssertTrue(
-            staticText(containing: expectedMarkdownFilename, in: app).waitForExistence(timeout: writerLoopWait(10)),
-            "Markdown export did not report its .md artifact."
-        )
+        let shareExport = app.buttons["studio.export.share"]
+        XCTAssertTrue(shareExport.waitForExistence(timeout: writerLoopWait(10)),
+                      "Markdown export did not offer its copy to share.")
+        XCTAssertTrue(shareExport.label.contains(expectedMarkdownFilename))
         app.terminate()
 
         app = launchApp(
