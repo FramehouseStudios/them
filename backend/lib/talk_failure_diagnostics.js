@@ -45,6 +45,60 @@ function normalizeStatus(value, fallback = 500) {
   return fallback;
 }
 
+// Transport-cause additions accept only fixed platform codes. Never retain
+// cause messages, stack traces, hostnames or arbitrary custom codes.
+const KNOWN_TRANSPORT_CODES = new Set([
+  "ENOTFOUND", "EAI_AGAIN", "ECONNREFUSED", "ECONNRESET", "ETIMEDOUT",
+  "EHOSTUNREACH", "ENETUNREACH", "EPIPE",
+  "ERR_TLS_CERT_ALTNAME_INVALID", "ERR_TLS_HANDSHAKE_TIMEOUT",
+  "CERT_HAS_EXPIRED", "CERT_NOT_YET_VALID", "DEPTH_ZERO_SELF_SIGNED_CERT",
+  "SELF_SIGNED_CERT_IN_CHAIN", "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+  "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+  "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT",
+  "UND_ERR_SOCKET", "UND_ERR_ABORTED", "UND_ERR_CLOSED", "UND_ERR_DESTROYED",
+]);
+
+function ownDataValue(value, key) {
+  try {
+    return Object.getOwnPropertyDescriptor(value, key)?.value;
+  } catch (_) {
+    return undefined;
+  }
+}
+
+function extractTransportCode(error) {
+  try {
+    const pending = [{ value: error, depth: 0 }];
+    const seen = new Set();
+    // Six cause edges, sixteen visited slots, four aggregate children per node.
+    // Bounds also apply to cycles and unknown cause entries.
+    for (let visited = 0; pending.length && visited < 16; visited += 1) {
+      const { value, depth } = pending.shift();
+      if (!value || typeof value !== "object" || seen.has(value)) continue;
+      seen.add(value);
+      const code = ownDataValue(value, "code");
+      if (typeof code === "string" && KNOWN_TRANSPORT_CODES.has(code)) return code;
+      if (depth >= 6) continue;
+      const cause = ownDataValue(value, "cause");
+      if (cause && typeof cause === "object") pending.push({ value: cause, depth: depth + 1 });
+      if (value instanceof AggregateError) {
+        const errors = ownDataValue(value, "errors");
+        if (Array.isArray(errors)) {
+          const length = ownDataValue(errors, "length");
+          if (typeof length !== "number" || !Number.isSafeInteger(length) || length < 0) continue;
+          for (let index = 0; index < Math.min(4, length); index += 1) {
+            pending.push({ value: ownDataValue(errors, String(index)), depth: depth + 1 });
+          }
+        }
+      }
+    }
+    return "";
+  } catch (_) {
+    // Opaque exceptions must never replace the original failure diagnostic.
+    return "";
+  }
+}
+
 function extractProviderDetails(rawBody) {
   const raw = String(rawBody ?? "").trim();
   if (!raw) return {};
@@ -159,6 +213,7 @@ function buildTalkFailureDiagnostics(error, {
     stage,
     errorClass: resolvedClass,
   });
+  const transportCode = extractTransportCode(error);
   const supportParts = [
     `stage=${stage}`,
     `class=${resolvedClass}`,
@@ -166,6 +221,7 @@ function buildTalkFailureDiagnostics(error, {
   ];
   if (providerType) supportParts.push(`provider_type=${providerType}`);
   if (providerCode) supportParts.push(`provider_code=${providerCode}`);
+  if (transportCode) supportParts.push(`transport_code=${transportCode}`);
 
   return {
     requestId: cleanRequestId,
@@ -174,6 +230,7 @@ function buildTalkFailureDiagnostics(error, {
     errorClass: resolvedClass,
     publicMessage,
     supportMessage: supportParts.join(" "),
+    ...(transportCode ? { transportCode } : {}),
   };
 }
 
@@ -184,9 +241,10 @@ function createTalkFailureError({
   message = "",
   rawBody = "",
   errorClass = "",
+  cause = null,
 } = {}) {
   const diagnostic = buildTalkFailureDiagnostics(
-    { stage: providerStage, status, message: message || "Provider request failed.", rawBody, errorClass },
+    { stage: providerStage, status, message: message || "Provider request failed.", rawBody, errorClass, cause },
     { requestId, providerStage, status, rawBody, errorClass }
   );
   const err = new Error(diagnostic.publicMessage);

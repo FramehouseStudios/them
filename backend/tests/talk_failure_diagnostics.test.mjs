@@ -119,3 +119,84 @@ test("[talk-diagnostics] screenplay quality failures explain that the draft was 
   assert.match(err.message, /req_screenplay_quality/);
   assert.doesNotMatch(err.message, /Rejected page output/);
 });
+
+
+test("[talk-diagnostics] nested Node and Undici transport codes stay private and allowlisted", () => {
+  for (const code of ["ENOTFOUND", "EAI_AGAIN", "ECONNRESET", "ERR_TLS_CERT_ALTNAME_INVALID", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_SOCKET"]) {
+    const leaf = Object.assign(new Error("private socket host and credential"), { code });
+    const cause = new TypeError("fetch failed", { cause: new AggregateError([new Error("unknown"), leaf], "private aggregate") });
+    const err = createTalkFailureError({ requestId: "req_transport", providerStage: "stt", status: 500, cause });
+    const diagnostic = err.talkFailureDiagnostic;
+    const baseline = createTalkFailureError({ requestId: "req_transport", providerStage: "stt", status: 500 }).talkFailureDiagnostic;
+    assert.equal(diagnostic.transportCode, code);
+    assert.match(diagnostic.supportMessage, new RegExp(`transport_code=${code}(?: |$)`));
+    assert.equal(err.cause, undefined, "the raw provider exception must not be retained on the converted error");
+    assert.deepEqual(buildTalkFailureBody(diagnostic), buildTalkFailureBody(baseline));
+    const headers = {}, baselineHeaders = {};
+    applyTalkFailureHeaders({ setHeader: (key, value) => { headers[key] = value; } }, diagnostic);
+    applyTalkFailureHeaders({ setHeader: (key, value) => { baselineHeaders[key] = value; } }, baseline);
+    assert.deepEqual(headers, baselineHeaders);
+    assert.ok(!JSON.stringify(diagnostic).includes("private"));
+    assert.ok(!JSON.stringify({ body: buildTalkFailureBody(diagnostic), headers }).includes(code));
+  }
+});
+
+test("[talk-diagnostics] unknown codes and coercible objects add no fields or private content", () => {
+  const privateText = "PRIVATE_TRANSPORT_SECRET_DO_NOT_LOG";
+  const baseline = createTalkFailureError({ providerStage: "stt" }).talkFailureDiagnostic;
+  for (const code of [privateText, "UND_ERR_CUSTOM_PRIVATE", "econnreset", { toString() { throw new Error(privateText); } }]) {
+    const cause = Object.assign(new TypeError(privateText), { code, stack: privateText });
+    const diagnostic = createTalkFailureError({ providerStage: "stt", cause }).talkFailureDiagnostic;
+    assert.deepEqual(diagnostic, baseline, "no recognized transport code must preserve the old diagnostic shape");
+    assert.equal(Object.hasOwn(diagnostic, "transportCode"), false);
+    assert.ok(!JSON.stringify(diagnostic).includes(privateText));
+  }
+});
+
+test("[talk-diagnostics] cause cycles and aggregate fanout/depth are bounded", () => {
+  const cyclic = new TypeError("private cycle");
+  cyclic.cause = cyclic;
+  assert.equal(Object.hasOwn(createTalkFailureError({ cause: cyclic }).talkFailureDiagnostic, "transportCode"), false);
+  const known = Object.assign(new Error("private leaf"), { code: "ECONNRESET" });
+  let deep = known;
+  for (let index = 0; index < 8; index += 1) deep = new Error("private wrapper", { cause: deep });
+  assert.equal(Object.hasOwn(createTalkFailureError({ cause: deep }).talkFailureDiagnostic, "transportCode"), false);
+  const wide = new AggregateError([{}, {}, {}, {}, known], "private aggregate");
+  assert.equal(Object.hasOwn(createTalkFailureError({ cause: wide }).talkFailureDiagnostic, "transportCode"), false);
+  const aggregateCycle = new AggregateError([], "private aggregate cycle");
+  aggregateCycle.errors.push(aggregateCycle, known);
+  assert.equal(createTalkFailureError({ cause: aggregateCycle }).talkFailureDiagnostic.transportCode, "ECONNRESET");
+});
+
+test("[talk-diagnostics] transport inspection never invokes exception accessors", () => {
+  const cause = new Error("private provider cause");
+  for (const key of ["code", "cause"]) {
+    Object.defineProperty(cause, key, { get() { throw new Error("private getter must not execute"); } });
+  }
+  const diagnostic = createTalkFailureError({ providerStage: "stt", cause }).talkFailureDiagnostic;
+  assert.equal(Object.hasOwn(diagnostic, "transportCode"), false);
+});
+
+
+test("[talk-diagnostics] opaque causes fail closed without array-length coercion", () => {
+  const baseline = createTalkFailureError({ providerStage: "stt" }).talkFailureDiagnostic;
+  const revoked = Proxy.revocable([], {});
+  revoked.revoke();
+  const aggregate = new AggregateError([], "private aggregate");
+  aggregate.errors = revoked.proxy;
+  for (const cause of [revoked.proxy, aggregate]) {
+    assert.deepEqual(createTalkFailureError({ providerStage: "stt", cause }).talkFailureDiagnostic, baseline);
+  }
+  let coercions = 0;
+  const hostileLength = { valueOf() { coercions += 1; throw new Error("private coercion must not run"); } };
+  const hostileArray = new Proxy([], {
+    getOwnPropertyDescriptor(target, key) {
+      if (key === "length") return { value: hostileLength, writable: true, enumerable: false, configurable: false };
+      return Reflect.getOwnPropertyDescriptor(target, key);
+    },
+  });
+  const opaqueAggregate = new AggregateError([], "private length");
+  opaqueAggregate.errors = hostileArray;
+  assert.deepEqual(createTalkFailureError({ providerStage: "stt", cause: opaqueAggregate }).talkFailureDiagnostic, baseline);
+  assert.equal(coercions, 0);
+});
