@@ -3864,7 +3864,7 @@ struct RootExperienceView: View {
                 startConversationLoopIfNeeded()
             },
             onStopTalk: {
-                stopStudioTalkFlow()
+                stopCurrentInteraction()
             },
             onOpenVoiceSettings: {
                 showingVoiceSettings = true
@@ -12534,33 +12534,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
         case .idle, .muted:
             return false
         }
-    }
-
-    @MainActor
-    private func stopStudioTalkFlow() {
-        firstPageOnboarding.cancelVoicePageIntent()
-        conversationLoopEnabled = false
-        pendingGoodbyeStopAfterPlayback = false
-        cancelVoiceTask()
-        studioTypedSubmission.activeID = nil
-        isTurnSubmitting = false
-        isThinking = false
-        realtimeAssistantTranscriptFallbackTask?.cancel()
-        realtimeAssistantTranscriptFallbackTask = nil
-        cancelRealtimeRecovery(clearTurn: true)
-        cancelRealtimeStudioDraftStream(restorePreview: true)
-        realtimeTransport.disconnect()
-        speculativeTalk.cancel()
-        orbAudio.stop()
-        promptSpeaker.stop()
-        typedReplySpeaker.cancel()
-        voice.markRequestFailed()
-        if voiceTransportMode == .realtimePreview {
-            voice.stopRecording()
-            voice.teardown()
-            return
-        }
-        voice.resumeRecordingIfNeeded()
     }
 }
 
