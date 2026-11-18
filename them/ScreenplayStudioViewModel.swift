@@ -5689,7 +5689,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         guard authContextIsCurrent(context), project.id == selectedProjectID else { return false }
         let retained: ScreenplayDraftSaveOutboxEntry?
         do {
-            retained = try await draftSaveOutbox.pendingEntry(projectId: project.id, ownerUserId: context.userID)
+            retained = try await draftSaveOutbox.oldestConflictEntry(projectId: project.id, ownerUserId: context.userID)
         } catch {
             guard authContextIsCurrent(context), project.id == selectedProjectID else { return false }
             autosaveStatusText = ScreenplayDraftSaveRecoveryPresentationPolicy.unreadableQueueStatus
@@ -6314,7 +6314,19 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 await retainDraftSaveBehindConflict(request)
                 return false
             }
-            try await draftSaveOutbox.markInflight(id: request.id)
+            guard try await draftSaveOutbox.markInflight(id: request.id,
+                resolvingConflict: request.source == "studio_conflict_resolve") else {
+                guard draftSaveAuthorityIsCurrent(request) else {
+                    await retainDraftSaveBehindConflict(request)
+                    return false
+                }
+                hasUnsavedDraftChanges = true
+                persistRecoveryForUnconfirmedSave(projectId: request.projectId, draft: fountainDraft,
+                    baseVersionId: request.baseVersionId, surfaceCandidate: false)
+                infoText = "Your words are saved locally. Review the conflict when the project reconnects."
+                await refreshDraftSaveOutboxStatus()
+                return false
+            }
             guard draftSaveAuthorityIsCurrent(request) else {
                 await retainDraftSaveBehindConflict(request)
                 return false
