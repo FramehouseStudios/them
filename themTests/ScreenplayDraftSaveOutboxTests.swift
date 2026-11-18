@@ -105,6 +105,22 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertEqual(copies.first { $0.id == choice.id }?.baseVersionId, "competing-v2")
         let replayed = try await queue.markInflight(id: original.id, resolvingConflict: true)
         XCTAssertFalse(replayed, "An allowance for a new choice cannot revive an old parked invocation.")
+
+        // A killed process leaves the already chosen request inflight. Reload
+        // changes it to pending without erasing the explicit resolution intent.
+        let reopened = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let interrupted = try await reopened.entriesForTesting()
+        XCTAssertEqual(interrupted.first { $0.id == choice.id }?.status, .pending)
+        let resumed = try await reopened.beginNext(projectId: choice.projectId,
+            ownerUserId: choice.ownerUserId, force: true)
+        XCTAssertEqual(resumed?.id, choice.id)
+        XCTAssertEqual(resumed?.status, .inflight)
+        XCTAssertEqual(resumed?.source, "studio_conflict_resolve")
+        XCTAssertEqual(resumed?.baseVersionId, "competing-v2")
+        XCTAssertEqual(resumed?.draft, choice.draft)
+        let retained = try await reopened.entriesForTesting()
+        XCTAssertEqual(retained.first { $0.id == original.id }?.status, .parked)
+        XCTAssertEqual(retained.first { $0.id == original.id }?.baseVersionId, "server-v1")
     }
 
     func testConflictAdmissionIsScopedToOwnerAndProject() async throws {

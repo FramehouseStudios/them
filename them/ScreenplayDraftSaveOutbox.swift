@@ -185,17 +185,30 @@ actor ScreenplayDraftSaveOutbox {
         let cleanProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanOwnerUserId = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
         let nowSeconds = now.timeIntervalSince1970
-        guard let index = entries.firstIndex(where: {
+        guard let first = entries.firstIndex(where: {
             $0.projectId == cleanProjectId && $0.ownerUserId == cleanOwnerUserId
         }) else {
             return nil
+        }
+        let index: Int
+        if entries[first].status == .parked && entries[first].lastError == Self.conflictReason {
+            // A captured Keep Mine remains the writer's choice after relaunch;
+            // older parked copies themselves must never become runnable again.
+            guard let choice = entries.firstIndex(where: {
+                $0.projectId == cleanProjectId && $0.ownerUserId == cleanOwnerUserId
+                    && $0.status == .pending && $0.source == "studio_conflict_resolve"
+            }) else { return nil }
+            index = choice
+        } else {
+            index = first
         }
         let entry = entries[index]
         guard entry.status == .pending,
               force || entry.nextAttemptAt <= nowSeconds else {
             return nil
         }
-        guard try markInflight(id: entry.id, now: now) else { return nil }
+        guard try markInflight(id: entry.id, now: now,
+            resolvingConflict: entry.source == "studio_conflict_resolve") else { return nil }
         return entries[index]
     }
 
