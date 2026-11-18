@@ -258,19 +258,18 @@ final class OfflineTalkOutboxTests: XCTestCase {
         let outbox = OfflineTalkOutbox(storageDirectory: directory)
         let firstReason = "first-row-offline-\(UUID().uuidString)"
         let lastReason = "last-row-offline-\(UUID().uuidString)"
-        let initialUpdates = expectation(description: "Both initial entries publish")
-        initialUpdates.expectedFulfillmentCount = 2
-        let initialToken = NotificationCenter.default.addObserver(
+        let received = ReceivedOutboxSnapshots()
+        let token = NotificationCenter.default.addObserver(
             forName: .themOfflineTalkOutboxUpdated,
             object: nil,
-            queue: .main
+            queue: nil
         ) { notification in
             let snapshot = OfflineTalkOutboxSnapshot(notification: notification)
             if snapshot.lastError == firstReason || snapshot.lastError == lastReason {
-                initialUpdates.fulfill()
+                received.append(snapshot)
             }
         }
-        defer { NotificationCenter.default.removeObserver(initialToken) }
+        defer { NotificationCenter.default.removeObserver(token) }
 
         var firstRequest = URLRequest(url: URL(string: "https://them.test/talk")!)
         firstRequest.httpMethod = "POST"
@@ -279,28 +278,16 @@ final class OfflineTalkOutboxTests: XCTestCase {
         var lastRequest = firstRequest
         lastRequest.setValue("idem-last-row", forHTTPHeaderField: "X-Idempotency-Key")
         let body = Data("queued-body".utf8)
-        _ = try await outbox.enqueue(request: firstRequest, body: body, reason: firstReason)
-        _ = try await outbox.enqueue(request: lastRequest, body: body, reason: lastReason)
-        await fulfillment(of: [initialUpdates], timeout: 2)
-        NotificationCenter.default.removeObserver(initialToken)
+        let first = try await outbox.enqueue(request: firstRequest, body: body, reason: firstReason)
+        let last = try await outbox.enqueue(request: lastRequest, body: body, reason: lastReason)
+        await waitForPostedOutboxNotifications()
+        XCTAssertEqual(received.snapshots, [first.snapshot, last.snapshot])
 
         let before = await outbox.snapshot()
         XCTAssertEqual(before.pendingCount, 2)
         XCTAssertEqual(before.inflightCount, 0)
         XCTAssertEqual(before.parkedCount, 0)
         XCTAssertEqual(before.lastError, lastReason)
-        let changed = expectation(description: "Earlier row change publishes an equal snapshot")
-        let changedToken = NotificationCenter.default.addObserver(
-            forName: .themOfflineTalkOutboxUpdated,
-            object: nil,
-            queue: .main
-        ) { notification in
-            if OfflineTalkOutboxSnapshot(notification: notification) == before {
-                changed.fulfill()
-            }
-        }
-        defer { NotificationCenter.default.removeObserver(changedToken) }
-
         let updatedReason = "earlier row changed while last row stayed unchanged"
         let updated = try await outbox.enqueue(
             request: firstRequest,
@@ -313,7 +300,16 @@ final class OfflineTalkOutboxTests: XCTestCase {
         XCTAssertEqual(entries.count, 2)
         XCTAssertEqual(entries.first?.lastError, updatedReason)
         XCTAssertEqual(entries.last?.lastError, lastReason)
-        await fulfillment(of: [changed], timeout: 2)
+        await waitForPostedOutboxNotifications()
+        XCTAssertEqual(received.snapshots, [first.snapshot, last.snapshot, before],
+                       "Changing an earlier row must publish even when the summary is equal.")
+    }
+
+    private func waitForPostedOutboxNotifications() async {
+        // The actor enqueues each publication on the main queue before returning.
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            DispatchQueue.main.async { continuation.resume() }
+        }
     }
 
     func testIdleDrainPublishesTheSameSnapshotOnlyOnce() async throws {
@@ -354,4 +350,11 @@ private final class ReceivedNotificationCounter: @unchecked Sendable {
     private var value = 0
     var count: Int { lock.lock(); defer { lock.unlock() }; return value }
     func increment() { lock.lock(); value += 1; lock.unlock() }
+}
+
+private final class ReceivedOutboxSnapshots: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [OfflineTalkOutboxSnapshot] = []
+    var snapshots: [OfflineTalkOutboxSnapshot] { lock.withLock { values } }
+    func append(_ snapshot: OfflineTalkOutboxSnapshot) { lock.withLock { values.append(snapshot) } }
 }
