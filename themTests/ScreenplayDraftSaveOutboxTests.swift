@@ -59,6 +59,34 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertNil(runnable, "A late callback is not an explicit writer choice.")
     }
 
+    func testOrdinarySaveCannotDispatchBeforeRestoredConflictHydrates() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let original = makeEntry(id: "unresolved-original", draft: "Original writer words", createdAt: 100)
+        try await queue.enqueue(original)
+        _ = try await queue.retainConflict(projectId: original.projectId, ownerUserId: original.ownerUserId)
+
+        // Relaunch can restore newer ordinary recovery before project detail
+        // reconstructs conflictState. Its remembered base is not a writer choice.
+        var restored = makeEntry(id: "restored-autosave", draft: "  Newer cafe\u{0301} words\r\n", createdAt: 200)
+        restored.baseVersionId = "competing-v2"
+        try await queue.enqueue(restored)
+        try await queue.markInflight(id: restored.id)
+
+        let reopened = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let copies = try await reopened.entriesForTesting()
+        XCTAssertEqual(copies.map(\.id), [original.id, restored.id])
+        XCTAssertEqual(copies.map(\.baseVersionId), ["server-v1", "competing-v2"],
+            "Admission must not rewrite either immutable save's captured base.")
+        XCTAssertEqual(copies.map { Array($0.draft.utf8) },
+            [Array(original.draft.utf8), Array(restored.draft.utf8)])
+        XCTAssertTrue(copies.allSatisfy { $0.status == .parked &&
+            $0.lastError == ScreenplayDraftSaveOutbox.conflictReason && $0.retries == 0 },
+            "An ordinary save must remain held even before conflict UI is reconstructed.")
+        let runnable = try await reopened.beginNext(projectId: original.projectId,
+            ownerUserId: original.ownerUserId, force: true)
+        XCTAssertNil(runnable, "Only an explicit writer choice may replay this conflict chain.")
+    }
+
     @MainActor
     func testManualSaveDuringConflictRetainsWordsWithoutReplayingTheChoice() async throws {
         let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
