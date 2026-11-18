@@ -18339,7 +18339,7 @@ function isAbortError(err) {
   return !!err && (err.name === "AbortError" || err.code === "ABORT_ERR");
 }
 
-async function fetchWithTimeout(url, options = {}, timeoutMs) {
+async function fetchWithTimeout(url, options = {}, timeoutMs, readResponse) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const parentSignal = options && options.signal ? options.signal : null;
@@ -18362,7 +18362,7 @@ async function fetchWithTimeout(url, options = {}, timeoutMs) {
     parentSignal.addEventListener("abort", onParentAbort, { once: true });
   }
   try {
-    return await fetch(url, { ...options, signal: controller.signal });
+    return await fetch(url, { ...options, signal: controller.signal }).then(readResponse);
   } finally {
     clearTimeout(timer);
     if (parentSignal) {

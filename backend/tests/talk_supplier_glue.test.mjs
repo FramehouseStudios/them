@@ -20,9 +20,9 @@ test("[phase7c] STT supplier exposes frozen canonical shape and transcribes", as
     STT_LANGUAGE: "en",
     STT_MODEL_PRIMARY: "primary-stt",
     STT_TIMEOUT_MS: 123,
-    fetchWithTimeout: async (url, init, timeoutMs) => {
+    fetchWithTimeout: async (url, init, timeoutMs, readResponse) => {
       calls.push({ url, init, timeoutMs });
-      return okResponse('{"text":"hello"}');
+      return readResponse(okResponse('{"text":"hello"}'));
     },
     isAbortError: () => false,
   });
