@@ -389,14 +389,26 @@ final class BackendMemoryScreenplayExportTests: XCTestCase {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [ScreenplayExportURLProtocolStub.self]
         let session = URLSession(configuration: configuration)
+        let identity = BackendAuthRequestIdentity(
+            sessionEpoch: 2, userID: "import-owner", clientToken: "", accessToken: "", sessionIntentGeneration: 2
+        )
         let api = BackendMemoryAPI(
             session: session,
-            baseURL: URL(string: "https://screenplay-export.test")!
+            baseURL: URL(string: "https://screenplay-export.test")!,
+            requestIdentityProvider: { _ in identity }
         )
+        let source = "Title: io.them\n\nINT. KITCHEN - NIGHT\n\nJUNE\nWe are still here."
+        let priorOwner = ScreenplayStudioAuthContext(userID: identity.userID, sessionIntentGeneration: 1)
+        do {
+            _ = try await api.importFountainDraft(text: source, expectedOwner: priorOwner)
+            XCTFail("An earlier account session must not send the selected file.")
+        } catch BackendMemoryAPIError.server(let status, let message) {
+            XCTAssertEqual(status, 409)
+            XCTAssertEqual(message, "request_owner_superseded")
+        }
+        XCTAssertTrue(recorder.requests.isEmpty)
 
-        let response = try await api.importFountainDraft(
-            text: "Title: io.them\n\nINT. KITCHEN - NIGHT\n\nJUNE\nWe are still here."
-        )
+        let response = try await api.importFountainDraft(text: source, expectedOwner: identity.ownerContext)
 
         XCTAssertEqual(response.schemaVersion, 1)
         XCTAssertEqual(

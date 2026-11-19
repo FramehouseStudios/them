@@ -4633,18 +4633,69 @@ final class ScreenplayStudioViewModel: ObservableObject {
         scheduleProgrammaticDraftAutosaveIfNeeded(source: "studio_format_normalize")
     }
 
-    func importExternalDraft(_ importedDraft: String, sourceName: String, appendToExisting: Bool) {
+    struct DraftImportDestination: Sendable {
+        let requestOwner: ScreenplayStudioAuthContext
+        fileprivate let owner: ScreenplayStudioAuthContext
+        fileprivate let projectID: String
+        fileprivate let draft: String
+        fileprivate let versionID: String
+        fileprivate let editorRevision: UInt64
+    }
+
+    func prepareDraftImport() -> DraftImportDestination? {
+        guard !isHydratingDraft,
+              loadedDraftProjectID == selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) else {
+            errorText = "Wait for the draft to finish opening, then import the file."
+            return nil
+        }
+        guard conflictState == nil else {
+            errorText = "Resolve the draft conflict before importing a file."
+            return nil
+        }
+        return DraftImportDestination(
+            requestOwner: BackendAuthClient.requestIdentitySnapshot(generateUserIDIfMissing: true).ownerContext,
+            owner: currentStudioAuthContext(),
+            projectID: loadedDraftProjectID,
+            draft: fountainDraft,
+            versionID: latestVersionID,
+            editorRevision: editorExternalDraftMutationRevision
+        )
+    }
+
+    func validateDraftImport(_ destination: DraftImportDestination) -> Bool {
+        guard !Task.isCancelled else { return false }
+        guard authContextIsCurrent(destination.owner), BackendAuthClient.requestOwnerIsCurrent(destination.requestOwner),
+              !isHydratingDraft,
+              loadedDraftProjectID == destination.projectID,
+              selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == destination.projectID,
+              latestVersionID == destination.versionID,
+              editorExternalDraftMutationRevision == destination.editorRevision,
+              conflictState == nil,
+              ScreenplayDraftSaveCompletionPolicy.hasSameBytes(fountainDraft, destination.draft) else {
+            errorText = "The draft or account changed during import. Choose the file again."
+            return false
+        }
+        return true
+    }
+
+    @discardableResult
+    func importExternalDraft(
+        _ importedDraft: String,
+        sourceName: String,
+        appendToExisting: Bool,
+        destination: DraftImportDestination
+    ) -> Bool {
+        guard validateDraftImport(destination) else { return false }
         let cleanImport = importedDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanImport.isEmpty else {
             errorText = "That file did not contain readable screenplay text."
-            return
+            return false
         }
 
         let normalizedImport = FountainFormatter.normalizeHollywoodDraft(cleanImport)
         let importBlock = normalizedImport.isEmpty ? cleanImport : normalizedImport
 
         errorText = ""
-        conflictState = nil
         let existingDraft = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         let shouldAppend = appendToExisting && !existingDraft.isEmpty
         let nextDraft = shouldAppend
@@ -4661,13 +4712,14 @@ final class ScreenplayStudioViewModel: ObservableObject {
             : "Imported \(sourceName) into the draft."
 
         persistLocalDraftRecovery(
-            projectId: selectedProjectID,
+            projectId: destination.projectID,
             draft: nextDraft,
             baseVersionId: latestVersionID,
             dirty: hasUnsavedDraftChanges
         )
         Task { await refreshDraftInsights() }
         scheduleProgrammaticDraftAutosaveIfNeeded(source: "studio_import")
+        return true
     }
 
     func refreshDraftInsights(source: String = "Draft") async {

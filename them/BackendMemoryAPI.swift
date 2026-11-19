@@ -8977,12 +8977,13 @@ actor BackendMemoryAPI {
         return try decoder.decode(BackendScreenplayExportFormatsResponse.self, from: data)
     }
 
-    func importFountainDraft(text: String) async throws -> BackendScreenplayImportResponse {
+    func importFountainDraft(text: String, expectedOwner: ScreenplayStudioAuthContext) async throws -> BackendScreenplayImportResponse {
+        _ = try projectWriteIdentity(expectedOwner)
         _ = try? await bootstrapSession(force: false)
-        var request = try makeWriteRequest(path: "/screenplay/import/fountain")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var request = try makeWriteRequest(path: "/screenplay/import/fountain", identity: projectWriteIdentity(expectedOwner))
         request.httpBody = try JSONSerialization.data(withJSONObject: ["text": text], options: [])
         let (data, response) = try await session.data(for: request)
+        _ = try projectWriteIdentity(expectedOwner)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -8990,8 +8991,7 @@ actor BackendMemoryAPI {
             let message = decodeErrorMessage(from: data)
             throw BackendMemoryAPIError.server(status: http.statusCode, message: message)
         }
-        let headerSync = syncFromHeaders(http, fallbackStatus: "up")
-        updateSyncState(headerSync, emitTurnEvent: false)
+        updateSyncState(syncFromHeaders(http, fallbackStatus: "up"), emitTurnEvent: false, shouldDeliver: BackendAuthRequestIdentity.deliveryGuard(for: expectedOwner, using: requestIdentityProvider))
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         return try decoder.decode(BackendScreenplayImportResponse.self, from: data)

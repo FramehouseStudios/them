@@ -1,9 +1,7 @@
 import SwiftUI
 import ScreenplayStudio
 import Combine
-import PDFKit
 import UniformTypeIdentifiers
-import Vision
 #if os(macOS)
 import AppKit
 #endif
@@ -97,8 +95,8 @@ struct ScreenplayStudioScreen: View {
     @State private var isResolvingPendingScreenplayQuestion: Bool = false
     @State private var perceivedSpeedState: StudioPerceivedSpeedState = .idle
     @State private var sendingVoicePinSuggestionID: String?
-    @State private var pendingDraftImportURL: URL?
-    @State private var pendingDraftImportSourceName: String = ""
+    @State private var pendingDraftImport: (url: URL, destination: ScreenplayStudioViewModel.DraftImportDestination)?
+    @State private var draftPickerDestination: ScreenplayStudioViewModel.DraftImportDestination?
     @State private var showingDraftImportChoice = false
     @State private var showingDraftFileImporter = false
     @State private var hoveredDirectionOneDraftShortcut: DirectionOneDraftShortcut?
@@ -517,7 +515,7 @@ struct ScreenplayStudioScreen: View {
             } message: {
                 Text(
                     """
-Import \(pendingDraftImportSourceName.isEmpty ? "this file" : pendingDraftImportSourceName) by replacing the current draft or appending to it.
+Import \(pendingDraftImport?.url.lastPathComponent ?? "this file") by replacing the current draft or appending to it.
 
 Press 1 to replace or 2 to append.
 
@@ -530,12 +528,14 @@ Replace is best when this file should become the script you edit. Append is safe
                 allowedContentTypes: Self.draftImportContentTypes,
                 allowsMultipleSelection: false
             ) { result in
+                guard let destination = draftPickerDestination else { return }
+                draftPickerDestination = nil
                 switch result {
                 case .success(let urls):
                     guard let url = urls.first else { return }
-                    queueDraftImport(from: url)
+                    queueDraftImport(from: url, destination: destination)
                 case .failure(let error):
-                    vm.errorText = error.localizedDescription
+                    if vm.validateDraftImport(destination) { vm.errorText = error.localizedDescription }
                 }
             }
     }
@@ -16620,12 +16620,10 @@ Look at the city.
             return
         }
         let ext = entry.url.pathExtension.lowercased()
-        if Self.draftImportTextExtensions.contains(ext) {
-            queueDraftImport(from: entry.url)
-            return
-        }
-        if ext == "pdf" {
-            queueDraftImport(from: entry.url)
+        if ext == "pdf" || Self.draftImportTextExtensions.contains(ext) {
+            if let destination = vm.prepareDraftImport() {
+                queueDraftImport(from: entry.url, destination: destination)
+            }
             return
         }
         #if os(macOS)
@@ -16762,18 +16760,18 @@ Look at the city.
 
     private func handleDraftDrop(providers: [NSItemProvider]) -> Bool {
         let fileProviders = providers.filter { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) }
-        guard !fileProviders.isEmpty else { return false }
+        guard !fileProviders.isEmpty, let destination = vm.prepareDraftImport() else { return false }
         for provider in fileProviders {
             provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, error in
                 if let error {
                     DispatchQueue.main.async {
-                        vm.errorText = error.localizedDescription
+                        if vm.validateDraftImport(destination) { vm.errorText = error.localizedDescription }
                     }
                     return
                 }
                 guard let sourceURL = decodeDroppedURL(item) else { return }
                 DispatchQueue.main.async {
-                    queueDraftImport(from: sourceURL)
+                    queueDraftImport(from: sourceURL, destination: destination)
                 }
             }
         }
@@ -16814,6 +16812,7 @@ Look at the city.
     }
 
     private func importDraftDocument() {
+        guard let destination = vm.prepareDraftImport() else { return }
         #if os(macOS)
         let panel = NSOpenPanel()
         panel.title = "Import Screenplay"
@@ -16823,51 +16822,54 @@ Look at the city.
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = Self.draftImportContentTypes
         if panel.runModal() == .OK, let url = panel.url {
-            queueDraftImport(from: url)
+            queueDraftImport(from: url, destination: destination)
         }
         #else
+        draftPickerDestination = destination
         showingDraftFileImporter = true
         #endif
     }
 
-    private func queueDraftImport(from sourceURL: URL) {
-        let standardizedURL = sourceURL.standardizedFileURL
-        let hasExistingDraft = !vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        guard hasExistingDraft else {
-            Task { await importDraftFile(from: standardizedURL, appendToExisting: false) }
+    private func queueDraftImport(from sourceURL: URL, destination: ScreenplayStudioViewModel.DraftImportDestination) {
+        guard vm.validateDraftImport(destination) else { return }
+        let url = sourceURL.standardizedFileURL
+        guard !vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            Task { await importDraftFile(from: url, appendToExisting: false, destination: destination) }
             return
         }
-        pendingDraftImportURL = standardizedURL
-        pendingDraftImportSourceName = standardizedURL.lastPathComponent
+        pendingDraftImport = (url, destination)
         showingDraftImportChoice = true
     }
 
     private func confirmDraftImport(_ mode: DraftImportMode) {
-        guard let sourceURL = pendingDraftImportURL else { return }
-        let shouldAppend = (mode == .append)
+        guard let pending = pendingDraftImport else { return }
         clearPendingDraftImport()
-        Task { await importDraftFile(from: sourceURL, appendToExisting: shouldAppend) }
+        Task { await importDraftFile(from: pending.url, appendToExisting: mode == .append, destination: pending.destination) }
     }
 
     private func clearPendingDraftImport() {
-        pendingDraftImportURL = nil
-        pendingDraftImportSourceName = ""
+        pendingDraftImport = nil
     }
 
-    private func importDraftFile(from sourceURL: URL, appendToExisting: Bool) async {
-        let source = sourceURL.standardizedFileURL
+    private func importDraftFile(
+        from source: URL,
+        appendToExisting: Bool,
+        destination: ScreenplayStudioViewModel.DraftImportDestination
+    ) async {
+        guard vm.validateDraftImport(destination) else { return }
         let hasAccess = source.startAccessingSecurityScopedResource()
         defer {
             if hasAccess { source.stopAccessingSecurityScopedResource() }
         }
 
         do {
-            let importedDraft = try await extractedEditableDraft(from: source)
-            vm.importExternalDraft(
+            let importedDraft = try await ScreenplayStudioDraftFileImport.extract(from: source, owner: destination.requestOwner)
+            guard vm.importExternalDraft(
                 importedDraft.text,
                 sourceName: source.lastPathComponent,
-                appendToExisting: appendToExisting
-            )
+                appendToExisting: appendToExisting,
+                destination: destination
+            ) else { return }
             if importedDraft.usedOCR {
                 vm.infoText += " OCR was used for scanned pages."
             }
@@ -16876,164 +16878,8 @@ Look at the city.
             }
             liveDraftBridge.draftText = vm.fountainDraft
         } catch {
-            vm.errorText = error.localizedDescription
+            if vm.validateDraftImport(destination) { vm.errorText = error.localizedDescription }
         }
-    }
-
-    private func extractedEditableDraft(from sourceURL: URL) async throws -> (text: String, usedOCR: Bool, usedBackendFountainImport: Bool) {
-        let ext = sourceURL.pathExtension.lowercased()
-        if ext == "pdf" {
-            let extracted = try extractDraftTextFromPDF(sourceURL)
-            return (extracted.text, extracted.usedOCR, false)
-        }
-        if Self.draftImportTextExtensions.contains(ext) {
-            let raw = try String(contentsOf: sourceURL, encoding: .utf8)
-            if let imported = try? await BackendMemoryAPI.shared.importFountainDraft(text: raw) {
-                let parsedDraft = normalizeImportedDraftText(imported.screenplay.fountainDraft)
-                if !parsedDraft.isEmpty {
-                    return (parsedDraft, false, true)
-                }
-            }
-            let normalized = normalizeImportedDraftText(raw)
-            guard !normalized.isEmpty else {
-                throw NSError(
-                    domain: "ScreenplayStudioImport",
-                    code: 2,
-                    userInfo: [NSLocalizedDescriptionKey: "That file did not contain readable screenplay text."]
-                )
-            }
-            return (normalized, false, false)
-        }
-        throw NSError(
-            domain: "ScreenplayStudioImport",
-            code: 1,
-            userInfo: [NSLocalizedDescriptionKey: "Only screenplay PDFs and Fountain/plain-text script files can be imported into the draft."]
-        )
-    }
-
-    private func extractDraftTextFromPDF(_ sourceURL: URL) throws -> (text: String, usedOCR: Bool) {
-        guard let document = PDFDocument(url: sourceURL) else {
-            throw NSError(
-                domain: "ScreenplayStudioImport",
-                code: 3,
-                userInfo: [NSLocalizedDescriptionKey: "That PDF could not be opened."]
-            )
-        }
-        let raw = document.string ?? ""
-        let normalized = normalizeImportedDraftText(raw)
-        if !normalized.isEmpty {
-            return (normalized, false)
-        }
-
-        let ocrText = try extractDraftTextFromScannedPDF(document)
-        let normalizedOCR = normalizeImportedDraftText(ocrText)
-        guard !normalizedOCR.isEmpty else {
-            throw NSError(
-                domain: "ScreenplayStudioImport",
-                code: 4,
-                userInfo: [NSLocalizedDescriptionKey: "That PDF did not contain readable screenplay text, even after OCR."]
-            )
-        }
-        return (normalizedOCR, true)
-    }
-
-    private func extractDraftTextFromScannedPDF(_ document: PDFDocument) throws -> String {
-        guard document.pageCount > 0 else { return "" }
-        var pageTexts: [String] = []
-        for index in 0..<document.pageCount {
-            guard let page = document.page(at: index) else { continue }
-            let pageText = try recognizeText(in: page)
-            let normalizedPageText = pageText.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !normalizedPageText.isEmpty {
-                pageTexts.append(normalizedPageText)
-            }
-        }
-        return pageTexts.joined(separator: "\n\n")
-    }
-
-    private func recognizeText(in page: PDFPage) throws -> String {
-        #if os(macOS)
-        guard let cgImage = renderedCGImage(for: page) else {
-            throw NSError(
-                domain: "ScreenplayStudioImport",
-                code: 5,
-                userInfo: [NSLocalizedDescriptionKey: "A scanned PDF page could not be rendered for OCR."]
-            )
-        }
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = true
-        request.recognitionLanguages = ["en-US"]
-        request.minimumTextHeight = 0.006
-
-        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
-        try handler.perform([request])
-
-        let observations = (request.results ?? []).sorted { lhs, rhs in
-            let left = lhs.boundingBox
-            let right = rhs.boundingBox
-            if abs(left.midY - right.midY) > 0.025 {
-                return left.midY > right.midY
-            }
-            return left.minX < right.minX
-        }
-        let lines = observations.compactMap { observation in
-            observation.topCandidates(1).first?.string
-        }
-        return lines.joined(separator: "\n")
-        #else
-        throw NSError(
-            domain: "ScreenplayStudioImport",
-            code: 6,
-            userInfo: [NSLocalizedDescriptionKey: "OCR PDF import is currently available on macOS only."]
-        )
-        #endif
-    }
-
-    #if os(macOS)
-    private func renderedCGImage(for page: PDFPage) -> CGImage? {
-        let bounds = page.bounds(for: .mediaBox)
-        let targetSize = NSSize(
-            width: max(1400, bounds.width * 2.2),
-            height: max(1800, bounds.height * 2.2)
-        )
-        let image = page.thumbnail(of: targetSize, for: .mediaBox)
-        var rect = NSRect(origin: .zero, size: image.size)
-        return image.cgImage(forProposedRect: &rect, context: nil, hints: nil)
-    }
-    #endif
-
-    private func normalizeImportedDraftText(_ raw: String) -> String {
-        let normalizedLineEndings = raw
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-            .replacingOccurrences(of: "\u{00A0}", with: " ")
-        let rawLines = normalizedLineEndings.components(separatedBy: .newlines)
-        var cleanedLines: [String] = []
-        var previousWasBlank = false
-
-        for rawLine in rawLines {
-            let compactLine = rawLine
-                .replacingOccurrences(of: "\t", with: " ")
-                .trimmingCharacters(in: .whitespaces)
-            let lowercase = compactLine.lowercased()
-            let isPageMarker = compactLine.range(of: #"^(page\s+)?\d+[a-z]?$"#, options: .regularExpression) != nil
-            if isPageMarker || lowercase == "continued:" || lowercase == "(continued)" {
-                continue
-            }
-            if compactLine.isEmpty {
-                if previousWasBlank { continue }
-                cleanedLines.append("")
-                previousWasBlank = true
-                continue
-            }
-            cleanedLines.append(compactLine)
-            previousWasBlank = false
-        }
-
-        return cleanedLines
-            .joined(separator: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func uniqueNavigatorDestination(for sourceURL: URL, in folder: URL) -> URL {
