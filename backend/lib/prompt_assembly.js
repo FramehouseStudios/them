@@ -64,7 +64,7 @@ const CLEMENTINE_CREATIVE_PACT = [
   "feature compass and feature-length continuity: silently lock act, sequence, scene job, want/need, emotional handoff, open setup, exit turn, next three turns, Act III payoff path, and final-image pressure.",
   "continuation memory contract and page batch discipline: spend the first remembered turn before inventing; for 5-15 page asks, change story state every 1-2 pages and hand each turn into the next.",
   "expert page engine and subtext engine: every scene needs objective, obstacle, pressure clock, tactic, reversal/cost, residue, exit image, and dialogue shaped by concealment, interruption, pressure, and character-specific rhythm.",
-  "screenplay_craft: Use distinct tactics and subtext. Costly choices drive turns. Plant and pay off filmable details.",
+  "screenplay_craft: Distinct voices, tactics and subtext. Costly choices drive turns. Plant and pay off filmable details.",
   "image system and production format: For pages, write clean playable Fountain. Keep action and recurring details filmable.",
   "self-check loop: silently plan, write, verify act/continuity/page quality, and repair the weakest point before final output; never announce the loop.",
   "writer's block rescue and momentum: when the writer is stuck or broad, diagnose the missing want, obstacle, consequence, tactic change, act pressure, or exit turn; choose one strong pressure engine and convert it into playable behavior.",
@@ -487,6 +487,11 @@ function inferStoryMomentumDiagnostic(userInput = "", task = {}) {
   };
 }
 
+function asksForWholeStoryPlan(lower) {
+  const request = lower.replace(/^(?:(?:please|can you|could you|help me|i want to|let's)\s+)*/, "");
+  return /^(?:outline|plan|develop|map out|break down|(?:give me|build|make|write|draft) (?:a |the )?beat sheet for)\s+(?:(?:a|an|the|my|our|this|new|whole|full|feature[- ]length)\s+)*(?:story|feature(?: film)?|movie|film|screenplay|script)(?:\s+(?:about|where|in which|that follows)\b|\s*[.!?]?$)/.test(request);
+}
+
 function inferScreenplayTask(userInput = "") {
   const text = trimToString(userInput);
   const lower = text.toLowerCase();
@@ -497,6 +502,9 @@ function inferScreenplayTask(userInput = "") {
     /\b(?:complete|full|whole|entire)\b/.test(lower) &&
     /\bcharacter arcs?\b/.test(lower) &&
     /\b(?:story structure|three[- ]act structure|feature structure|story spine)\b/.test(lower);
+  const directWholeStoryPlan = featureMetadata.requestedPages === 0 &&
+    featureMetadata.featureScope !== "page_batch" &&
+    asksForWholeStoryPlan(lower);
   const sceneDoctorLike = hasAny(lower, [
     /\b(scene doctor|doctor this|doctor the scene|coverage|feedback|notes|diagnose|what'?s wrong|what'?s not working|fix this scene|why isn'?t this working)\b/,
   ]);
@@ -554,7 +562,13 @@ function inferScreenplayTask(userInput = "") {
   let label = "General Story Help";
   let output = "Give specific, cinematic story guidance with one concrete next move.";
 
-  if (sceneDoctorLike && !rewriteLike) {
+  const wholeStoryPlan = directWholeStoryPlan ||
+    (completeArcAndStructure && !sceneDoctorLike && !dialoguePunchupLike && !rewriteLike);
+  if (wholeStoryPlan) {
+    intent = "outline_structure";
+    label = "Feature Story Plan";
+    output = "Plan a complete causal story and character arc. Keep the plan separate from screenplay pages.";
+  } else if (sceneDoctorLike && !rewriteLike) {
     intent = "scene_doctor";
     label = "Scene Doctor";
     output = "Give concise script-doctor notes: what works, what is not landing, and the highest-leverage fix. Include sample replacement lines only when useful.";
@@ -566,10 +580,6 @@ function inferScreenplayTask(userInput = "") {
     intent = "rewrite_scene";
     label = "Rewrite Scene";
     output = "Return a revised scene or targeted passage in clean screenplay/Fountain style. Preserve story intent and continuity, replace only the requested span when the user names one, and improve specificity, rhythm, and emotional truth.";
-  } else if (completeArcAndStructure) {
-    intent = "outline_structure";
-    label = "Feature Story Plan";
-    output = "Plan a complete causal story and character arc. Keep the plan separate from screenplay pages.";
   } else if (featureCompletionLike) {
     intent = "finish_feature";
     label = "Finish Feature";
@@ -616,7 +626,7 @@ function inferScreenplayTask(userInput = "") {
   if (stuckLike) task.writerBlocked = true;
   if (featureMetadata.requestedPages > 0) task.requestedPages = featureMetadata.requestedPages;
   if (featureMetadata.requestedAct) task.requestedAct = featureMetadata.requestedAct;
-  if (completeArcAndStructure && intent === "outline_structure") task.featureScope = "whole_feature";
+  if (wholeStoryPlan && intent === "outline_structure") task.featureScope = "whole_feature";
   else if (featureMetadata.featureScope) task.featureScope = featureMetadata.featureScope;
   const storyDiagnostic = inferStoryMomentumDiagnostic(text, task);
   if (storyDiagnostic) task.storyDiagnostic = storyDiagnostic;
@@ -798,7 +808,7 @@ function buildScreenplayTaskBlock(screenplayTask) {
   if ((intent === "outline_structure" || intent === "finish_feature") && requestedPages === 0) {
     if (intent === "outline_structure" && featureScope === "whole_feature") {
       lines.push("feature_plan: Act I commitment causes Act II reversal and loss; Act III resolves through a costly final choice. Give payoff and final image, then Next three scenes. Plan only.");
-      lines.push("character_arc: Give the protagonist a want and conflicting need. Show the old tactic, its harm, and the climactic choice that proves change or refusal. Give pivotal supporting characters distinct wants and choices that alter the outcome.");
+      lines.push("character_arc: Give the protagonist a want, conflicting need and old tactic. Show who it hurts and how the climactic choice proves change or refusal. Give pivotal supporting characters distinct wants and choices that alter the outcome.");
     }
     lines.push("feature_architecture_delivery_order:");
     lines.push("  - First deliver a compact complete causal spine covering Act I, Act II, and Act III before expanding any act. Never spend the opening budget detailing Act I while later acts remain unstated.");

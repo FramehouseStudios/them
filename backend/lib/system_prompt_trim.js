@@ -314,7 +314,7 @@ function compactScreenplayTaskBody(body, bodyLimit) {
   return compactSemanticLines([
     { value: intentLine, maxChars: 100 },
     { value: featurePlan, maxChars: 185, minChars: 172 },
-    { value: firstLineStartingWith(lines, "screenplay_craft:"), maxChars: 120, minChars: 114 },
+    { value: firstLineStartingWith(lines, "screenplay_craft:"), maxChars: 120, minChars: 117 },
     { value: sceneMode, maxChars: sceneMode.length, minChars: sceneMode.length },
     { value: firstLineStartingWith(lines, "character_arc:"), maxChars: 240 },
     { value: firstLineStartingWith(lines, "label:"), maxChars: 120 },

@@ -532,7 +532,7 @@ test("[studio-render] sync: feature architecture uses the structural feature bud
   });
 });
 
-test("[studio-render] sync: complete cinematic arc and structure use the feature architecture lane", async () => {
+test("[studio-render] sync: an ordinary movie outline gets the complete character arc and structure", async () => {
   const deps = defaultDeps({
     renderStudioRealtimeText: async (options) => {
       deps._calls.renderInvocations.push(options);
@@ -541,7 +541,7 @@ test("[studio-render] sync: complete cinematic arc and structure use the feature
   });
   await withTestServer(deps, async (baseURL) => {
     const r = await postJson(baseURL, "/realtime/studio_render", {
-      transcript: "Build a complete character arc and story structure for cinema.",
+      transcript: "Outline a movie about two astronauts who learn their spacecraft is a film set.",
       screenplay_target: "voice_pin",
       screenplay_act: "Act II",
     });

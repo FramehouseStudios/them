@@ -1135,6 +1135,10 @@ test("[screenplay-task] sends complete cinematic character arcs and structure to
     "Plan the complete character arc and three-act story structure for a 90-page feature film. No screenplay pages yet.",
     "Give me the full story structure and character arc.",
     "Build an entire story spine and character arc. Do not write screenplay pages yet.",
+    "Outline a movie about two astronauts who learn their spacecraft is a film set.",
+    "Give me a beat sheet for a story about sisters re-opening a cinema.",
+    "Help me develop a story where a pianist loses her hearing.",
+    "Outline a film about a nurse who must rewrite what she told the police.",
   ]) {
     const task = inferScreenplayTask(userInput);
     assert.equal(task.intent, "outline_structure", userInput);
@@ -1162,7 +1166,7 @@ test("[screenplay-task] sends complete cinematic character arcs and structure to
     const taskBlock = fitted.match(/<screenplay_task>([\s\S]*?)<\/screenplay_task>/)?.[1];
     assert.ok(taskBlock);
     assert.doesNotMatch(taskBlock, /Fountain pages first/);
-    assert.match(fitted, /character_arc:.*want and conflicting need.*old tactic.*climactic choice.*supporting characters distinct wants and choices/);
+    assert.match(fitted, /character_arc:.*want, conflicting need and old tactic.*who it hurts.*climactic choice.*supporting characters distinct wants and choices that alter the outcome/);
     assert.doesNotMatch(fitted, /requested_page_batch:/);
   }
 
@@ -1170,6 +1174,14 @@ test("[screenplay-task] sends complete cinematic character arcs and structure to
   assert.equal(inferScreenplayTask("Rewrite only the last line of dialogue in Act III.").intent, "rewrite_scene");
   const scene = inferScreenplayTask("Write a scene using the full character arc and story structure.");
   assert.equal(scene.intent, "write_scene");
+  for (const userInput of [
+    "Outline a scene for my film.",
+    "Outline my screenplay's opening scene.",
+    "Outline the story for Act II.",
+    "Give me a beat sheet for the opening scene.",
+  ]) {
+    assert.notEqual(inferScreenplayTask(userInput).featureScope, "whole_feature", userInput);
+  }
   const pages = inferScreenplayTask("Write the next five pages of my 90-page feature film.");
   assert.equal(pages.featureScope, "page_batch");
   assert.equal(pages.requestedPages, 5);
@@ -1186,7 +1198,7 @@ test("[screenplay-task] preserves default cinematic craft on a scene-writing tur
   assert.ok(fitted.length <= 3_800);
   const taskBlock = fitted.match(/<screenplay_task>([\s\S]*?)<\/screenplay_task>/)?.[1];
   assert.ok(taskBlock);
-  assert.match(taskBlock, /screenplay_craft:.*distinct tactics.*subtext/i);
+  assert.match(taskBlock, /screenplay_craft:.*distinct voices, tactics and subtext/i);
   assert.match(taskBlock, /screenplay_craft:.*costly choices/i);
   assert.match(taskBlock, /screenplay_craft:.*plant and pay off filmable details\.$/im);
   assert.match(taskBlock, /mode_contract:.*Fountain.*immediate want.*push back.*visible turn/im);
