@@ -7906,7 +7906,7 @@ actor BackendMemoryAPI {
             backendBuild: parsed.backendBuild,
             backendBootId: parsed.backendBootId
         )
-        if activate { updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true, shouldDeliver: ownerDeliveryGuard(expectedOwner)) }
+        if activate { updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true, shouldDeliver: BackendAuthRequestIdentity.deliveryGuard(for: expectedOwner, using: requestIdentityProvider)) }
         return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
     }
 
@@ -7914,14 +7914,17 @@ actor BackendMemoryAPI {
         projectId: String,
         includeUserIdentity: Bool = true,
         includeAuthToken: Bool = true,
-        clientTokenOverride: String? = nil
+        clientTokenOverride: String? = nil,
+        expectedOwner: ScreenplayStudioAuthContext? = nil
     ) async throws -> BackendReadResult<BackendScreenplayProjectMutationResponse> {
+        _ = try projectWriteIdentity(expectedOwner)
         _ = try? await bootstrapSession(force: false)
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else {
             throw BackendMemoryAPIError.server(status: 400, message: "project_id_required")
         }
-        var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/activate")
+        var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/activate",
+                                           identity: projectWriteIdentity(expectedOwner, generateUserID: true))
         request.applyProjectOwnerHeaders(
             includeUserIdentity: includeUserIdentity,
             includeAuthToken: includeAuthToken,
@@ -7929,6 +7932,7 @@ actor BackendMemoryAPI {
         )
         request.httpBody = Data("{}".utf8)
         let (data, response) = try await session.data(for: request)
+        _ = try projectWriteIdentity(expectedOwner)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -7951,7 +7955,7 @@ actor BackendMemoryAPI {
             backendBuild: parsed.backendBuild,
             backendBootId: parsed.backendBootId
         )
-        updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
+        updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true, shouldDeliver: BackendAuthRequestIdentity.deliveryGuard(for: expectedOwner, using: requestIdentityProvider))
         return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
     }
 
@@ -8548,7 +8552,7 @@ actor BackendMemoryAPI {
                 backendBuild: parsed.backendBuild,
                 backendBootId: parsed.backendBootId
             )
-            if activate { updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true, shouldDeliver: ownerDeliveryGuard(expectedOwner)) }
+            if activate { updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true, shouldDeliver: BackendAuthRequestIdentity.deliveryGuard(for: expectedOwner, using: requestIdentityProvider)) }
             return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
         }
         guard (200...299).contains(http.statusCode) else {
@@ -8568,7 +8572,7 @@ actor BackendMemoryAPI {
             backendBuild: parsed.backendBuild,
             backendBootId: parsed.backendBootId
         )
-        if activate { updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true, shouldDeliver: ownerDeliveryGuard(expectedOwner)) }
+        if activate { updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true, shouldDeliver: BackendAuthRequestIdentity.deliveryGuard(for: expectedOwner, using: requestIdentityProvider)) }
         return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
     }
 
@@ -9904,13 +9908,6 @@ actor BackendMemoryAPI {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !currentToken.isEmpty else { return false }
         return request.value(forHTTPHeaderField: "Authorization") != "Bearer \(currentToken)"
-    }
-
-    private func ownerDeliveryGuard(_ owner: ScreenplayStudioAuthContext?) -> @Sendable () -> Bool {
-        guard let owner else { return { true } }
-        return { [requestIdentityProvider] in
-            ScreenplayStudioAuthContextPolicy.matches(expected: owner, current: requestIdentityProvider(false).ownerContext)
-        }
     }
 
     private func projectWriteIdentity(_ owner: ScreenplayStudioAuthContext?,

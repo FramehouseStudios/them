@@ -5912,7 +5912,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     case let .retained(projectTitle):
                         deferredFirstPagePromotionOwner = owner
                         screenplayDraftBridge.autoInsertStatusText = "Open \(projectTitle) in Projects to recover your local draft."
-                    case .cleared:
+                    case .blank, .cleared:
                         deferredFirstPagePromotionOwner = owner
                         screenplayDraftBridge.autoInsertStatusText = "The cleared page stayed empty."
                     }

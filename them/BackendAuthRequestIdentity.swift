@@ -43,8 +43,15 @@ nonisolated struct BackendAuthRequestIdentity: Equatable, Sendable {
     func deliveryGuard(
         using provider: @escaping @Sendable (Bool) -> BackendAuthRequestIdentity
     ) -> @Sendable () -> Bool {
-        let expected = ownerContext
-        return { ScreenplayStudioAuthContextPolicy.matches(expected: expected, current: provider(false).ownerContext) }
+        Self.deliveryGuard(for: ownerContext, using: provider)
+    }
+
+    static func deliveryGuard(
+        for owner: ScreenplayStudioAuthContext?,
+        using provider: @escaping @Sendable (Bool) -> BackendAuthRequestIdentity
+    ) -> @Sendable () -> Bool {
+        guard let owner else { return { true } }
+        return { ScreenplayStudioAuthContextPolicy.matches(expected: owner, current: provider(false).ownerContext) }
     }
 }
 

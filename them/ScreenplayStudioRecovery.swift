@@ -438,6 +438,7 @@ enum ScreenplayFirstPagePromotion {
     enum Outcome {
         case saved(BackendScreenplayProjectSummary, versionID: String, draft: String)
         case retained(projectTitle: String)
+        case blank(BackendScreenplayProjectSummary)
         case cleared
     }
 
@@ -448,13 +449,16 @@ enum ScreenplayFirstPagePromotion {
         currentDraft: () -> String?,
         title: String,
         phase: String,
+        source: String = "studio_first_turn_auto_create",
+        notes: String = "Auto-created from first Studio turn",
+        recovery: ScreenplayLocalDraftRecoveryStore? = nil,
         finish: (Outcome) -> Void
     ) async throws {
         let cleanPhase = phase.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedPhase = cleanPhase.isEmpty ? "scene_draft" : cleanPhase
         try await run(
             owner: owner, seed: seed, draftBeforeCreate: draftBeforeCreate, currentDraft: currentDraft,
-            recovery: ScreenplayLocalDraftRecoveryStore(),
+            recovery: recovery ?? ScreenplayLocalDraftRecoveryStore(),
             create: {
                 let result = try await BackendMemoryAPI.shared.upsertScreenplayProject(
                     title: title, phase: normalizedPhase, activate: false, expectedOwner: owner
@@ -467,8 +471,8 @@ enum ScreenplayFirstPagePromotion {
             save: { project, draft in
                 let result = try await BackendMemoryAPI.shared.upsertScreenplayProjectVersion(
                     projectId: project.id, draft: draft, title: project.title,
-                    phase: project.lastPhase ?? normalizedPhase, notes: "Auto-created from first Studio turn",
-                    source: "studio_first_turn_auto_create", clientRequestId: UUID().uuidString,
+                    phase: project.lastPhase ?? normalizedPhase, notes: notes,
+                    source: source, clientRequestId: UUID().uuidString,
                     activate: false, expectedOwner: owner
                 )
                 guard result.payload.conflict != true,
@@ -497,7 +501,7 @@ enum ScreenplayFirstPagePromotion {
         guard let draftBeforeSave = currentDraft() else { return }
         let draftToSave = draftBeforeCreate.utf8.elementsEqual(draftBeforeSave.utf8) ? seed : draftBeforeSave
         guard !draftToSave.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            finish(.cleared)
+            finish(.blank(project))
             return
         }
         recovery.save(ownerUserId: owner.userID, projectId: project.id, draft: draftToSave, baseVersionId: "", dirty: true)

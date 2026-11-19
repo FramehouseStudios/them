@@ -2306,59 +2306,102 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     func createProject() async {
-        let title = newProjectTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !isSaving else { return }
+        let titleInput = newProjectTitle
+        let title = titleInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else {
             errorText = "Enter a project title first."
             return
         }
-        let seededDraft = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !isStreamingDraftPreviewActive else {
+            errorText = "Finish the current page before creating a project."
+            return
+        }
+
+        let authContext = currentStudioAuthContext()
+        let owner = BackendAuthClient.currentRequestOwner()
+        let originalSelection = selectedProjectID
+        let originalDraftProjectID = namedProjectDraftOrigin
+        let unboundDraft = originalDraftProjectID.isEmpty ? fountainDraft : ""
+        let currentDraft: () -> String? = {
+            guard self.authContextIsCurrent(authContext), BackendAuthClient.requestOwnerIsCurrent(owner),
+                  !self.isStreamingDraftPreviewActive, self.selectedProjectID == originalSelection,
+                  self.namedProjectDraftOrigin == originalDraftProjectID else { return nil }
+            return originalDraftProjectID.isEmpty ? self.fountainDraft : ""
+        }
+
         isSaving = true
         defer { isSaving = false }
         errorText = ""
+        var openedProjectID: String?
         do {
-            let result = try await BackendMemoryAPI.shared.upsertScreenplayProject(
-                title: title,
-                phase: "scene_draft"
-            )
-            if let project = result.payload.project {
-                upsertProject(project)
-                selectedProjectID = project.id
-                selectedProject = project
-                if !seededDraft.isEmpty {
-                    let versionResult = try await BackendMemoryAPI.shared.upsertScreenplayProjectVersion(
-                        projectId: project.id,
-                        draft: seededDraft,
-                        title: project.title,
-                        phase: project.lastPhase ?? "scene_draft",
-                        notes: "Initial Studio draft",
-                        source: "studio_initial_seed",
-                        baseVersionId: "",
-                        conflictStrategy: "reject_if_stale"
-                    )
-                    if let nextProject = versionResult.payload.project {
-                        upsertProject(nextProject)
-                        selectedProject = nextProject
-                        selectedProjectID = nextProject.id
-                    }
-                    let nextVersionId = (versionResult.payload.versionId ?? versionResult.payload.version?.id ?? "")
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !nextVersionId.isEmpty {
-                        latestVersionID = nextVersionId
-                    }
-                    lastSavedDraftFingerprint = fingerprint(for: seededDraft)
-                    lastRevisionBaseDraft = seededDraft
-                    hasUnsavedDraftChanges = false
-                    autosaveStatusText = "Saved now"
+            try await ScreenplayFirstPagePromotion.run(
+                owner: owner, seed: unboundDraft, draftBeforeCreate: unboundDraft, currentDraft: currentDraft,
+                title: title, phase: "scene_draft", source: "studio_initial_seed", notes: "Initial Studio draft",
+                recovery: localDraftRecoveryStore
+            ) { result in
+                if newProjectTitle == titleInput { newProjectTitle = "" }
+                switch result {
+                case let .blank(project):
+                    retainDraftBeforeNamedProjectChange(owner: authContext, projectID: originalDraftProjectID)
+                    beginNamedProject(project, versionID: "", draft: "")
+                    openedProjectID = project.id
+                case let .saved(project, versionID, draft):
+                    beginNamedProject(project, versionID: versionID, draft: draft)
+                    openedProjectID = project.id
+                case let .retained(projectTitle):
+                    infoText = "Open \(projectTitle) in Projects to recover your local draft."
+                case .cleared:
+                    infoText = "The cleared page stayed empty."
                 }
             }
-            newProjectTitle = ""
-            infoText = seededDraft.isEmpty
-                ? "Project saved."
-                : "Project created with the live Studio draft."
-            await loadSelectedProjectOutline()
+            guard let openedProjectID, authContextIsCurrent(authContext),
+                  selectedProjectID == openedProjectID else { return }
+            await persistActiveProjectSelection(openedProjectID, expectedOwner: owner)
         } catch {
+            guard currentDraft() != nil else { return }
             errorText = error.localizedDescription
         }
+    }
+
+    private var namedProjectDraftOrigin: String {
+        [loadedDraftProjectID, ScreenplayLiveDraftBridge.shared.draftOriginProjectIDSnapshot(), selectedProjectID]
+            .lazy.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty } ?? ""
+    }
+
+    private func retainDraftBeforeNamedProjectChange(owner: ScreenplayStudioAuthContext, projectID: String) {
+        guard !projectID.isEmpty, !fountainDraft.isEmpty, hasUnsavedDraftChanges || isManualDraftEditing else { return }
+        let bridge = ScreenplayLiveDraftBridge.shared
+        let baseVersionID: String
+        if loadedDraftProjectID == projectID {
+            baseVersionID = latestVersionID
+        } else if bridge.draftOriginProjectIDSnapshot() == projectID {
+            baseVersionID = bridge.draftOriginVersionIDSnapshot()
+        } else {
+            baseVersionID = ""
+        }
+        localDraftRecoveryStore.save(
+            ownerUserId: owner.userID, projectId: projectID, draft: fountainDraft,
+            baseVersionId: baseVersionID, dirty: true, preserveExactText: true
+        )
+    }
+
+    private func beginNamedProject(
+        _ project: BackendScreenplayProjectSummary, versionID: String, draft: String
+    ) {
+        selectedProjectID = project.id
+        selectedProject = project
+        clearTransientProjectStateForSelectionChange(to: project.id)
+        resetCraftReportForProjectChange()
+        outline = project.outline ?? .empty
+        adoptOutlineMutationRevision(project.outlineRevision, outline: outline, project: project, projectId: project.id)
+        reconcileSceneSessionState(with: outline)
+        hydrateCollaboration(from: project)
+        upsertProject(project)
+        ScreenplayLiveDraftBridge.shared.draftText = draft
+        applyServerDraft(draft, versionId: versionID, allowOverwriteDirtyLocalDraft: true)
+        infoText = "Project ready."
     }
 
     func pushOutlineSnapshot() async {
@@ -5529,9 +5572,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
     }
 
-    private func persistActiveProjectSelection(_ projectID: String) async {
+    private func persistActiveProjectSelection(_ projectID: String, expectedOwner: ScreenplayStudioAuthContext? = nil) async {
         let normalizedProjectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectID.isEmpty else { return }
+        let context = currentStudioAuthContext()
         do {
             let ownerHeaders = projectOwnerHeaderOptions(forProjectID: normalizedProjectID)
             let result: BackendReadResult<BackendScreenplayProjectMutationResponse>
@@ -5540,11 +5584,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
                     projectId: normalizedProjectID,
                     includeUserIdentity: ownerHeaders.includeUserIdentity,
                     includeAuthToken: ownerHeaders.includeAuthToken,
-                    clientTokenOverride: ownerHeaders.clientTokenOverride
+                    clientTokenOverride: ownerHeaders.clientTokenOverride, expectedOwner: expectedOwner
                 )
             } catch BackendMemoryAPIError.server(let status, _) where ownerHeaders.usesDebugClientTokenOwner && status == 404 {
-                result = try await projectSelectionAPI.activateScreenplayProject(projectId: normalizedProjectID)
+                result = try await projectSelectionAPI.activateScreenplayProject(projectId: normalizedProjectID, expectedOwner: expectedOwner)
             }
+            guard authContextIsCurrent(context) else { return }
             if let project = result.payload.project {
                 upsertProject(project)
                 if selectedProjectID == project.id {
@@ -5555,6 +5600,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 infoText = "Project ready."
             }
         } catch {
+            guard authContextIsCurrent(context) else { return }
             if selectedProjectID == normalizedProjectID {
                 infoText = "Project opened. Restore sync is pending."
             }
