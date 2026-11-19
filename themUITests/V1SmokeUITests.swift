@@ -1067,15 +1067,18 @@ final class V1SmokeUITests: XCTestCase {
         let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
         let themTab = app.buttons["studio.right-panel.them"]
         let draftTab = app.buttons["studio.right-panel.draft"]
+        let window = app.windows.firstMatch
         guard drawer.waitForExistence(timeout: 8),
-              waitForHittability(of: themTab, timeout: 8),
+              themTab.waitForExistence(timeout: 8),
+              window.waitForExistence(timeout: 3),
               waitForSelection(of: draftTab, timeout: 3) else {
-            XCTFail("The edge-hit fixture must begin with the Draft inspector and a reachable Them tab.")
+            XCTFail("The edge-hit fixture must begin with the Draft inspector and a visible Them tab.")
             return
         }
         let frame = themTab.frame
+        let windowFrame = window.frame
         guard !frame.isEmpty, frame.width > 2, frame.height > 2,
-              drawer.frame.contains(frame),
+              drawer.frame.contains(frame), windowFrame.contains(frame),
               !themTab.isSelected, (themTab.value as? String) != "Selected" else {
             XCTFail("The Them tab must have a contained frame and be unselected before the one edge touch.")
             return
@@ -1085,8 +1088,8 @@ final class V1SmokeUITests: XCTestCase {
         // center. The original tap-based rail workflow remains unchanged.
         let point = CGPoint(x: frame.maxX - 1, y: frame.midY)
         XCTContext.runActivity(named: "Single Them right-interior touch at \(point.x), \(point.y)") { _ in
-            themTab.coordinate(withNormalizedOffset: .zero)
-                .withOffset(CGVector(dx: frame.width - 1, dy: frame.height / 2)).tap()
+            window.coordinate(withNormalizedOffset: .zero)
+                .withOffset(CGVector(dx: point.x - windowFrame.minX, dy: point.y - windowFrame.minY)).tap()
         }
         let trace = element(identifier: "studio.debug.inspector.input.trace", in: app)
         let attachment = XCTAttachment(string: trace.value as? String ?? "Native input trace unavailable")
