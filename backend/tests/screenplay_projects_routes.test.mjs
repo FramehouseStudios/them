@@ -1509,6 +1509,30 @@ test("[screenplay-projects-routes] POST /version saves a draft and returns 201",
   });
 });
 
+test("[screenplay-projects-routes] provisional first-page writes preserve the active project", async () => {
+  const deps = defaultDeps();
+  deps._owner.activeProjectId = "p1";
+  await withTestServer(deps, async (baseURL) => {
+    const created = await postJson(baseURL, "/screenplay/projects", {
+      project_id: "provisional-first-page",
+      title: "Draft",
+      activate: false,
+    });
+    assert.equal(created.status, 201);
+    assert.equal(deps._owner.activeProjectId, "p1");
+
+    const saved = await postJson(baseURL, "/screenplay/projects/provisional-first-page/version", {
+      draft: "INT. STUDIO - NIGHT\n\nThe writer keeps typing.",
+      activate: false,
+      client_request_id: "first-page-seed",
+    });
+    assert.equal(saved.status, 201);
+    assert.equal(saved.body.project_id, "provisional-first-page");
+    assert.ok(saved.body.version_id);
+    assert.equal(deps._owner.activeProjectId, "p1");
+  });
+});
+
 test("[screenplay-projects-routes] POST /version surfaces adapter persistence failure", async () => {
   const deps = defaultDeps({
     markScreenplayOwnerDirty: () => ({

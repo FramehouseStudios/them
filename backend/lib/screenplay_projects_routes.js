@@ -1543,6 +1543,7 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
     if (!draft) {
       return res.status(400).json({ stage: "screenplay_version", error: "draft_required" });
     }
+    const activate = req.body?.activate == null ? true : parseBool(req.body?.activate);
     const phase = normalizeScreenplayPhaseValue(req.body?.phase || project.lastPhase);
     const source = normalizeSnippet(req.body?.source, 48) || "studio_autosave";
     const notes = normalizeSnippet(req.body?.notes, 240);
@@ -1661,7 +1662,7 @@ function mountScreenplayProjectsRoutes(app, deps = {}) {
       project.title = normalizeSnippet(req.body?.title, 160);
     }
     project.updatedAt = now;
-    owner.activeProjectId = project.id;
+    if (activate) owner.activeProjectId = project.id;
     const committedOwner = await persistScreenplayOwnerOrFail(
       res,
       owner,

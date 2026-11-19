@@ -162,7 +162,8 @@ struct ScreenplayLocalDraftRecoveryStore {
         draft: String,
         baseVersionId: String,
         dirty: Bool,
-        savedAt: TimeInterval = Date().timeIntervalSince1970
+        savedAt: TimeInterval = Date().timeIntervalSince1970,
+        preserveExactText: Bool = false
     ) {
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else { return }
@@ -171,6 +172,7 @@ struct ScreenplayLocalDraftRecoveryStore {
         projectPayload["draft"] = draft
         projectPayload["baseVersionId"] = baseVersionId
         projectPayload["dirty"] = dirty
+        projectPayload["preserveExactText"] = preserveExactText ? true : nil
         projectPayload["savedAt"] = savedAt
         nextPayloads[normalizedProjectId] = projectPayload
         defaults.set(nextPayloads, forKey: ownerScopedKey(ownerUserId))
@@ -370,8 +372,10 @@ struct ScreenplayLocalDraftRecoveryStore {
             return nil
         }
 
-        let localFingerprint = fingerprint(storedDraft.trimmingCharacters(in: .whitespacesAndNewlines))
-        guard serverFingerprint != localFingerprint else {
+        let differsFromServer = latestStored["preserveExactText"] as? Bool == true
+            ? !storedDraft.utf8.elementsEqual(serverDraft.utf8)
+            : fingerprint(storedDraft.trimmingCharacters(in: .whitespacesAndNewlines)) != serverFingerprint
+        guard differsFromServer else {
             clear(ownerUserId: ownerUserId, projectId: normalizedProjectId)
             return nil
         }
@@ -410,5 +414,118 @@ struct ScreenplayLocalDraftRecoveryStore {
         }
         defaults.set(quarantined, forKey: quarantineKey)
         defaults.removeObject(forKey: key)
+    }
+}
+
+struct ScreenplayRestoredLiveDraftProjectPromotionPolicy {
+    static func shouldCreateProject(
+        isStudioSurfaceActive: Bool,
+        draft: String,
+        existingProjectID: String,
+        isAutoCreatingProject: Bool,
+        isPromotionDeferred: Bool
+    ) -> Bool {
+        guard isStudioSurfaceActive else { return false }
+        guard !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        guard existingProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        guard !isAutoCreatingProject else { return false }
+        return !isPromotionDeferred
+    }
+}
+
+@MainActor
+enum ScreenplayFirstPagePromotion {
+    enum Outcome {
+        case saved(BackendScreenplayProjectSummary, versionID: String, draft: String)
+        case retained(projectTitle: String)
+        case cleared
+    }
+
+    static func run(
+        owner: ScreenplayStudioAuthContext,
+        seed: String,
+        draftBeforeCreate: String,
+        currentDraft: () -> String?,
+        title: String,
+        phase: String,
+        finish: (Outcome) -> Void
+    ) async throws {
+        let cleanPhase = phase.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedPhase = cleanPhase.isEmpty ? "scene_draft" : cleanPhase
+        try await run(
+            owner: owner, seed: seed, draftBeforeCreate: draftBeforeCreate, currentDraft: currentDraft,
+            recovery: ScreenplayLocalDraftRecoveryStore(),
+            create: {
+                let result = try await BackendMemoryAPI.shared.upsertScreenplayProject(
+                    title: title, phase: normalizedPhase, activate: false, expectedOwner: owner
+                )
+                guard let project = result.payload.project, !project.id.isEmpty else {
+                    throw BackendMemoryAPIError.invalidResponse
+                }
+                return project
+            },
+            save: { project, draft in
+                let result = try await BackendMemoryAPI.shared.upsertScreenplayProjectVersion(
+                    projectId: project.id, draft: draft, title: project.title,
+                    phase: project.lastPhase ?? normalizedPhase, notes: "Auto-created from first Studio turn",
+                    source: "studio_first_turn_auto_create", clientRequestId: UUID().uuidString,
+                    activate: false, expectedOwner: owner
+                )
+                guard result.payload.conflict != true,
+                      (result.payload.projectId ?? result.payload.project?.id) == project.id,
+                      let version = result.payload.version, !version.id.isEmpty else {
+                    throw BackendMemoryAPIError.invalidResponse
+                }
+                return version.id
+            },
+            finish: finish
+        )
+    }
+
+    static func run(
+        owner: ScreenplayStudioAuthContext,
+        seed: String,
+        draftBeforeCreate: String,
+        currentDraft: () -> String?,
+        recovery: ScreenplayLocalDraftRecoveryStore,
+        create: () async throws -> BackendScreenplayProjectSummary,
+        save: (BackendScreenplayProjectSummary, String) async throws -> String,
+        finish: (Outcome) -> Void
+    ) async throws {
+        guard currentDraft() != nil else { return }
+        let project = try await create()
+        guard let draftBeforeSave = currentDraft() else { return }
+        let draftToSave = draftBeforeCreate.utf8.elementsEqual(draftBeforeSave.utf8) ? seed : draftBeforeSave
+        guard !draftToSave.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            finish(.cleared)
+            return
+        }
+        recovery.save(ownerUserId: owner.userID, projectId: project.id, draft: draftToSave, baseVersionId: "", dirty: true)
+
+        let versionID: String
+        let confirmed: Bool
+        do {
+            versionID = try await save(project, draftToSave)
+            confirmed = true
+        } catch {
+            versionID = ""
+            confirmed = false
+        }
+        guard let latest = currentDraft() else { return }
+        let changedDuringSave = !latest.utf8.elementsEqual(draftBeforeSave.utf8)
+        let retainedDraft = changedDuringSave ? latest : draftToSave
+        guard !retainedDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            recovery.clear(ownerUserId: owner.userID, projectId: project.id)
+            finish(.cleared)
+            return
+        }
+        let retainedLocally = !confirmed || !retainedDraft.utf8.elementsEqual(draftToSave.utf8)
+        recovery.save(
+            ownerUserId: owner.userID, projectId: project.id, draft: retainedDraft,
+            baseVersionId: versionID, dirty: retainedLocally, preserveExactText: retainedLocally
+        )
+        finish(retainedLocally
+            ? .retained(projectTitle: project.title)
+            : .saved(project, versionID: versionID, draft: draftToSave))
     }
 }
