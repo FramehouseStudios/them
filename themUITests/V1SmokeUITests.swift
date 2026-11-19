@@ -1199,10 +1199,10 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(app.buttons["studio.them.reversal-card.ui-twist-midpoint.dismiss"].exists)
 
         let dismissReversal = app.buttons["studio.them.reversal-card.ui-twist-midpoint.dismiss"]
-        XCTAssertTrue(
-            revealInStudioDrawer(dismissReversal, drawer: drawer, scrollingUp: true, maxSwipes: 8),
-            "The unaccepted reversal Dismiss action was not reachable."
-        )
+        guard revealFullyInStudioDrawer(dismissReversal, drawer: drawer, maxSwipes: 8) else {
+            XCTFail("The unaccepted reversal Dismiss action was not fully visible.")
+            return
+        }
         XCTAssertTrue(dismissReversal.isEnabled)
 #if os(macOS)
         dismissReversal.click()
