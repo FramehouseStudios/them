@@ -1067,15 +1067,18 @@ final class V1SmokeUITests: XCTestCase {
         let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
         let themTab = app.buttons["studio.right-panel.them"]
         let draftTab = app.buttons["studio.right-panel.draft"]
+        let window = app.windows.firstMatch
         guard drawer.waitForExistence(timeout: 8),
-              waitForHittability(of: themTab, timeout: 8),
+              themTab.waitForExistence(timeout: 8),
+              window.waitForExistence(timeout: 3),
               waitForSelection(of: draftTab, timeout: 3) else {
-            XCTFail("The edge-hit fixture must begin with the Draft inspector and a reachable Them tab.")
+            XCTFail("The edge-hit fixture must begin with the Draft inspector and a visible Them tab.")
             return
         }
         let frame = themTab.frame
+        let windowFrame = window.frame
         guard !frame.isEmpty, frame.width > 2, frame.height > 2,
-              drawer.frame.contains(frame),
+              drawer.frame.contains(frame), windowFrame.contains(frame),
               !themTab.isSelected, (themTab.value as? String) != "Selected" else {
             XCTFail("The Them tab must have a contained frame and be unselected before the one edge touch.")
             return
@@ -1085,8 +1088,8 @@ final class V1SmokeUITests: XCTestCase {
         // center. The original tap-based rail workflow remains unchanged.
         let point = CGPoint(x: frame.maxX - 1, y: frame.midY)
         XCTContext.runActivity(named: "Single Them right-interior touch at \(point.x), \(point.y)") { _ in
-            themTab.coordinate(withNormalizedOffset: .zero)
-                .withOffset(CGVector(dx: frame.width - 1, dy: frame.height / 2)).tap()
+            window.coordinate(withNormalizedOffset: .zero)
+                .withOffset(CGVector(dx: point.x - windowFrame.minX, dy: point.y - windowFrame.minY)).tap()
         }
         let trace = element(identifier: "studio.debug.inspector.input.trace", in: app)
         let attachment = XCTAttachment(string: trace.value as? String ?? "Native input trace unavailable")
@@ -1110,16 +1113,39 @@ final class V1SmokeUITests: XCTestCase {
         let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true)
         defer { app.terminate() }
 
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
         let themTab = app.buttons["studio.right-panel.them"]
+#if os(iOS)
+        let draftTab = app.buttons["studio.right-panel.draft"]
+        let window = app.windows.firstMatch
+        guard drawer.waitForExistence(timeout: 8),
+              themTab.waitForExistence(timeout: 8),
+              window.waitForExistence(timeout: 3),
+              waitForSelection(of: draftTab, timeout: 3) else {
+            XCTFail("The overview fixture must start on the Draft inspector with a visible Them tab.")
+            return
+        }
+        let frame = themTab.frame
+        let windowFrame = window.frame
+        guard !frame.isEmpty, drawer.frame.contains(frame), windowFrame.contains(frame),
+              !themTab.isSelected, (themTab.value as? String) != "Selected" else {
+            XCTFail("The visible Them tab must be inside the inspector and unselected before the touch.")
+            return
+        }
+        // SwiftUI routes by touch location. XCTest's automatic accessibility
+        // hit point can fall outside the visible label on the hosted simulator.
+        window.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: frame.midX - windowFrame.minX, dy: frame.midY - windowFrame.minY)).tap()
+#else
         XCTAssertTrue(themTab.waitForExistence(timeout: 8))
         themTab.tap()
+#endif
         XCTAssertTrue(
             waitForSelection(of: themTab, timeout: 3),
-            "Tapping the Them inspector tab did not select it; tab accessibility frames may be stale."
+            "A tap inside the visible Them tab must select it."
         )
 
         XCTAssertTrue(app.descendants(matching: .any)["studio.them.panel"].waitForExistence(timeout: 4))
-        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
 
         let creativePartner = element(identifier: "studio.them.creative-partner", in: app)
         XCTAssertTrue(

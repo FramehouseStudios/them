@@ -2262,11 +2262,18 @@ final class ScreenplayStudioViewModel: ObservableObject {
         guard let prepared,
               authContextIsCurrent(prepared.authContext),
               selectedProjectID == prepared.projectID, loadedDraftProjectID == prepared.projectID,
-              !isStreamingDraftPreviewActive, prepared.change.stillApplies(to: fountainDraft) else {
+              !isStreamingDraftPreviewActive, prepared.stillApplies(to: fountainDraft) else {
             infoText = "The page changed before I could apply that edit. Select the line and try again."
             return
         }
-        let change = prepared.change
+        guard let change = prepared.resolve(
+            in: fountainDraft,
+            paragraphs: ScreenplayLiveDraftBridge.shared.structuredDraft.paragraphs,
+            linesPerPage: linesPerPage
+        ) else {
+            infoText = "I couldn't find that dialogue line on that page. Check the page and character, or select the line."
+            return
+        }
         if change.hasTextChange {
             applyStudioPageEdit(change.revisedDraft)
             ScreenplayLiveDraftBridge.shared.highlightLineRange(startLine: change.line, endLine: change.line)
