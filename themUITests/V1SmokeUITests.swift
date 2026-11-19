@@ -1776,8 +1776,11 @@ final class V1SmokeUITests: XCTestCase {
 
         XCTAssertTrue(leftToggle.waitForExistence(timeout: 5))
         XCTAssertTrue(leftToggle.isHittable)
-        leftToggle.tap()
-        XCTAssertTrue(leftDrawer.waitForExistence(timeout: 5), "Project drawer did not open.")
+        XCTAssertGreaterThanOrEqual(leftToggle.frame.width, 44, "Projects needs a full-width touch target.")
+        XCTAssertGreaterThanOrEqual(leftToggle.frame.height, 44, "Projects needs a full-height touch target.")
+        leftToggle.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.5)).tap()
+        XCTAssertTrue(leftDrawer.waitForExistence(timeout: 5), "Tapping the Projects button padding did not open the drawer.")
+        XCTAssertTrue(app.textFields["New project title"].waitForExistence(timeout: 5))
         XCTAssertFalse(rightDrawer.exists, "Inspector remained open behind the project drawer.")
 
         let rightToggle = app.buttons["studio.sidebar.right.toggle"]

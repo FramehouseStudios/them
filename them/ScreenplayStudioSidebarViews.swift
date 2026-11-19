@@ -2,6 +2,28 @@ import SwiftUI
 import ScreenplayStudio
 import UniformTypeIdentifiers
 
+struct ScreenplayStudioProjectsDrawerGlyph: View {
+    let isCompact: Bool
+    let foreground: Color
+    let fill: Color
+    let stroke: Color
+
+    var body: some View {
+        Image(systemName: "sidebar.left")
+            .font(.system(size: 13, weight: .regular))
+            .foregroundStyle(foreground)
+            .frame(width: 28, height: 28)
+            .background(fill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(stroke, lineWidth: 1)
+                    .allowsHitTesting(false)
+            }
+            .padding(isCompact ? 8 : 0)
+            .contentShape(.interaction, Rectangle())
+    }
+}
+
 struct ScreenplayStudioSidebarModeTabs: View {
     @Binding var selection: ScreenplayStudioScreen.SidebarSection
     let secondaryTextColor: Color

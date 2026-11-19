@@ -2522,18 +2522,12 @@ private var directionOneHeaderLeftToggle: some View {
     Button {
         toggleDirectionOneSidebarVisibility()
     } label: {
-        Image(systemName: "sidebar.left")
-            .font(.system(size: 13, weight: .regular))
-            .foregroundStyle(directionOneChromeText.opacity(0.90))
-            .frame(width: 28, height: 28)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isDirectionOneSidebarVisible ? directionOneChromeSelectionFill : directionOneChromePanelSoft)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(isDirectionOneSidebarVisible ? directionOneChromeSelectionStroke : directionOneChromeStroke.opacity(0.55), lineWidth: 1)
-            )
+        ScreenplayStudioProjectsDrawerGlyph(
+            isCompact: isDirectionOneCompactLayout,
+            foreground: directionOneChromeText.opacity(0.90),
+            fill: isDirectionOneSidebarVisible ? directionOneChromeSelectionFill : directionOneChromePanelSoft,
+            stroke: isDirectionOneSidebarVisible ? directionOneChromeSelectionStroke : directionOneChromeStroke.opacity(0.55)
+        )
     }
     .buttonStyle(.plain)
     .accessibilityLabel(isDirectionOneSidebarVisible ? "Close project drawer" : "Open project drawer")
