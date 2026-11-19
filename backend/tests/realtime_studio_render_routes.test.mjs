@@ -963,7 +963,10 @@ test("[studio-render] sync: opening a screenplay gets a scene with silent featur
   const deps = defaultDeps();
   await withTestServer(deps, async (baseURL) => {
     const r = await postJson(baseURL, "/realtime/studio_render", {
-      transcript: "Write the opening scene of my feature film about Mara and Eli in a courthouse archive.",
+      transcript: [
+        "Intent: Produce screenplay-ready rewritten material that directly answers the writer.",
+        "Writer request: Write the opening scene of my feature film about Mara and Eli in a courthouse archive.",
+      ].join("\n\n"),
       screenplay_target: "page",
       screenplay_target_pages: 90,
     });

@@ -66,6 +66,37 @@ async function postJson(baseURL, path, payload, headers = {}) {
   return { status: r.status, body };
 }
 
+test("POST /screenplay/prompt/build classifies the writer's request inside the Studio composer prompt", async () => {
+  await withTestServer(async ({ baseURL }) => {
+    const variants = [
+      {
+        intent: "write_scene",
+        instruction: "Produce screenplay-ready rewritten material that directly answers the writer.",
+        request: "Write a screenplay about two astronauts stuck on a soundstage.",
+        expectedGuidance: /silently connect the three-act arc/,
+      },
+      {
+        intent: "outline_structure",
+        instruction: "Hold this as concise companion-side development guidance, not final page copy.",
+        request: "I have an idea for a movie about two astronauts who discover their spacecraft is a film set.",
+        expectedGuidance: /feature_plan:.*Act I.*Act II.*Act III/,
+      },
+    ];
+    for (const variant of variants) {
+      const userInput = `Intent: ${variant.instruction}\n\nWriter request: ${variant.request}`;
+      const { status, body } = await postJson(baseURL, "/screenplay/prompt/build", {
+        persona: "Clementine",
+        user_input: userInput,
+      });
+
+      assert.equal(status, 200);
+      assert.equal(body.screenplay_task_intent, variant.intent);
+      assert.match(body.prompt, variant.expectedGuidance);
+      assert.ok(body.prompt.endsWith(userInput), "Keep the full writer request and mode instruction");
+    }
+  });
+});
+
 test("POST /screenplay/prompt/build assembles persona, memory, session, user input, and craft block", async () => {
   await withTestServer(
     async ({ baseURL, requestedMemoryUserId, requestedMemoryArgs }) => {

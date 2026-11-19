@@ -527,7 +527,9 @@ function asksForWholeStoryPlan(lower) {
 }
 
 function inferScreenplayTask(userInput = "") {
-  const text = trimToString(userInput);
+  // Studio prepends an intent label. Some transports flatten its line breaks.
+  // Classify the writer's words while preserving the original prompt for delivery.
+  const text = trimToString(userInput).replace(/^Intent:[ \t]+[^\r\n]{1,180}?\s+Writer request:\s*/i, "");
   const lower = text.toLowerCase();
   if (!lower) return null;
   const featureMetadata = inferFeatureRequestMetadata(lower);
