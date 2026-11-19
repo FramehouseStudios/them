@@ -492,7 +492,7 @@ final class V1SmokeUITests: XCTestCase {
         let uniqueSuffix = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12).uppercased()
         let projectTitle = "Writer Loop \(uniqueSuffix)"
         let marker = "WRITER LOOP DRAFT \(uniqueSuffix)"
-        let expectedMarkdownFilename = "Writer-Loop-\(uniqueSuffix).md"
+        let expectedMarkdownFilename = "writer-loop-\(uniqueSuffix.lowercased()).md"
 
         var app = launchApp(
             openStudio: true,
@@ -681,7 +681,10 @@ final class V1SmokeUITests: XCTestCase {
         let shareExport = app.buttons["studio.export.share"]
         XCTAssertTrue(shareExport.waitForExistence(timeout: writerLoopWait(10)),
                       "Markdown export did not offer its copy to share.")
-        XCTAssertTrue(shareExport.label.contains(expectedMarkdownFilename))
+        XCTAssertTrue(
+            shareExport.label.contains(expectedMarkdownFilename),
+            "The share action did not stage the backend attachment: \(shareExport.label)"
+        )
         app.terminate()
 
         app = launchApp(

@@ -164,7 +164,10 @@ enum ScreenplayStudioExportSupport {
                 format: format
             )
 #elseif DEBUG
-            if deps.isRunningUITests {
+            // Standalone UI smoke tests can export without a backend. The
+            // authenticated writer loop supplies one and uses the shipping path.
+            let hasTestBackend = ProcessInfo.processInfo.environment["THEM_UITEST_BACKEND_BASE_URL"] != nil
+            if deps.isRunningUITests && !hasTestBackend {
                 artifact = try makeUITestArtifact(
                     draft: deps.draft,
                     title: deps.projectTitle,
