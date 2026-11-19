@@ -959,6 +959,28 @@ test("[studio-render] sync: page generation uses structural model budget and ret
   });
 });
 
+test("[studio-render] sync: opening a screenplay gets a scene with silent feature guidance", async () => {
+  const deps = defaultDeps();
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/studio_render", {
+      transcript: "Write the opening scene of my feature film about Mara and Eli in a courthouse archive.",
+      screenplay_target: "page",
+      screenplay_target_pages: 90,
+    });
+
+    assert.equal(r.status, 200);
+    assert.equal(r.body.reply, VALID_SCREENPLAY_REPLY);
+    assert.equal(r.body.screenplay_quality.ok, true);
+    assert.equal(r.body.structural_quality, undefined);
+    assert.equal(deps._calls.renderInvocations.length, 1);
+    const { systemPrompt } = deps._calls.renderInvocations[0];
+    assert.match(systemPrompt, /intent: write_scene/);
+    assert.match(systemPrompt, /target_pages: 90/);
+    assert.match(systemPrompt, /silently connect the three-act arc.*old tactic through behavior/);
+    assert.doesNotMatch(systemPrompt, /feature_architecture_delivery_order:/);
+  });
+});
+
 test("[studio-render] sync: first page pass receives feature metadata when client prompt is not canonical", async () => {
   const contextualReply = [
     "INT. COURTHOUSE ARCHIVE - NIGHT",

@@ -509,7 +509,7 @@ function presentsWholeStoryPitch(lower) {
   const pitch = lower
     .replace(/^(?:i(?: have(?: got)?|['’]ve got) an idea for|here['’]s my idea for)\s+/, "")
     .replace(/^(?:(?:i|we) (?:want to|wanna)|(?:i|we)['’]d like to|let['’]s)\s+(?:write|make)\s+/, "");
-  const match = pitch.match(/^(?:a|an|my|our)\s+([^.!?:]+?)(?:\s+(?:about|where|in which|that follows)\s+|:\s+)(?=\w)/);
+  const match = pitch.match(/^(?:a|an|the|my|our)\s+([^.!?:]+?)(?:\s+(?:about|where|in which|that follows)\s+|:\s+)(?=\w)/);
   return Boolean(match && isWholeStorySubject(match[1].trim()));
 }
 
@@ -596,6 +596,11 @@ function inferScreenplayTask(userInput = "") {
     /\b(write|draft|generate|compose)\b.*\b(scene|sequence|beat|pages?|dialogue|monologue)\b/,
     /\b(scene|sequence|beat)\b.*\b(write|draft|generate|compose)\b/,
   ]);
+  const draftCommand = lower.match(/^(?:please\s+)?(?:write|draft|generate|compose|start|begin)\s+(.+)$/s);
+  const openingDraft = featureMetadata.requestedPages === 0 && Boolean(draftCommand && (
+    /^(?:(?:the|an?|my|our)\s+)?(?:opening|first)\s+(?:scene|page)\b/.test(draftCommand[1]) ||
+    presentsWholeStoryPitch(draftCommand[1])
+  ));
   const outlineLike = /\b(outline|beat sheet|beats|act structure|three act|save the cat|story circle|hero'?s journey)\b/.test(lower);
   const defaultFeaturePitch = !featureMetadata.featureScope &&
     !sceneDoctorLike && !dialoguePunchupLike && !rewriteLike && !continueLike &&
@@ -623,19 +628,19 @@ function inferScreenplayTask(userInput = "") {
     intent = "rewrite_scene";
     label = "Rewrite Scene";
     output = "Return a revised scene or targeted passage in clean screenplay/Fountain style. Preserve story intent and continuity, replace only the requested span when the user names one, and improve specificity, rhythm, and emotional truth.";
-  } else if (featureCompletionLike) {
+  } else if (featureCompletionLike && !openingDraft) {
     intent = "finish_feature";
     label = "Finish Feature";
     output = "Finish the larger script: for planning, orient act/sequence pressure, next three turns, unresolved promises, character need, and the Act III payoff path. When the request asks for pages, write the next playable Fountain pages immediately with no diagnosis or strategy note unless explicitly asked.";
-  } else if (stuckLike) {
+  } else if (stuckLike && !openingDraft) {
     intent = "momentum_rescue";
     label = "Momentum Rescue";
     output = "Help the writer get moving like an elite story editor: diagnose the exact story stall, choose one strongest next beat, offer up to two alternate forks only if useful, then write a small playable sample in clean Fountain style when context is present.";
-  } else if (continueLike) {
+  } else if (continueLike && !openingDraft) {
     intent = "continue_script";
     label = "Continue Script";
     output = "Continue from the current draft in screenplay/Fountain style, matching tone, character voice, pacing, subtext, and emotional continuity. Treat the supplied draft as active continuity and do not restart the scene unless the user asks.";
-  } else if (draftLike) {
+  } else if (draftLike || openingDraft) {
     intent = "write_scene";
     label = "Write Scene";
     output = "Write usable screenplay pages in clean Fountain style with scene headings, action, character cues, dialogue, and restrained parentheticals.";
@@ -667,7 +672,7 @@ function inferScreenplayTask(userInput = "") {
 
   const task = { intent, label, output };
   if (defaultFeaturePitch) task.defaultFeaturePitch = true;
-  if (stuckLike) task.writerBlocked = true;
+  if (stuckLike && !openingDraft) task.writerBlocked = true;
   if (featureMetadata.requestedPages > 0) task.requestedPages = featureMetadata.requestedPages;
   if (featureMetadata.requestedAct) task.requestedAct = featureMetadata.requestedAct;
   if (wholeStoryPlan && intent === "outline_structure") task.featureScope = "whole_feature";
@@ -905,7 +910,7 @@ function buildScreenplayTaskBlock(screenplayTask) {
 function screenplayModeGuidanceForIntent(intent) {
   switch (intent) {
     case "write_scene":
-      return "Start in Fountain. Give the lead an immediate want, let an opposing goal push back, and land a visible turn that changes what someone can do next.";
+      return "Start in Fountain. Give the lead an immediate want, let an opposing goal push back, and land a visible turn that changes what someone can do next. For an opening, silently connect the three-act arc and show the lead's old tactic through behavior that plants a later cost.";
     case "rewrite_scene":
       return "Preserve the writer's intention and continuity while replacing the weak passage with stronger playable pages. Raise objective, obstacle, subtext, image, rhythm, and the scene turn. If this is page-targeted, output only the revised screenplay text. Give at most one craft sentence before pages when not page-targeted.";
     case "continue_script":

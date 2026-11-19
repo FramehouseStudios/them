@@ -1216,6 +1216,10 @@ test("[screenplay-task] sends complete cinematic character arcs and structure to
     ["I have an idea for a movie about two astronauts on a set. Write the opening scene.", "write_scene"],
     ["I want to write a sci-fi movie about two astronauts on a set. Write the opening scene.", "write_scene"],
     ["I'd like to write a scene about two astronauts on a film set.", "write_scene"],
+    ["Write a screenplay about two astronauts who discover their spacecraft is a film set.", "write_scene"],
+    ["Start the screenplay about two astronauts who discover their spacecraft is a film set.", "write_scene"],
+    ["Write a screenplay about two astronauts stuck on a soundstage.", "write_scene"],
+    ["Write the opening scene of my feature film about two astronauts on a set.", "write_scene"],
     ["I have an idea for a movie about two astronauts on a set. Rewrite only the last line.", "rewrite_scene"],
     ["I have an idea for a movie about two astronauts on a set. I'm stuck on what happens next.", "momentum_rescue"],
     ["I have an idea for a movie about two astronauts on a set. Outline the opening scene.", "outline_structure"],
@@ -1224,6 +1228,7 @@ test("[screenplay-task] sends complete cinematic character arcs and structure to
     const task = inferScreenplayTask(userInput);
     assert.equal(task.intent, intent, userInput);
     assert.notEqual(task.featureScope, "whole_feature", userInput);
+    if (intent === "write_scene") assert.notEqual(task.writerBlocked, true, userInput);
   }
   const pages = inferScreenplayTask("Write the next five pages of my 90-page feature film.");
   assert.equal(pages.featureScope, "page_batch");
@@ -1245,6 +1250,7 @@ test("[screenplay-task] preserves default cinematic craft on a scene-writing tur
   assert.match(taskBlock, /screenplay_craft:.*costly choices reveal character and drive turns/i);
   assert.match(taskBlock, /screenplay_craft:.*plant and pay off filmable details\.$/im);
   assert.match(taskBlock, /mode_contract:.*Fountain.*immediate want.*push back.*visible turn/im);
+  assert.match(taskBlock, /mode_contract:.*silently connect the three-act arc.*old tactic through behavior that plants a later cost/im);
   assert.doesNotMatch(fitted, /feature_plan:/);
 });
 

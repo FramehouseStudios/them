@@ -26,10 +26,10 @@
         "pageCount": 7,
         "targetPages": 110
       },
-      "expectedIntent": "finish_feature",
+      "expectedIntent": "write_scene",
       "maxChars": 12000,
       "mustInclude": [
-        "intent: finish_feature",
+        "intent: write_scene",
         "current_sequence: Act I - Opening Image / Ordinary World",
         "Act I: wound, want, catalyst, debate, irreversible choice",
         "expert_scene_execution:",
@@ -37,7 +37,7 @@
         "feature_completion_protocol:",
         "feature_scale_output_contract:",
         "Page batches must change story state every 1-2 pages",
-        "For page requests, keep diagnosis to one sentence and start the pages immediately",
+        "silently connect the three-act arc and show the lead's old tactic through behavior that plants a later cost",
         "ending_image: The empty pool filled with rainwater at dawn."
       ]
     },
