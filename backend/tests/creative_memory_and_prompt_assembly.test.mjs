@@ -1142,6 +1142,9 @@ test("[screenplay-task] sends complete cinematic character arcs and structure to
     "Give me a beat sheet for a story about sisters re-opening a cinema.",
     "Help me develop a story where a pianist loses her hearing.",
     "Outline a film about a nurse who must rewrite what she told the police.",
+    "I have an idea for a movie about two astronauts who discover their spacecraft is a film set.",
+    "I've got an idea for a science fiction feature where the last astronaut has to bring a crew home without telling them they never left Earth.",
+    "A thriller about sisters trying to reopen a cinema before its last screening.",
   ]) {
     const task = inferScreenplayTask(userInput);
     assert.equal(task.intent, "outline_structure", userInput);
@@ -1174,6 +1177,12 @@ test("[screenplay-task] sends complete cinematic character arcs and structure to
     assert.doesNotMatch(fitted, /requested_page_batch:/);
   }
 
+  const firstPitch = "I have an idea for a movie about two astronauts who discover their spacecraft is a film set.";
+  const pitchPrompt = buildModelPrompt({ screenplayTask: inferScreenplayTask(firstPitch) });
+  assert.match(pitchPrompt, /target_pages: 120/);
+  assert.match(pitchPrompt, /concrete opening image changes meaning at the end/);
+  assert.match(pitchPrompt, /climactic choice proves change, refusal or conviction/);
+
   const characterRequest = "Develop the complete character arc for the projectionist.";
   const characterTask = inferScreenplayTask(characterRequest);
   assert.equal(characterTask.intent, "character_development");
@@ -1199,6 +1208,17 @@ test("[screenplay-task] sends complete cinematic character arcs and structure to
     "Give me a beat sheet for the opening scene.",
   ]) {
     assert.notEqual(inferScreenplayTask(userInput).featureScope, "whole_feature", userInput);
+  }
+  for (const [userInput, intent] of [
+    ["I have an idea for a movie about two astronauts on a set. Write the opening scene.", "write_scene"],
+    ["I have an idea for a movie about two astronauts on a set. Rewrite only the last line.", "rewrite_scene"],
+    ["I have an idea for a movie about two astronauts on a set. I'm stuck on what happens next.", "momentum_rescue"],
+    ["I have an idea for a movie about two astronauts on a set. Outline the opening scene.", "outline_structure"],
+    ["I watched a movie about two astronauts on a set.", "general_story"],
+  ]) {
+    const task = inferScreenplayTask(userInput);
+    assert.equal(task.intent, intent, userInput);
+    assert.notEqual(task.featureScope, "whole_feature", userInput);
   }
   const pages = inferScreenplayTask("Write the next five pages of my 90-page feature film.");
   assert.equal(pages.featureScope, "page_batch");

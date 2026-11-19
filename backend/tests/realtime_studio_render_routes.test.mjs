@@ -1373,6 +1373,60 @@ test("[studio-render-stream] sse: buffers weak structural draft and emits only r
   });
 });
 
+test("[studio-render-stream] sse: spoken movie pitch delivers repaired three-act architecture", async () => {
+  const partial = "Act I: Mara finds the forged affidavit.";
+  const repairCalls = [];
+  const deps = defaultDeps({
+    streamStudioRealtimeText: async ({ onDelta, systemPrompt, modelTier, maxTokens }) => {
+      assert.equal(modelTier, "structural");
+      assert.equal(maxTokens, 2_600);
+      assert.match(systemPrompt, /feature_plan:.*Act I.*Act II.*Act III/);
+      assert.match(systemPrompt, /character_arc:.*climactic choice/);
+      await onDelta(partial, partial);
+      return partial;
+    },
+    renderStudioRealtimeText: async (options) => {
+      repairCalls.push(options);
+      return VALID_FEATURE_ARCHITECTURE_REPLY;
+    },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postSse(baseURL, "/realtime/studio_render_stream", {
+      transcript: "I have an idea for a thriller about Mara exposing a forged affidavit without betraying Eli.",
+      screenplay_target: "voice_pin",
+    });
+    assert.equal(r.status, 200);
+    assert.doesNotMatch(r.text, /Act I: Mara finds the forged affidavit\./);
+    assert.match(r.text, /Act I: Mara wants to expose the forged testimony/);
+    assert.match(r.text, /Act III: Mara needs to surrender control/);
+    assert.match(r.text, /"outcome":"repaired_pass"/);
+    assert.match(r.text, /event: done\b/);
+    assert.equal(repairCalls.length, 1);
+  });
+});
+
+test("[studio-render] sync: the same pitch in page mode still returns Fountain", async () => {
+  const deps = defaultDeps({
+    renderStudioRealtimeText: async (options) => {
+      deps._calls.renderInvocations.push(options);
+      return VALID_SCREENPLAY_REPLY;
+    },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/studio_render", {
+      transcript: "I have an idea for a thriller about Mara exposing a forged affidavit without betraying Eli.",
+      screenplay_target: "page",
+    });
+    assert.equal(r.status, 200);
+    assert.equal(r.body.reply, VALID_SCREENPLAY_REPLY);
+    assert.equal(r.body.screenplay_quality.ok, true);
+    assert.equal(r.body.structural_quality, undefined);
+    assert.equal(deps._calls.renderInvocations.length, 1);
+    assert.equal(deps._calls.renderInvocations[0].maxTokens, 1_600);
+    assert.match(deps._calls.renderInvocations[0].systemPrompt, /For pages, apply silently/);
+  });
+});
+
 test("[studio-render-stream] sse: applies corrected character bible memory and exposes metadata", async () => {
   const deps = defaultDeps({
     resolveUserId: () => "user-1",
