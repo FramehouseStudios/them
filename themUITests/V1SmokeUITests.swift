@@ -100,10 +100,19 @@ final class V1SmokeUITests: XCTestCase {
         let app = launchApp(openStudio: true, openCommandBar: true)
         defer { app.terminate() }
         let prompt = element(identifier: "studio.prompt.field", in: app)
-        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        guard drawer.waitForExistence(timeout: 8), prompt.waitForExistence(timeout: 8),
+              revealInStudioDrawer(prompt, drawer: drawer, scrollingUp: false, maxSwipes: 12) else {
+            XCTFail("The opened command bar must expose a hittable prompt field.")
+            return
+        }
+        // Drive the focus transition directly. Launch can mount the prompt
+        // before SwiftUI delivers its initial keyboard focus.
+        prompt.tap()
         guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
         let keyboardSend = app.buttons["studio.prompt.keyboard-send"]
-        XCTAssertTrue(keyboardSend.waitForExistence(timeout: 5))
+        XCTAssertTrue(keyboardSend.waitForExistence(timeout: 5),
+                      "Focusing the prompt must expose its keyboard Send action.")
         let inspectorToggle = app.buttons["studio.sidebar.right.toggle"]
         XCTAssertTrue(waitForHittability(of: inspectorToggle, timeout: 5))
         inspectorToggle.tap()
@@ -119,7 +128,6 @@ final class V1SmokeUITests: XCTestCase {
         add(pageKeyboard)
         XCTAssertTrue(waitForDisappearance(of: keyboardSend, timeout: 3))
         inspectorToggle.tap()
-        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
         XCTAssertTrue(drawer.waitForExistence(timeout: 5))
         XCTAssertTrue(revealInStudioDrawer(prompt, drawer: drawer, scrollingUp: false, maxSwipes: 12))
         prompt.tap()
