@@ -239,6 +239,10 @@ final class ScreenplayEditorBindingIntegrationTests: XCTestCase {
         bridge.prepareNextPageWriteReplacement(startLine: 3, currentText: "The valve opens.")
         bridge.capturePendingPageWriteReplacementForSubmission(requestID: "rewrite-1")
         let target = try XCTUnwrap(bridge.submittedReplacementTarget)
+        bridge.draftText = ""
+        XCTAssertNil(bridge.stageUnanchoredPage(revised), "A late rewrite cannot repopulate a cleared page.")
+        XCTAssertTrue(bridge.draftText.isEmpty)
+        bridge.draftText = original
         let model = makeModel()
         model.fountainDraft = original
         let (coordinator, editor) = prepareDeferredTyping(model: model)

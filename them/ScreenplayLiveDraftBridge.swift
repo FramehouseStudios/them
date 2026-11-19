@@ -6393,6 +6393,15 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         submittedReplacementTarget ?? pendingReplacementTarget
     }
 
+    func stageUnanchoredPage(_ text: String) -> String? {
+        guard currentInsertionReplacementTarget() == nil, streamingVoicePreviewTarget == nil else { return nil }
+        let nextDraft = appendWithSpacing(existing: previewFormattingBaseDraft, insertion: text)
+        if draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            draftText = nextDraft
+        }
+        return nextDraft
+    }
+
     func resolvedRewriteRange(_ target: ScreenplayPendingReplacementTarget, in draft: String,
                               lineRange: NSRange) -> NSRange? {
         guard currentInsertionReplacementTarget()?.id == target.id,

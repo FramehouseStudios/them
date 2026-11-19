@@ -8938,13 +8938,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         liveScreenplayText = cleanText
         liveScreenplayUpdatedAt = Date()
 
-        let draftForStudio = mergedStudioDraft(
-            existing: screenplayDraftBridge.previewFormattingBaseDraft,
-            insertion: cleanText
-        )
-        if screenplayDraftBridge.draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            screenplayDraftBridge.draftText = draftForStudio
-        }
+        let draftForStudio = screenplayDraftBridge.stageUnanchoredPage(cleanText)
 
         if screenplayDraftBridge.isStreamingDraftPreviewActive {
             screenplayDraftBridge.commitStreamingVoiceTurn(
@@ -8968,12 +8962,11 @@ Write this approved story direction directly into screenplay pages now. Maintain
             )
         }
 
-        autoCreateStudioProjectIfNeeded(
-            draft: draftForStudio,
-            pack: cleanPack,
-            phase: cleanPhase,
-            existingProjectID: cleanProject
-        )
+        if let draftForStudio {
+            autoCreateStudioProjectIfNeeded(
+                draft: draftForStudio, pack: cleanPack, phase: cleanPhase, existingProjectID: cleanProject
+            )
+        }
         return cleanText
     }
 
