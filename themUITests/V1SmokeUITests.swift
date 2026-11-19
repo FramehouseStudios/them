@@ -1113,16 +1113,39 @@ final class V1SmokeUITests: XCTestCase {
         let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true)
         defer { app.terminate() }
 
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
         let themTab = app.buttons["studio.right-panel.them"]
+#if os(iOS)
+        let draftTab = app.buttons["studio.right-panel.draft"]
+        let window = app.windows.firstMatch
+        guard drawer.waitForExistence(timeout: 8),
+              themTab.waitForExistence(timeout: 8),
+              window.waitForExistence(timeout: 3),
+              waitForSelection(of: draftTab, timeout: 3) else {
+            XCTFail("The overview fixture must start on the Draft inspector with a visible Them tab.")
+            return
+        }
+        let frame = themTab.frame
+        let windowFrame = window.frame
+        guard !frame.isEmpty, drawer.frame.contains(frame), windowFrame.contains(frame),
+              !themTab.isSelected, (themTab.value as? String) != "Selected" else {
+            XCTFail("The visible Them tab must be inside the inspector and unselected before the touch.")
+            return
+        }
+        // SwiftUI routes by touch location. XCTest's automatic accessibility
+        // hit point can fall outside the visible label on the hosted simulator.
+        window.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: frame.midX - windowFrame.minX, dy: frame.midY - windowFrame.minY)).tap()
+#else
         XCTAssertTrue(themTab.waitForExistence(timeout: 8))
         themTab.tap()
+#endif
         XCTAssertTrue(
             waitForSelection(of: themTab, timeout: 3),
-            "Tapping the Them inspector tab did not select it; tab accessibility frames may be stale."
+            "A tap inside the visible Them tab must select it."
         )
 
         XCTAssertTrue(app.descendants(matching: .any)["studio.them.panel"].waitForExistence(timeout: 4))
-        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
 
         let creativePartner = element(identifier: "studio.them.creative-partner", in: app)
         XCTAssertTrue(
