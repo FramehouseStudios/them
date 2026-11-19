@@ -1171,11 +1171,10 @@ Replace is best when this file should become the script you edit. Append is safe
                     }
                 }
             }
+            .onChange(of: liveDraftBridge.staleRewriteNotice) { _, _ in vm.errorText = "Draft changed. Reselect text to retry." }
             .onChange(of: liveDraftBridge.pendingInsertion) { _, request in
                 switch request?.mode {
-                case .streamPreview:
-                    clearWriteCommitUI()
-                case .streamCancel:
+                case .streamPreview, .streamCancel:
                     clearWriteCommitUI()
                 default:
                     break

@@ -215,6 +215,68 @@ final class ScreenplayEditorBindingIntegrationTests: XCTestCase {
         XCTAssertEqual(model.editorExternalDraftMutationRevision, revision)
     }
 
+    func testGeneratedRewriteWaitsForFinalAndRefusesChangedDraft() async throws {
+        let bridge = ScreenplayLiveDraftBridge.shared
+        let oldProject = bridge.preferredProjectID
+        let oldDraft = bridge.draftText
+        let oldInsertion = bridge.pendingInsertion
+        let oldPending = bridge.pendingReplacementTarget
+        let oldSubmitted = bridge.submittedReplacementTarget
+        let oldSubmission = bridge.replacementSubmissionID
+        defer {
+            bridge.preferredProjectID = oldProject
+            bridge.draftText = oldDraft
+            bridge.pendingInsertion = oldInsertion
+            bridge.pendingReplacementTarget = oldPending
+            bridge.capturePendingPageWriteReplacementForSubmission(requestID: oldSubmission)
+            bridge.submittedReplacementTarget = oldSubmitted
+        }
+
+        let original = "INT. ENGINE ROOM - NIGHT\n\nThe valve opens.\n\nShe checks the meter."
+        let revised = "The red valve snaps shut."
+        bridge.preferredProjectID = "project-a"
+        bridge.draftText = original
+        bridge.prepareNextPageWriteReplacement(startLine: 3, currentText: "The valve opens.")
+        bridge.capturePendingPageWriteReplacementForSubmission(requestID: "rewrite-1")
+        let target = try XCTUnwrap(bridge.submittedReplacementTarget)
+        let model = makeModel()
+        model.fountainDraft = original
+        let (coordinator, editor) = prepareDeferredTyping(model: model)
+
+        let preview = ScreenplayInsertionRequest(text: revised, mode: .voiceRevealPrepare, replacementTarget: target)
+        bridge.pendingInsertion = preview
+        coordinator.applyInsertion(preview)
+        XCTAssertEqual(editor.text, original)
+
+        let newer = original + "\n\nShe keeps the key."
+        editor.text = newer
+        let final = ScreenplayInsertionRequest(text: revised, mode: .voiceRevealFinalize, replacementTarget: target)
+        bridge.pendingInsertion = final
+        coordinator.applyInsertion(final)
+        await drainDeferredPublication()
+        XCTAssertEqual(editor.text, newer)
+        XCTAssertNil(bridge.pendingInsertion)
+        XCTAssertEqual(bridge.staleRewriteNotice, target.id)
+
+        editor.text = original
+        let retired = ScreenplayInsertionRequest(text: revised, mode: .streamCommit, replacementTarget: target)
+        bridge.pendingInsertion = retired
+        coordinator.applyInsertion(retired)
+        await drainDeferredPublication()
+        XCTAssertEqual(editor.text, original, "Reverting the draft cannot replay a retired rewrite.")
+
+        bridge.prepareNextPageWriteReplacement(startLine: 3, currentText: "The valve opens.")
+        bridge.capturePendingPageWriteReplacementForSubmission(requestID: "rewrite-2")
+        let freshTarget = try XCTUnwrap(bridge.submittedReplacementTarget)
+        let fresh = ScreenplayInsertionRequest(text: revised, mode: .streamCommit, replacementTarget: freshTarget)
+        bridge.pendingInsertion = fresh
+        coordinator.applyInsertion(fresh)
+        await drainDeferredPublication()
+        XCTAssertEqual(editor.text, original.replacingOccurrences(of: "The valve opens.", with: revised))
+        XCTAssertEqual(model.fountainDraft, editor.text)
+        XCTAssertNil(bridge.pendingInsertion)
+    }
+
     func testInterruptedRewriteCleanupRetiresOnlyItsOriginalTargetAfterExternalEdit() async {
         await exerciseInterruptedRewriteCleanup(startNewSubmission: false)
     }
