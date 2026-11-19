@@ -4823,11 +4823,22 @@ final class V1SmokeUITests: XCTestCase {
         }
         for _ in 0..<4 {
             if accountIsFullyVisible() { break }
-            if account.frame.midX > homeRail.frame.midX {
-                homeRail.swipeLeft(velocity: .slow)
-            } else {
-                homeRail.swipeRight(velocity: .slow)
-            }
+            let railFrame = homeRail.frame
+            let viewport = railFrame.intersection(app.windows.firstMatch.frame)
+            let accountFrame = account.frame
+            guard !viewport.isEmpty, !accountFrame.isEmpty else { break }
+
+            // A full swipe can fling past Sign In and send the next swipe
+            // back to the first item. Drag toward its measured position and
+            // stop before lifting so the rail settles near the target.
+            let distance = accountFrame.midX - viewport.midX
+            let limit = viewport.width * 0.4
+            let travel = min(max(abs(distance), 44), limit) * (distance < 0 ? -1 : 1)
+            let anchor = homeRail.coordinate(withNormalizedOffset: .zero).withOffset(
+                CGVector(dx: viewport.midX - railFrame.minX, dy: viewport.midY - railFrame.minY)
+            )
+            let end = anchor.withOffset(CGVector(dx: -travel, dy: 0))
+            anchor.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.12)
         }
         guard accountIsFullyVisible() else {
             throw NSError(domain: "themUITests.recovery", code: 6,
