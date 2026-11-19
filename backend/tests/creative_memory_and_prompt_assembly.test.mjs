@@ -1159,6 +1159,9 @@ test("[screenplay-task] sends complete cinematic character arcs and structure to
     assert.match(fitted, /costly final choice/);
     assert.match(fitted, /payoff and final image/);
     assert.match(fitted, /Next three scenes/);
+    const taskBlock = fitted.match(/<screenplay_task>([\s\S]*?)<\/screenplay_task>/)?.[1];
+    assert.ok(taskBlock);
+    assert.doesNotMatch(taskBlock, /Fountain pages first/);
     assert.match(fitted, /character_arc:.*want and conflicting need.*old tactic.*climactic choice.*supporting characters distinct wants and choices/);
     assert.doesNotMatch(fitted, /requested_page_batch:/);
   }
@@ -1181,9 +1184,12 @@ test("[screenplay-task] preserves default cinematic craft on a scene-writing tur
   });
   const fitted = fitSystemPromptForTurnLatency(prompt, { fastMaxChars: 3_800 });
   assert.ok(fitted.length <= 3_800);
-  assert.match(fitted, /screenplay_craft:.*distinct tactics/);
-  assert.match(fitted, /screenplay_craft:.*costly choices/);
-  assert.match(fitted, /screenplay_craft:.*plant and pay off/);
+  const taskBlock = fitted.match(/<screenplay_task>([\s\S]*?)<\/screenplay_task>/)?.[1];
+  assert.ok(taskBlock);
+  assert.match(taskBlock, /screenplay_craft:.*distinct tactics.*subtext/i);
+  assert.match(taskBlock, /screenplay_craft:.*costly choices/i);
+  assert.match(taskBlock, /screenplay_craft:.*plant and pay off filmable details\.$/im);
+  assert.match(taskBlock, /mode_contract:.*Fountain.*immediate want.*push back.*visible turn/im);
   assert.doesNotMatch(fitted, /feature_plan:/);
 });
 

@@ -64,7 +64,8 @@ const CLEMENTINE_CREATIVE_PACT = [
   "feature compass and feature-length continuity: silently lock act, sequence, scene job, want/need, emotional handoff, open setup, exit turn, next three turns, Act III payoff path, and final-image pressure.",
   "continuation memory contract and page batch discipline: spend the first remembered turn before inventing; for 5-15 page asks, change story state every 1-2 pages and hand each turn into the next.",
   "expert page engine and subtext engine: every scene needs objective, obstacle, pressure clock, tactic, reversal/cost, residue, exit image, and dialogue shaped by concealment, interruption, pressure, and character-specific rhythm.",
-  "screenplay_craft: Use distinct tactics and subtext; costly choices cause the next turn; image system: plant and pay off visible details. production format: clean playable Fountain, visible action and rhythm, no novelistic interiority.",
+  "screenplay_craft: Use distinct tactics and subtext. Costly choices drive turns. Plant and pay off filmable details.",
+  "image system and production format: For pages, write clean playable Fountain. Keep action and recurring details filmable.",
   "self-check loop: silently plan, write, verify act/continuity/page quality, and repair the weakest point before final output; never announce the loop.",
   "writer's block rescue and momentum: when the writer is stuck or broad, diagnose the missing want, obstacle, consequence, tactic change, act pressure, or exit turn; choose one strong pressure engine and convert it into playable behavior.",
   "speed discipline and collaboration: pages begin immediately without throat-clearing, menus, or permission loops; ask at most one question only when truly blocked, otherwise make the next best creative move.",
@@ -802,7 +803,7 @@ function buildScreenplayTaskBlock(screenplayTask) {
     lines.push("feature_architecture_delivery_order:");
     lines.push("  - First deliver a compact complete causal spine covering Act I, Act II, and Act III before expanding any act. Never spend the opening budget detailing Act I while later acts remain unstated.");
     lines.push("  - The spine must name catalyst, commitment, midpoint reversal, crisis or all-is-lost, climax, final image, and at least one setup -> payoff path.");
-    lines.push("  - Connect each major turn with because/therefore causality and show how the protagonist's old tactic fails until changed behavior wins the climax.");
+    lines.push("  - Connect each major turn with because/therefore causality and show how the old tactic fails and how the climactic choice proves change or refusal.");
     lines.push("  - Immediately after the complete spine, add a literal 'Next three scenes' heading and list three playable scene turns from the current story state. Only then add optional detail.");
   }
   if (intent === "momentum_rescue") {
@@ -848,7 +849,7 @@ function buildScreenplayTaskBlock(screenplayTask) {
 function screenplayModeGuidanceForIntent(intent) {
   switch (intent) {
     case "write_scene":
-      return "Write the scene as usable pages first: slugline, action, character cues, dialogue, and playable behavior. Build objective, obstacle, pressure clock, escalation, reversal or turn, emotional residue, and an exit image. Keep explanation out unless asked.";
+      return "Start in Fountain. Give the lead an immediate want, let an opposing goal push back, and land a visible turn that changes what someone can do next.";
     case "rewrite_scene":
       return "Preserve the writer's intention and continuity while replacing the weak passage with stronger playable pages. Raise objective, obstacle, subtext, image, rhythm, and the scene turn. If this is page-targeted, output only the revised screenplay text. Give at most one craft sentence before pages when not page-targeted.";
     case "continue_script":

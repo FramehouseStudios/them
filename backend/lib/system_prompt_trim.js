@@ -308,21 +308,25 @@ function compactScreenplayTaskBody(body, bodyLimit) {
   const intentLine = firstLineStartingWith(lines, "intent:");
   const intent = intentLine.replace(/^intent:\s*/i, "");
   const featurePlan = firstLineStartingWith(lines, "feature_plan:");
+  const sceneMode = intent === "write_scene"
+    ? firstLineStartingWith(lines, "mode_guidance:").replace(/^mode_guidance:/, "mode_contract:")
+    : "";
   return compactSemanticLines([
     { value: intentLine, maxChars: 100 },
     { value: featurePlan, maxChars: 185, minChars: 172 },
-    { value: firstLineStartingWith(lines, "screenplay_craft:"), maxChars: 140, minChars: 130 },
+    { value: firstLineStartingWith(lines, "screenplay_craft:"), maxChars: 120, minChars: 114 },
+    { value: sceneMode, maxChars: sceneMode.length, minChars: sceneMode.length },
+    { value: firstLineStartingWith(lines, "character_arc:"), maxChars: 240 },
     { value: firstLineStartingWith(lines, "label:"), maxChars: 120 },
     { value: firstLineStartingWith(lines, "role:"), maxChars: 150 },
     { value: firstLineStartingWith(lines, "feature_scope:"), maxChars: 100 },
     { value: firstLineStartingWith(lines, "requested_act:"), maxChars: 100 },
     { value: firstLineStartingWith(lines, "requested_page_batch:"), maxChars: 100 },
     {
-      value: "craft_contract: whole-feature authorship; page batch discipline; expert page engine; subtext engine; image system; speed discipline; Fountain pages first; verify continuity.",
+      value: featurePlan ? "" : "craft_contract: whole-feature authorship; page batch discipline; expert page engine; subtext engine; image system; speed discipline; Fountain pages first; verify continuity.",
       maxChars: 180,
     },
-    { value: featurePlan ? "" : screenplayModeContract(intent), maxChars: 230 },
-    { value: firstLineStartingWith(lines, "character_arc:"), maxChars: 270 },
+    { value: featurePlan || sceneMode ? "" : screenplayModeContract(intent), maxChars: 230 },
     { value: firstLineStartingWith(lines, ["likely_stall:", "diagnosis:", "strongest_engine:", "rank_1:"]), maxChars: 190 },
     { value: firstLineStartingWith(lines, "output:"), maxChars: 180 },
     { value: firstLineStartingWith(lines, "quality:"), maxChars: 170 },
