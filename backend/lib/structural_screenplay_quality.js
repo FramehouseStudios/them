@@ -260,7 +260,7 @@ function featureArchitectureDirectives(reason) {
     underdeveloped_feature_architecture: "Develop the architecture far enough to guide the writer from the current pages through the ending.",
     missing_three_act_progression: "State distinct Act I, Act II, and Act III jobs and make each act force the next.",
     missing_causal_act_bridges: "Connect the acts causally: show how commitment creates the middle trap and how the middle loss forces the climax.",
-    missing_character_arc_engine: "Tie structure to the protagonist's want, need, wound or false belief, tactic failure, and changed behavior.",
+    missing_character_arc_engine: "Show the lead's external goal and the inner need or belief that complicates it. Make that conflict drive a tactic, a loss, and the ending choice.",
     missing_major_feature_turns: "Carry the catalyst and commitment into a midpoint reversal and crisis. Resolve the pressure through the protagonist’s costly climactic choice, then show its consequence in a filmable final image.",
     missing_setup_payoff_path: "Track at least one setup, promise, relationship wound, or image through its Act III payoff.",
     missing_scene_forward_plan: "End with the next sequence or three playable scene turns so the writer can continue immediately.",
@@ -321,7 +321,8 @@ function evaluateFeatureArchitecture(text, storyContext = null) {
   const words = countWords(text);
   const { act1, act2, act3 } = featureActSections(text);
   const majorFeatureTurns =
-    /\b(?:catalyst|inciting incident|inciting event|act i turn|commitment|break into two)\b/i.test(act1) &&
+    /\b(?:catalyst|inciting incident|inciting event|inciting turn|triggering event)\b/i.test(act1) &&
+    /\b(?:act i turn|commit(?:ment|s|ted)?|break into (?:act )?(?:two|ii)|point of no return|irreversible (?:decision|choice)|closes? (?:off )?(?:the |her |his |their )?(?:safe |private )?(?:escape|exit|way back))\b/i.test(act1) &&
     /\b(?:midpoint|midway|mid[- ]film reversal)\b/i.test(act2) &&
     /\b(?:all[- ]is[- ]lost|crisis|low point|dark night|rock bottom)\b/i.test(act2) &&
     /\b(?:climax|climactic choice|final confrontation|final choice|decisive choice)\b/i.test(act3) &&
@@ -333,11 +334,9 @@ function evaluateFeatureArchitecture(text, storyContext = null) {
     developed: words >= 110,
     threeActProgression: Boolean(act1 && act2 && act3),
     causalActBridges: causalBridgeCount >= 2,
-    characterArcEngine: countMatches(text.toLowerCase(), [
-      /\b(?:want|goal|objective)\b/,
-      /\b(?:need|wound|false belief|misbelief)\b/,
-      /\b(?:old tactic|changed behavior|change[sd]? tactic|transformation)\b/,
-    ]) >= 2,
+    characterArcEngine:
+      /\b(?:wants?|goals?|objectives?)\b/i.test(text) &&
+      /\b(?:needs?|wound|false belief|misbelief)\b/i.test(text),
     majorFeatureTurns,
     setupPayoffPath: (
       (/\b(?:setup|plant(?:ed|s)?|promise)\b/i.test(text) && /\b(?:payoff|pays? off|echo|returns?|transform)\b/i.test(text)) ||

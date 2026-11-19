@@ -1143,6 +1143,8 @@ test("[screenplay-task] sends complete cinematic character arcs and structure to
     "Help me develop a story where a pianist loses her hearing.",
     "Outline a film about a nurse who must rewrite what she told the police.",
     "I have an idea for a movie about two astronauts who discover their spacecraft is a film set.",
+    "I want to write a sci-fi movie about two astronauts who discover their spacecraft is a film set.",
+    "I'd like to make a drama about a projectionist giving her last screening.",
     "I've got an idea for a science fiction feature where the last astronaut has to bring a crew home without telling them they never left Earth.",
     "A thriller about sisters trying to reopen a cinema before its last screening.",
   ]) {
@@ -1170,6 +1172,7 @@ test("[screenplay-task] sends complete cinematic character arcs and structure to
     assert.match(fitted, /costly final choice/);
     assert.match(fitted, /pays off setup.*final image/);
     assert.match(fitted, /Next three scenes/);
+    if (task.defaultFeaturePitch) assert.match(fitted, /feature_plan:.*Pages: plan silently\./);
     const taskBlock = fitted.match(/<screenplay_task>([\s\S]*?)<\/screenplay_task>/)?.[1];
     assert.ok(taskBlock);
     assert.doesNotMatch(taskBlock, /Fountain pages first/);
@@ -1211,6 +1214,8 @@ test("[screenplay-task] sends complete cinematic character arcs and structure to
   }
   for (const [userInput, intent] of [
     ["I have an idea for a movie about two astronauts on a set. Write the opening scene.", "write_scene"],
+    ["I want to write a sci-fi movie about two astronauts on a set. Write the opening scene.", "write_scene"],
+    ["I'd like to write a scene about two astronauts on a film set.", "write_scene"],
     ["I have an idea for a movie about two astronauts on a set. Rewrite only the last line.", "rewrite_scene"],
     ["I have an idea for a movie about two astronauts on a set. I'm stuck on what happens next.", "momentum_rescue"],
     ["I have an idea for a movie about two astronauts on a set. Outline the opening scene.", "outline_structure"],

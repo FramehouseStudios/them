@@ -138,18 +138,31 @@ test("[structural-quality] rejects a beat list that does not architect all three
 });
 
 test("[structural-quality] accepts causal feature architecture with a scene-forward handoff", () => {
+  const acts = [
+    "Act I: Mara's goal is to expose the forged testimony while her false belief tells her that truth destroys anyone who speaks it. The catalyst is the public affidavit. Her commitment is putting it on the record. A subpoena then arrives, which forces her to face the man who forged it.",
+    "Act II: her old tactic is controlling evidence alone. The first sequence makes that tactic appear to work, but the midpoint reveals that Eli carried the missing reel, therefore her apparent proof becomes a relationship betrayal. The crisis comes when Mara broadcasts the wrong memory and loses Eli's trust.",
+    "Act III: the planted reel and her promise to Eli pay off in the climax when she gives him the final choice. The final image transforms the edit-bay monitor from a hiding place into a public witness.",
+    "Next three scenes: Mara discovers the reel splice; Eli refuses her old tactic; Mara chooses the live microphone and makes the hearing inevitable.",
+  ];
   const quality = evaluateStructuralScreenplayReply({
     modelReason: "screenplay_feature_architecture",
-    reply: [
-      "Act I: Mara wants to expose the forged testimony while her wound and false belief tell her that truth destroys anyone who speaks it. The catalyst is the public affidavit. Her commitment comes when she puts it on the record, which forces her into the investigation and closes the private escape route.",
-      "Act II: her old tactic is controlling evidence alone. The first sequence makes that tactic appear to work, but the midpoint reveals that Eli carried the missing reel, therefore her apparent proof becomes a relationship betrayal. That reversal drives escalating public pressure. The all is lost crisis comes when Mara broadcasts the wrong memory and loses Eli's trust, which forces changed behavior instead of another clever concealment.",
-      "Act III: Mara needs to surrender control and tell the unedited truth. The planted reel and her promise to Eli pay off in the climax when she gives him the final choice. Her changed behavior resolves the central question, and the final image transforms the edit-bay monitor from a hiding place into a public witness.",
-      "Next three scenes: Mara discovers the reel splice; Eli refuses her old tactic; Mara chooses the live microphone and makes the hearing inevitable.",
-    ].join("\n\n"),
+    reply: acts.join("\n\n"),
   });
   assert.equal(quality.ok, true);
   assert.equal(quality.reason, "ok");
   assert.equal(quality.score, 1);
+
+  for (const [omission, expected] of [
+    [" while her false belief tells her that truth destroys anyone who speaks it", "missing_character_arc_engine"],
+    [" Her commitment is putting it on the record.", "missing_major_feature_turns"],
+  ]) {
+    const weakReply = acts.join("\n\n").replace(omission, "");
+    assert.notEqual(weakReply, acts.join("\n\n"));
+    assert.equal(evaluateStructuralScreenplayReply({
+      modelReason: "screenplay_feature_architecture",
+      reply: weakReply,
+    }).reason, expected);
+  }
 });
 
 test("[structural-quality] accepts numbered Markdown acts and a tragic character choice", () => {
@@ -216,7 +229,7 @@ test("[structural-quality] accepts architecture grounded across state, character
     modelReason: "screenplay_feature_architecture",
     storyContext,
     reply: [
-      "Act I: Mara wants to expose the ferry conspiracy, but her false belief says control feels safer than trust. Mara burns the ferry ledger beyond recovery because she expects dependence to destroy her. The commitment leaves Eli's memorized names as the only path forward and plants June's cracked ferry token.",
+      "Act I: Mara wants to expose the ferry conspiracy, but her false belief says control feels safer than trust. The catalyst is discovering her father's name in the ferry ledger. Mara burns it beyond recovery because she expects dependence to destroy her. The commitment leaves Eli's memorized names as the only path forward and plants June's cracked ferry token.",
       "Act II: Eli refuses to repeat the names until Mara trusts him. At the midpoint, June takes the token through the service tunnel, which forces Mara to choose dependence over command. Her old tactic creates the all is lost crisis when both allies leave.",
       "Act III: Mara needs to surrender control. The final plan therefore gives Eli the public choice and June the wheel. In the climax, June returns the cracked token as the setup payoff and proof of Mara's changed behavior. The final image is Mara in the passenger seat.",
       "Next three scenes: June enters the tunnel; Mara follows without issuing orders; Eli decides to speak the names publicly.",

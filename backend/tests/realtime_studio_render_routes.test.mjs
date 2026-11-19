@@ -542,7 +542,7 @@ test("[studio-render] sync: a genre film pitch gets the complete character arc a
   });
   await withTestServer(deps, async (baseURL) => {
     const r = await postJson(baseURL, "/realtime/studio_render", {
-      transcript: "Help me develop a thriller film about an editor who must expose a forged affidavit without betraying her brother.",
+      transcript: "I want to write a thriller film about an editor who must expose a forged affidavit without betraying her brother.",
       screenplay_target: "voice_pin",
       screenplay_act: "Act II",
     });
@@ -1392,7 +1392,7 @@ test("[studio-render-stream] sse: spoken movie pitch delivers repaired three-act
   });
   await withTestServer(deps, async (baseURL) => {
     const r = await postSse(baseURL, "/realtime/studio_render_stream", {
-      transcript: "I have an idea for a thriller about Mara exposing a forged affidavit without betraying Eli.",
+      transcript: "I want to write a thriller about Mara exposing a forged affidavit without betraying Eli.",
       screenplay_target: "voice_pin",
     });
     assert.equal(r.status, 200);
@@ -1414,7 +1414,7 @@ test("[studio-render] sync: the same pitch in page mode still returns Fountain",
   });
   await withTestServer(deps, async (baseURL) => {
     const r = await postJson(baseURL, "/realtime/studio_render", {
-      transcript: "I have an idea for a thriller about Mara exposing a forged affidavit without betraying Eli.",
+      transcript: "I want to write a thriller about Mara exposing a forged affidavit without betraying Eli.",
       screenplay_target: "page",
     });
     assert.equal(r.status, 200);
@@ -1423,7 +1423,7 @@ test("[studio-render] sync: the same pitch in page mode still returns Fountain",
     assert.equal(r.body.structural_quality, undefined);
     assert.equal(deps._calls.renderInvocations.length, 1);
     assert.equal(deps._calls.renderInvocations[0].maxTokens, 1_600);
-    assert.match(deps._calls.renderInvocations[0].systemPrompt, /For pages, apply silently/);
+    assert.match(deps._calls.renderInvocations[0].systemPrompt, /feature_plan:.*Pages: plan silently\./);
   });
 });
 

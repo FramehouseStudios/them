@@ -506,7 +506,9 @@ function isWholeStorySubject(subject) {
 }
 
 function presentsWholeStoryPitch(lower) {
-  const pitch = lower.replace(/^(?:i(?: have(?: got)?|['’]ve got) an idea for|here['’]s my idea for)\s+/, "");
+  const pitch = lower
+    .replace(/^(?:i(?: have(?: got)?|['’]ve got) an idea for|here['’]s my idea for)\s+/, "")
+    .replace(/^(?:(?:i|we) (?:want to|wanna)|(?:i|we)['’]d like to|let['’]s)\s+(?:write|make)\s+/, "");
   const match = pitch.match(/^(?:a|an|my|our)\s+([^.!?:]+?)(?:\s+(?:about|where|in which|that follows)\s+|:\s+)(?=\w)/);
   return Boolean(match && isWholeStorySubject(match[1].trim()));
 }
@@ -849,7 +851,7 @@ function buildScreenplayTaskBlock(screenplayTask) {
   }
   if ((intent === "outline_structure" || intent === "finish_feature") && requestedPages === 0) {
     if (intent === "outline_structure" && featureScope === "whole_feature") {
-      const delivery = task.defaultFeaturePitch ? "For pages, apply silently." : "Plan only.";
+      const delivery = task.defaultFeaturePitch ? "Pages: plan silently." : "Plan only.";
       lines.push(`feature_plan: Label Act I catalyst/commitment, Act II midpoint reversal/crisis, Act III pays off setup in a costly final choice and final image. Next three scenes. ${delivery}`);
       lines.push("character_arc: Give the lead a want, conflicting need and old tactic. Show who it hurts and how the climactic choice proves change, refusal or conviction. Give key supporting characters distinct wants and choices that alter the outcome.");
     }
