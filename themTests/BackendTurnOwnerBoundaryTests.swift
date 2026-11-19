@@ -3,6 +3,57 @@ import XCTest
 @testable import them
 
 final class BackendTurnOwnerBoundaryTests: XCTestCase {
+    @MainActor
+    func testLateCollaborationReadsDoNotReselectThePreviousProject() async {
+        for delayedRoute in ["collaborators", "comments"] {
+            let started = expectation(description: "The old project's \(delayedRoute) request starts")
+            let releaseReply = DispatchSemaphore(value: 0)
+            let host = "studio-collaboration-\(UUID().uuidString.lowercased()).test"
+            TurnOwnerURLProtocol.register(host: host) { request in
+                let route = request.url?.lastPathComponent ?? ""
+                if route == "session" { return (503, Data()) }
+                let projectID = request.url?.deletingLastPathComponent().lastPathComponent ?? ""
+                if projectID == "previous", route == delayedRoute {
+                    started.fulfill()
+                    guard releaseReply.wait(timeout: .now() + 10) == .success else {
+                        throw URLError(.timedOut)
+                    }
+                }
+                let data: [String: Any] = [
+                    "project_id": projectID, "project": ["id": projectID, "title": "Project \(projectID)"],
+                    route: [],
+                ]
+                return (200, try JSONSerialization.data(withJSONObject: data))
+            }
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.protocolClasses = [TurnOwnerURLProtocol.self]
+            let session = URLSession(configuration: configuration)
+            defer {
+                session.invalidateAndCancel()
+                TurnOwnerURLProtocol.unregister(host: host)
+            }
+            let api = BackendMemoryAPI(session: session, baseURL: URL(string: "https://\(host)")!,
+                requestIdentityProvider: { _ in TurnOwnerFixture.ownerA })
+            let vm = ScreenplayStudioViewModel(
+                localDraftRecoveryStore: ScreenplayLocalDraftRecoveryStore(), projectSelectionAPI: api
+            )
+            vm.selectedProjectID = "previous"
+            let refresh = Task { await vm.refreshCollaborationData() }
+            await fulfillment(of: [started], timeout: 5)
+
+            vm.selectedProjectID = "current"
+            releaseReply.signal()
+            await refresh.value
+
+            XCTAssertEqual(vm.selectedProjectID, "current", "A late \(delayedRoute) response changed projects.")
+            XCTAssertFalse(vm.isCollaborationRefreshing)
+
+            await vm.refreshCollaborationData()
+            XCTAssertEqual(vm.selectedProject?.id, "current", "The current project's data should still load.")
+            XCTAssertFalse(vm.isCollaborationRefreshing)
+        }
+    }
+
     func testFirstPageProjectAndVersionRejectOwnerChangeDuringBootstrap() async throws {
         let operations: [(BackendMemoryAPI) async throws -> Void] = [
             { api in
