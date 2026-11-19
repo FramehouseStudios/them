@@ -1205,7 +1205,8 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     private func makeEntry(
         id: String,
         draft: String = "Draft one",
-        createdAt: TimeInterval = 100
+        createdAt: TimeInterval = 100,
+        source: String = "studio_autosave"
     ) -> ScreenplayDraftSaveOutboxEntry {
         ScreenplayDraftSaveOutboxEntry(
             id: id,
@@ -1215,7 +1216,7 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
             title: "Feature",
             phase: "scene_draft",
             notes: "",
-            source: "studio_autosave",
+            source: source,
             studioWriteAnchors: [],
             screenplayBindings: [],
             baseVersionId: "server-v1",
