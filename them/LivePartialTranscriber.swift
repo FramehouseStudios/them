@@ -7,7 +7,7 @@ final class LivePartialTranscriber {
     private let cadenceSeconds: TimeInterval = 0.14
     private let minCharsToEmit = 3
 
-    private var authStatus: SFSpeechRecognizerAuthorizationStatus = .notDetermined
+    private var authStatus = SFSpeechRecognizer.authorizationStatus()
     private var recognizer: SFSpeechRecognizer?
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
@@ -56,9 +56,11 @@ final class LivePartialTranscriber {
 
             self.recognizer = recognizer
             self.request = request
-            self.task = recognizer.recognitionTask(with: request) { [weak self] result, error in
-                guard let self else { return }
+            self.task = recognizer.recognitionTask(with: request) { [weak self, weak request] result, error in
+                guard let self, let request else { return }
                 self.queue.async {
+                    // Cancellation can deliver a final callback after a new request starts.
+                    guard self.request === request else { return }
                     if let text = result?.bestTranscription.formattedString {
                         self.emitIfNeeded(text)
                     }

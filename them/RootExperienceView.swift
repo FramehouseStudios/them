@@ -5347,7 +5347,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             #"\bwrite\b.*\b(?:screenplay\s+)?action\s+line(?:s)?\b"#,
             #"\bwrite\b.*\b(?:screenplay\s+)?dialogue\s+line(?:s)?\b"#
         ]
-        if directPageWritePatterns.contains(where: {
+        if DraftStudioPromptRouter.isDirectOpeningSceneRequest(userText) || directPageWritePatterns.contains(where: {
             normalized.range(of: $0, options: .regularExpression) != nil
         }) {
             return true
@@ -6232,12 +6232,10 @@ Write this approved story direction directly into screenplay pages now. Maintain
         var debugSyncedInsertCancelTask: Task<Void, Never>?
         let cleanClientTranscriptOverride = String(clientTranscriptOverride ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let effectiveTranscript = cleanClientTranscriptOverride.isEmpty
-            ? transcript
-            : cleanClientTranscriptOverride
-        let effectivePartialHintForTalk = cleanClientTranscriptOverride.isEmpty
-            ? currentPartialHintForTalk()
-            : String(cleanClientTranscriptOverride.prefix(320))
+        // The displayed transcript belongs to a completed turn. Route using this utterance only.
+        let effectiveTranscript = cleanClientTranscriptOverride.isEmpty ? currentPartialHintForTalk() : cleanClientTranscriptOverride
+        let effectivePartialHintForTalk = String(effectiveTranscript.prefix(320))
+        lastNonEmptyPartialTranscriptHint = ""
 
 #if DEBUG || os(macOS)
         var debugVoiceTurnDidFinalize = false
@@ -12374,7 +12372,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
     private func shouldAutoOpenStudioForScriptIntent(_ text: String) -> Bool {
         let normalized = " \(text.lowercased()) "
         guard !normalized.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
-        if containsStudioOpenCommand(text) { return true }
+        if containsStudioOpenCommand(text) || DraftStudioPromptRouter.isDirectOpeningSceneRequest(text) { return true }
 
         let directIntentPhrases = [
             " write a script ",
