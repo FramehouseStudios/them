@@ -7685,9 +7685,10 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         case let .replaceLiteralLine(edit):
             let projectID = committedWriteProjectIDSnapshot()
             let selectedLine = selectedEditorSnapshot().flatMap { $0.isMultiLine ? nil : $0.startLine }
+            let auth = ScreenplayStudioAuthContext(userID: Self.currentAuthenticatedUserID(), sessionIntentGeneration: BackendAuthClient.currentAuthSessionIntentGeneration())
             guard !projectID.isEmpty, draftOriginProjectIDSnapshot() == projectID,
                   pendingStudioAction == nil, !isStreamingDraftPreviewActive,
-                  let change = edit.change(in: draftText, selectedLine: selectedLine) else {
+                  let prepared = edit.prepare(in: draftText, selectedLine: selectedLine, projectID: projectID, authContext: auth) else {
                 return ScreenplayLocalStudioCommandFeedback(
                     confirmation: "I couldn't identify one line to replace. Select one line and give me its new wording.",
                     shouldSpeakConfirmation: false,
@@ -7695,17 +7696,10 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
                 )
             }
             clearPendingPageWriteReplacement()
-            pendingStudioAction = ScreenplayStudioActionRequest(action: .replaceLiteralLine, literalLineEdit: .init(
-                change: change,
-                projectID: projectID,
-                authContext: ScreenplayStudioAuthContext(
-                    userID: Self.currentAuthenticatedUserID(),
-                    sessionIntentGeneration: BackendAuthClient.currentAuthSessionIntentGeneration()
-                )
-            ))
+            pendingStudioAction = ScreenplayStudioActionRequest(action: .replaceLiteralLine, literalLineEdit: prepared)
             target = .voicePin
             feedback = ScreenplayLocalStudioCommandFeedback(
-                confirmation: change.hasTextChange ? "I'll change just that line." : "That line already matches.",
+                confirmation: prepared.confirmation,
                 shouldSpeakConfirmation: true,
                 isError: false
             )
