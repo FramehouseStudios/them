@@ -532,6 +532,34 @@ test("[studio-render] sync: feature architecture uses the structural feature bud
   });
 });
 
+test("[studio-render] sync: complete cinematic arc and structure use the feature architecture lane", async () => {
+  const deps = defaultDeps({
+    renderStudioRealtimeText: async (options) => {
+      deps._calls.renderInvocations.push(options);
+      return VALID_FEATURE_ARCHITECTURE_REPLY;
+    },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/studio_render", {
+      transcript: "Build a complete character arc and story structure for cinema.",
+      screenplay_target: "voice_pin",
+      screenplay_act: "Act II",
+    });
+
+    assert.equal(r.status, 200);
+    assert.equal(r.body.reply, VALID_FEATURE_ARCHITECTURE_REPLY);
+    assert.equal(r.body.structural_quality.passed, true);
+    assert.equal(r.body.structural_quality.repaired, false);
+    assert.equal(r.body.structural_quality.model_reason, "screenplay_feature_architecture");
+    assert.equal(deps._calls.renderInvocations.length, 1);
+    assert.equal(deps._calls.renderInvocations[0].modelTier, "structural");
+    assert.equal(deps._calls.renderInvocations[0].maxTokens, 2_600);
+    assert.match(deps._calls.renderInvocations[0].systemPrompt, /feature_plan: Act I.*Act II.*Act III/);
+    assert.match(deps._calls.renderInvocations[0].systemPrompt, /character_arc:.*climactic choice/);
+    assert.equal(r.body.screenplay_quality, undefined);
+  });
+});
+
 test("[studio-render] sync: applies corrected character bible memory to page prompt", async () => {
   const memoryCalls = [];
   const deps = defaultDeps({

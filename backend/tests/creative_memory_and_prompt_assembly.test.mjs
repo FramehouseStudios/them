@@ -27,6 +27,8 @@ import {
   FEATURE_MAP_BLOCK_OPEN,
 } from "../lib/prompt_assembly.js";
 import { createJsonPersistence } from "../lib/persistence_json.js";
+import { fitSystemPromptForTurnLatency } from "../lib/system_prompt_trim.js";
+import { structuralScreenplayModelReasonForTask } from "../lib/structural_screenplay_quality.js";
 
 function freshPersistence() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-creative-memory-"));
@@ -1125,6 +1127,64 @@ test("[screenplay-task] inferScreenplayTask routes core Clementine writing jobs"
     inferScreenplayTask("My second act is dragging and the middle feels static.").storyDiagnostic.actObligation,
     /Act II/
   );
+});
+
+test("[screenplay-task] sends complete cinematic character arcs and structure to feature planning", () => {
+  for (const userInput of [
+    "Build a complete character arc and story structure for cinema.",
+    "Plan the complete character arc and three-act story structure for a 90-page feature film. No screenplay pages yet.",
+    "Give me the full story structure and character arc.",
+    "Build an entire story spine and character arc. Do not write screenplay pages yet.",
+  ]) {
+    const task = inferScreenplayTask(userInput);
+    assert.equal(task.intent, "outline_structure", userInput);
+    assert.equal(task.featureScope, "whole_feature");
+    assert.equal(task.requestedPages, undefined);
+    assert.equal(structuralScreenplayModelReasonForTask(task), "screenplay_feature_architecture");
+
+    const prompt = buildModelPrompt({
+      persona: "Clementine protects writer canon. ".repeat(280),
+      userInput,
+      screenplayTask: task,
+      sessionContext: { targetPages: 90, pageCount: 27 },
+    });
+    assert.match(prompt, /target_pages: 90/);
+    const fitted = fitSystemPromptForTurnLatency(prompt, {
+      routingLane: "creative",
+      chatModelPlan: { tier: "rich" },
+      richMaxChars: 6_200,
+    });
+    assert.ok(fitted.length <= 6_200);
+    assert.match(fitted, /feature_plan: Act I.*Act II.*Act III/);
+    assert.match(fitted, /costly final choice/);
+    assert.match(fitted, /payoff and final image/);
+    assert.match(fitted, /Next three scenes/);
+    assert.match(fitted, /character_arc:.*want and conflicting need.*old tactic.*climactic choice.*supporting characters distinct wants and choices/);
+    assert.doesNotMatch(fitted, /requested_page_batch:/);
+  }
+
+  assert.equal(inferScreenplayTask("Develop her character arc for this one scene.").intent, "character_development");
+  assert.equal(inferScreenplayTask("Rewrite only the last line of dialogue in Act III.").intent, "rewrite_scene");
+  const scene = inferScreenplayTask("Write a scene using the full character arc and story structure.");
+  assert.equal(scene.intent, "write_scene");
+  const pages = inferScreenplayTask("Write the next five pages of my 90-page feature film.");
+  assert.equal(pages.featureScope, "page_batch");
+  assert.equal(pages.requestedPages, 5);
+});
+
+test("[screenplay-task] preserves default cinematic craft on a scene-writing turn under the fast budget", () => {
+  const userInput = "Write a scene where Maya wants Ben to leave the cinema.";
+  const prompt = buildModelPrompt({
+    persona: "Clementine protects writer canon. ".repeat(280),
+    userInput,
+    screenplayTask: inferScreenplayTask(userInput),
+  });
+  const fitted = fitSystemPromptForTurnLatency(prompt, { fastMaxChars: 3_800 });
+  assert.ok(fitted.length <= 3_800);
+  assert.match(fitted, /screenplay_craft:.*distinct tactics/);
+  assert.match(fitted, /screenplay_craft:.*costly choices/);
+  assert.match(fitted, /screenplay_craft:.*plant and pay off/);
+  assert.doesNotMatch(fitted, /feature_plan:/);
 });
 
 test("[screenplay-task] recognizes flexible feature-length targets", () => {

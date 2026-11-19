@@ -64,7 +64,7 @@ const CLEMENTINE_CREATIVE_PACT = [
   "feature compass and feature-length continuity: silently lock act, sequence, scene job, want/need, emotional handoff, open setup, exit turn, next three turns, Act III payoff path, and final-image pressure.",
   "continuation memory contract and page batch discipline: spend the first remembered turn before inventing; for 5-15 page asks, change story state every 1-2 pages and hand each turn into the next.",
   "expert page engine and subtext engine: every scene needs objective, obstacle, pressure clock, tactic, reversal/cost, residue, exit image, and dialogue shaped by concealment, interruption, pressure, and character-specific rhythm.",
-  "screenplay craft: favor playable behavior, subtext, image, conflict, rhythm, and causality over explanation; image system: plant/echo/transform motifs; production format: use clean playable Fountain with no novelistic interiority.",
+  "screenplay_craft: Use distinct tactics and subtext; costly choices cause the next turn; image system: plant and pay off visible details. production format: clean playable Fountain, visible action and rhythm, no novelistic interiority.",
   "self-check loop: silently plan, write, verify act/continuity/page quality, and repair the weakest point before final output; never announce the loop.",
   "writer's block rescue and momentum: when the writer is stuck or broad, diagnose the missing want, obstacle, consequence, tactic change, act pressure, or exit turn; choose one strong pressure engine and convert it into playable behavior.",
   "speed discipline and collaboration: pages begin immediately without throat-clearing, menus, or permission loops; ask at most one question only when truly blocked, otherwise make the next best creative move.",
@@ -491,6 +491,11 @@ function inferScreenplayTask(userInput = "") {
   const lower = text.toLowerCase();
   if (!lower) return null;
   const featureMetadata = inferFeatureRequestMetadata(lower);
+  const completeArcAndStructure = featureMetadata.requestedPages === 0 &&
+    !/^(?:please\s+)?(?:write|draft|generate|compose)\b.{0,24}\b(?:scene|pages?|screenplay)\b/.test(lower) &&
+    /\b(?:complete|full|whole|entire)\b/.test(lower) &&
+    /\bcharacter arcs?\b/.test(lower) &&
+    /\b(?:story structure|three[- ]act structure|feature structure|story spine)\b/.test(lower);
   const sceneDoctorLike = hasAny(lower, [
     /\b(scene doctor|doctor this|doctor the scene|coverage|feedback|notes|diagnose|what'?s wrong|what'?s not working|fix this scene|why isn'?t this working)\b/,
   ]);
@@ -560,6 +565,10 @@ function inferScreenplayTask(userInput = "") {
     intent = "rewrite_scene";
     label = "Rewrite Scene";
     output = "Return a revised scene or targeted passage in clean screenplay/Fountain style. Preserve story intent and continuity, replace only the requested span when the user names one, and improve specificity, rhythm, and emotional truth.";
+  } else if (completeArcAndStructure) {
+    intent = "outline_structure";
+    label = "Feature Story Plan";
+    output = "Plan a complete causal story and character arc. Keep the plan separate from screenplay pages.";
   } else if (featureCompletionLike) {
     intent = "finish_feature";
     label = "Finish Feature";
@@ -606,7 +615,8 @@ function inferScreenplayTask(userInput = "") {
   if (stuckLike) task.writerBlocked = true;
   if (featureMetadata.requestedPages > 0) task.requestedPages = featureMetadata.requestedPages;
   if (featureMetadata.requestedAct) task.requestedAct = featureMetadata.requestedAct;
-  if (featureMetadata.featureScope) task.featureScope = featureMetadata.featureScope;
+  if (completeArcAndStructure && intent === "outline_structure") task.featureScope = "whole_feature";
+  else if (featureMetadata.featureScope) task.featureScope = featureMetadata.featureScope;
   const storyDiagnostic = inferStoryMomentumDiagnostic(text, task);
   if (storyDiagnostic) task.storyDiagnostic = storyDiagnostic;
   return task;
@@ -785,6 +795,10 @@ function buildScreenplayTaskBlock(screenplayTask) {
     lines.push("  - Writer-block-to-pages: convert the strongest rescue engine into pages without a pep talk. Avoid cinematic vapor: every beat needs concrete behavior or consequence.");
   }
   if ((intent === "outline_structure" || intent === "finish_feature") && requestedPages === 0) {
+    if (intent === "outline_structure" && featureScope === "whole_feature") {
+      lines.push("feature_plan: Act I commitment causes Act II reversal and loss; Act III resolves through a costly final choice. Give payoff and final image, then Next three scenes. Plan only.");
+      lines.push("character_arc: Give the protagonist a want and conflicting need. Show the old tactic, its harm, and the climactic choice that proves change or refusal. Give pivotal supporting characters distinct wants and choices that alter the outcome.");
+    }
     lines.push("feature_architecture_delivery_order:");
     lines.push("  - First deliver a compact complete causal spine covering Act I, Act II, and Act III before expanding any act. Never spend the opening budget detailing Act I while later acts remain unstated.");
     lines.push("  - The spine must name catalyst, commitment, midpoint reversal, crisis or all-is-lost, climax, final image, and at least one setup -> payoff path.");

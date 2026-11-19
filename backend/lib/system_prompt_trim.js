@@ -307,8 +307,11 @@ function compactScreenplayTaskBody(body, bodyLimit) {
   const lines = bodyLines(body);
   const intentLine = firstLineStartingWith(lines, "intent:");
   const intent = intentLine.replace(/^intent:\s*/i, "");
+  const featurePlan = firstLineStartingWith(lines, "feature_plan:");
   return compactSemanticLines([
     { value: intentLine, maxChars: 100 },
+    { value: featurePlan, maxChars: 185, minChars: 172 },
+    { value: firstLineStartingWith(lines, "screenplay_craft:"), maxChars: 140, minChars: 130 },
     { value: firstLineStartingWith(lines, "label:"), maxChars: 120 },
     { value: firstLineStartingWith(lines, "role:"), maxChars: 150 },
     { value: firstLineStartingWith(lines, "feature_scope:"), maxChars: 100 },
@@ -318,7 +321,8 @@ function compactScreenplayTaskBody(body, bodyLimit) {
       value: "craft_contract: whole-feature authorship; page batch discipline; expert page engine; subtext engine; image system; speed discipline; Fountain pages first; verify continuity.",
       maxChars: 180,
     },
-    { value: screenplayModeContract(intent), maxChars: 230 },
+    { value: featurePlan ? "" : screenplayModeContract(intent), maxChars: 230 },
+    { value: firstLineStartingWith(lines, "character_arc:"), maxChars: 270 },
     { value: firstLineStartingWith(lines, ["likely_stall:", "diagnosis:", "strongest_engine:", "rank_1:"]), maxChars: 190 },
     { value: firstLineStartingWith(lines, "output:"), maxChars: 180 },
     { value: firstLineStartingWith(lines, "quality:"), maxChars: 170 },
