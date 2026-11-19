@@ -1028,9 +1028,32 @@ final class V1SmokeUITests: XCTestCase {
         defer { app.terminate() }
 
         let savedTab = app.buttons["studio.right-panel.saved"]
+#if os(iOS)
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        let draftTab = app.buttons["studio.right-panel.draft"]
+        let window = app.windows.firstMatch
+        guard drawer.waitForExistence(timeout: 8), savedTab.waitForExistence(timeout: 8),
+              window.waitForExistence(timeout: 3), waitForSelection(of: draftTab, timeout: 3) else {
+            XCTFail("The Saved fixture must start on the Draft inspector with a visible Saved tab.")
+            return
+        }
+        let windowFrame = window.frame
+        let touchArea = savedTab.frame.intersection(drawer.frame).intersection(windowFrame)
+        let savedValue = savedTab.value as? String
+        guard !touchArea.isEmpty, savedValue != "Selected" else {
+            XCTFail("Saved must be visible and unselected before the touch. Visible area: \(touchArea). Value: \(savedValue ?? "nil").")
+            return
+        }
+        // XCTest can report a frame that extends beyond the visible drawer
+        // while it opens. Send one touch inside the overlapping area.
+        window.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: touchArea.midX - windowFrame.minX, dy: touchArea.midY - windowFrame.minY)).tap()
+#else
         XCTAssertTrue(savedTab.waitForExistence(timeout: 8))
         savedTab.tap()
-
+#endif
+        XCTAssertTrue(waitForSelection(of: savedTab, timeout: 3),
+                      "A tap inside the visible Saved tab must select it.")
         XCTAssertTrue(app.descendants(matching: .any)["studio.saved.panel"].waitForExistence(timeout: 4))
         let saveButton = app.buttons["studio.saved.save"]
         XCTAssertTrue(saveButton.waitForExistence(timeout: 4))
