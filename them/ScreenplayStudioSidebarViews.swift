@@ -10,7 +10,7 @@ struct ScreenplayStudioProjectsDrawerGlyph: View {
 
     var body: some View {
         Image(systemName: "sidebar.left")
-            .font(.system(size: 13, weight: .regular))
+            .font(IOThemTypography.UI.callout)
             .foregroundStyle(foreground)
             .frame(width: 28, height: 28)
             .background(fill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
