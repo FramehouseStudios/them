@@ -4816,32 +4816,19 @@ final class V1SmokeUITests: XCTestCase {
         let app = launchApp(launchEnvironment: launchEnvironment)
         defer { app.terminate() }
         let account = app.buttons["home.open-account"]
-        let homeRail = app.scrollViews["home.navigation"]
-        guard homeRail.waitForExistence(timeout: 8), account.exists else {
+        guard account.waitForExistence(timeout: 8) else {
             throw NSError(domain: "themUITests.recovery", code: 5,
                 userInfo: [NSLocalizedDescriptionKey: "The normal home Account shortcut is missing."])
         }
-        func accountIsFullyVisible() -> Bool {
-            let viewport = homeRail.frame.intersection(app.windows.firstMatch.frame)
-            return !viewport.isEmpty && !account.frame.isEmpty && viewport.contains(account.frame)
-        }
-        for _ in 0..<4 {
-            if accountIsFullyVisible() { break }
-            if account.frame.midX > homeRail.frame.midX {
-                homeRail.swipeLeft(velocity: .slow)
-            } else {
-                homeRail.swipeRight(velocity: .slow)
-            }
-        }
-        guard accountIsFullyVisible() else {
-            throw NSError(domain: "themUITests.recovery", code: 6,
-                userInfo: [NSLocalizedDescriptionKey: "Horizontal navigation did not reveal the Account shortcut."])
-        }
-        XCTAssertTrue(waitForHittability(of: account, timeout: 8))
+        // XCUI activates this element through the scroll view. Measuring its
+        // moving frame and dragging again can scroll past a visible button.
         account.tap()
         let email = element(identifier: "profile-auth-email", in: app)
         let password = element(identifier: "profile-auth-password", in: app)
-        XCTAssertTrue(email.waitForExistence(timeout: 6))
+        guard email.waitForExistence(timeout: 6), password.exists else {
+            throw NSError(domain: "themUITests.recovery", code: 6,
+                userInfo: [NSLocalizedDescriptionKey: "The Account shortcut did not open the email sign-in form."])
+        }
         XCTAssertTrue(scrollFullyIntoWindow(email, in: app))
         email.tap()
         guard dismissKeyboardTypingTutorialIfPresent(in: app) else {
