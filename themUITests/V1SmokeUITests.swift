@@ -794,7 +794,7 @@ final class V1SmokeUITests: XCTestCase {
     }
 
     func test_all_studio_inspector_tabs_route_to_real_panels_and_report_selection() {
-        let app = launchApp(openStudio: true, openExportTools: true, structuralSeed: true)
+        let app = launchApp(openStudio: true, structuralSeed: true)
         defer { app.terminate() }
 
         let routes = [
@@ -806,12 +806,28 @@ final class V1SmokeUITests: XCTestCase {
             (tab: "saved", panel: "studio.saved.save"),
         ]
         let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        guard waitForDraft(in: app, containing: "INT. DINER - NIGHT", timeout: 10) else {
+            XCTFail("Studio did not load the draft before the inspector was opened.")
+            return
+        }
+        if !drawer.exists {
+            let toggle = app.buttons["studio.sidebar.right.toggle"]
+            guard waitForHittability(of: toggle, timeout: 8) else {
+                XCTFail("Studio did not expose the inspector control.")
+                return
+            }
+            toggle.tap()
+        }
+        guard drawer.waitForExistence(timeout: 8) else {
+            XCTFail("The inspector did not open from its Studio control.")
+            return
+        }
 
         for route in routes {
             let tab = app.buttons["studio.right-panel.\(route.tab)"]
             // Navigation stays pinned; selecting it must not require a
             // scroll/reopen recovery sequence.
-            guard tab.waitForExistence(timeout: 8), tab.isHittable else {
+            guard waitForHittability(of: tab, timeout: 8) else {
                 XCTFail("Missing pinned \(route.tab) inspector tab")
                 return
             }
