@@ -4570,7 +4570,15 @@ final class ScreenplayStudioViewModel: ObservableObject {
         )
     }
 
-    func clearDraft() {
+    var canClearDraft: Bool {
+        !isHydratingDraft &&
+            loadedDraftProjectID == selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) &&
+            !fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    @discardableResult
+    func clearDraft() -> Bool {
+        guard canClearDraft else { return false }
         fountainDraft = ""
         hasUnsavedDraftChanges = false
         isManualDraftEditing = false
@@ -4584,9 +4592,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
         formatLintSourceText = ""
         clearCoverageSimulation()
         conflictState = nil
-        if !selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            clearLocalDraftRecovery(projectId: selectedProjectID)
+        if !loadedDraftProjectID.isEmpty {
+            clearLocalDraftRecovery(projectId: loadedDraftProjectID)
         }
+        return true
     }
 
     func normalizeDraftToHollywoodFormat() {

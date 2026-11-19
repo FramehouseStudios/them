@@ -631,6 +631,40 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     }
 
     @MainActor
+    func testClearDraftCannotDiscardAnotherProjectRecoveryWhileItLoads() async {
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.autosaveEnabled = false
+        let originalID = "original-clear-test"
+        let incomingID = "incoming-clear-test"
+        let originalDraft = "INT. HALL - NIGHT\r\n\r\nA key slips under the door. "
+        let incomingDraft = "EXT. PIER - DAWN\n\nThe fog lifts."
+        model.selectedProjectID = originalID
+        model.applyStructuralUITestDraft(originalDraft, versionID: "original-base")
+        store.save(ownerUserId: owner, projectId: originalID, draft: originalDraft,
+                   baseVersionId: "original-base", dirty: true, preserveExactText: true)
+        store.save(ownerUserId: owner, projectId: incomingID, draft: incomingDraft,
+                   baseVersionId: "incoming-base", dirty: true, preserveExactText: true)
+
+        model.selectedProjectID = incomingID
+        XCTAssertFalse(model.canClearDraft)
+        XCTAssertFalse(model.clearDraft())
+
+        XCTAssertEqual(Array(model.fountainDraft.utf8), Array(originalDraft.utf8))
+        XCTAssertEqual(model.latestVersionID, "original-base")
+        XCTAssertEqual(store.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: originalID)?.draft, originalDraft)
+        XCTAssertEqual(store.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: incomingID)?.draft, incomingDraft)
+
+        model.selectedProjectID = originalID
+        XCTAssertTrue(model.canClearDraft)
+        XCTAssertTrue(model.clearDraft())
+
+        XCTAssertTrue(model.fountainDraft.isEmpty)
+        XCTAssertNil(store.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: originalID))
+        XCTAssertEqual(store.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: incomingID)?.draft, incomingDraft)
+    }
+
+    @MainActor
     func testReopenedServerPageDoesNotEraseAProtectedLocalEditWhenItsObserverRuns() async throws {
         let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
         let keptDraft = "INT. HALL - NIGHT\r\n\r\nA dropped key rolls into the dark. \n"
