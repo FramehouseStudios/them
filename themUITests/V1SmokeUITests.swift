@@ -506,17 +506,21 @@ final class V1SmokeUITests: XCTestCase {
         )
         projectTitleField.tap()
         projectTitleField.typeText(projectTitle)
-        let createProject = app.buttons["Create"]
-        XCTAssertTrue(waitForHittability(of: createProject, timeout: writerLoopWait(5)))
-        createProject.tap()
-        XCTAssertTrue(
-            staticText(containing: projectTitle, in: app).waitForExistence(timeout: writerLoopWait(12)),
-            "The project created through the iPhone UI did not appear in the Projects drawer."
-        )
+        guard projectTitleField.value as? String == projectTitle else {
+            XCTFail("The focused project title field did not receive the complete title.")
+            return
+        }
+        // Submit through the focused form's Done action. A separate click
+        // while the keyboard owns focus was delivered without activating Create on CI.
+        projectTitleField.typeText("\n")
         let projectID = try await waitForWriterLoopProject(
             titled: projectTitle,
             fixture: fixture,
             timeout: writerLoopWait(20)
+        )
+        XCTAssertTrue(
+            staticText(containing: projectTitle, in: app).waitForExistence(timeout: writerLoopWait(12)),
+            "The project created through the iPhone UI did not appear in the Projects drawer."
         )
 
         guard dismissWriterLoopProjectKeyboard(in: app) else {
@@ -5187,7 +5191,7 @@ final class V1SmokeUITests: XCTestCase {
         timeout: TimeInterval
     ) async throws -> String {
         let deadline = Date().addingTimeInterval(timeout)
-        var lastPayload: [String: Any] = [:]
+        var lastProjectCount = 0
         while Date() < deadline {
             let response = try await requestJSON(
                 baseURL: fixture.baseURL,
@@ -5198,8 +5202,8 @@ final class V1SmokeUITests: XCTestCase {
                 queryItems: [URLQueryItem(name: "limit", value: "50")]
             )
             try assertHTTP(response, context: "writer-loop project list")
-            lastPayload = response.payload
             let projects = response.payload["screenplay_projects"] as? [[String: Any]] ?? []
+            lastProjectCount = projects.count
             if let project = projects.first(where: { stringValue($0["title"]) == title }) {
                 return try firstNonEmptyString(
                     project["id"],
@@ -5213,7 +5217,7 @@ final class V1SmokeUITests: XCTestCase {
             domain: "themUITests.writerLoop",
             code: 1,
             userInfo: [
-                NSLocalizedDescriptionKey: "Timed out waiting for UI-created project \(title). Last payload: \(lastPayload)"
+                NSLocalizedDescriptionKey: "Timed out waiting for the UI-created project. The last authenticated project list contained \(lastProjectCount) entries."
             ]
         )
     }
