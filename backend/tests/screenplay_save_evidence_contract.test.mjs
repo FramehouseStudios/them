@@ -109,5 +109,12 @@ test("[save-evidence] the original iPhone-only gate validates its actual two-cas
 
 test("[save-evidence] hosted failure upload includes the actual retained recovery bundles", () => {
   const workflow = fs.readFileSync(path.join(root, ".github/workflows/quality-gate.yml"), "utf8");
-  assert.ok(workflow.includes("${{ runner.temp }}/them-save-recovery-*/*.xcresult"));
+  const offlineJob = workflow.match(/\n  offline-save-recovery:\n([\s\S]*?)(?=\n  required-quality:)/)?.[1];
+  assert.ok(offlineJob);
+  const artifactRoot = offlineJob.match(/^\s+ARTIFACT_DIR: (.+)$/m)?.[1];
+  assert.ok(artifactRoot);
+  const upload = offlineJob.split("Upload Offline Recovery Failure Artifacts")[1];
+  assert.ok(upload);
+  assert.ok(upload.includes(`${artifactRoot}/them-save-recovery-*/*.xcresult`));
+  assert.ok(upload.includes(`${artifactRoot}/v1-destination-failure-*.json`));
 });
