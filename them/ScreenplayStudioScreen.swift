@@ -4551,13 +4551,13 @@ private func refreshStudioCreativeInstincts(
             .font(.system(size: 12, weight: .regular, design: .default))
 
             Button("Clear Draft") {
-                vm.clearDraft()
+                guard vm.clearDraft() else { return }
                 liveDraftBridge.clearDraft()
                 showingDirectionOneSettings = false
             }
             .font(.system(size: 12, weight: .regular, design: .default))
             .foregroundStyle(Color.red.opacity(0.76))
-            .disabled(vm.fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .disabled(!vm.canClearDraft)
         }
         .padding(16)
         .frame(width: 280)
