@@ -2249,6 +2249,33 @@ final class ScreenplayStudioViewModel: ObservableObject {
         )
     }
 
+    func applyStudioPageEdit(_ draft: String) {
+        errorText = ""
+        fountainDraft = draft
+        noteManualDraftEdit()
+    }
+
+    func applyLiteralLineEdit(_ prepared: ScreenplayLiteralLineEdit.Prepared?) async {
+        guard let prepared,
+              authContextIsCurrent(prepared.authContext),
+              selectedProjectID == prepared.projectID, loadedDraftProjectID == prepared.projectID,
+              !isStreamingDraftPreviewActive, prepared.change.stillApplies(to: fountainDraft) else {
+            infoText = "The page changed before I could apply that edit. Select the line and try again."
+            return
+        }
+        let change = prepared.change
+        if change.hasTextChange {
+            applyStudioPageEdit(change.revisedDraft)
+            ScreenplayLiveDraftBridge.shared.highlightLineRange(startLine: change.line, endLine: change.line)
+            infoText = "Replaced line \(change.line)."
+        } else {
+            infoText = "That line already matches."
+        }
+        if change.saveAfterEdit, hasUnsavedDraftChanges {
+            await manualSaveDraft()
+        }
+    }
+
     func noteManualDraftEdit() {
         guard !isHydratingDraft else { return }
         isManualDraftEditing = true

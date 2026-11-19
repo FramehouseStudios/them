@@ -703,49 +703,6 @@ enum ScreenplayAuditionVoiceStyle: String, Codable, Equatable {
     case vulnerable
 }
 
-struct ScreenplayStudioActionRequest: Identifiable, Equatable {
-    enum Action: String, Codable, Equatable {
-        case saveDraft
-        case saveRevisionSnapshot
-        case undoLastPageWrite
-        case moveCurrentSceneAfterScene
-        case moveSelectionAfterScene
-        case splitSelectionIntoNewScene
-        case promoteSelectionToBeat
-        case makeBeatFromSelection
-        case updateSelectedBeatFromSelection
-        case deleteCurrentBeat
-        case duplicateCurrentScene
-        case promoteParagraphToDialogue
-        case demoteCurrentBeat
-        case acceptFocusedRewrite
-        case mergeCurrentSceneForward
-    }
-
-    let id: UUID
-    let action: Action
-    let intValue: Int?
-    let secondaryIntValue: Int?
-    let stringValue: String?
-    let secondaryStringValue: String?
-
-    init(
-        id: UUID = UUID(),
-        action: Action,
-        intValue: Int? = nil,
-        secondaryIntValue: Int? = nil,
-        stringValue: String? = nil,
-        secondaryStringValue: String? = nil
-    ) {
-        self.id = id
-        self.action = action
-        self.intValue = intValue
-        self.secondaryIntValue = secondaryIntValue
-        self.stringValue = stringValue
-        self.secondaryStringValue = secondaryStringValue
-    }
-}
-
 struct ScreenplayStudioActionPreview: Identifiable, Equatable {
     let id: UUID
     let actionRequest: ScreenplayStudioActionRequest
@@ -2249,6 +2206,7 @@ private enum ScreenplayLocalStudioCommand: Equatable {
     case replaceSelection
     case replaceCurrentScene
     case focusPage
+    case replaceLiteralLine(ScreenplayLiteralLineEdit)
 }
 
 struct ScreenplayStackMetrics {
@@ -7298,6 +7256,8 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
+        if let edit = ScreenplayLiteralLineEdit.parse(trimmed) { return .replaceLiteralLine(edit) }
+
         let normalized = trimmed
             .lowercased()
             .replacingOccurrences(of: "’", with: "'")
@@ -7685,6 +7645,33 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
         let target: ScreenplayStudioUserPrompt.Target
 
         switch command {
+        case let .replaceLiteralLine(edit):
+            let projectID = committedWriteProjectIDSnapshot()
+            let selectedLine = selectedEditorSnapshot().flatMap { $0.isMultiLine ? nil : $0.startLine }
+            guard !projectID.isEmpty, draftOriginProjectIDSnapshot() == projectID,
+                  pendingStudioAction == nil, !isStreamingDraftPreviewActive,
+                  let change = edit.change(in: draftText, selectedLine: selectedLine) else {
+                return ScreenplayLocalStudioCommandFeedback(
+                    confirmation: "I couldn't identify one line to replace. Select one line and give me its new wording.",
+                    shouldSpeakConfirmation: false,
+                    isError: true
+                )
+            }
+            clearPendingPageWriteReplacement()
+            pendingStudioAction = ScreenplayStudioActionRequest(action: .replaceLiteralLine, literalLineEdit: .init(
+                change: change,
+                projectID: projectID,
+                authContext: ScreenplayStudioAuthContext(
+                    userID: Self.currentAuthenticatedUserID(),
+                    sessionIntentGeneration: BackendAuthClient.currentAuthSessionIntentGeneration()
+                )
+            ))
+            target = .voicePin
+            feedback = ScreenplayLocalStudioCommandFeedback(
+                confirmation: change.hasTextChange ? "I'll change just that line." : "That line already matches.",
+                shouldSpeakConfirmation: true,
+                isError: false
+            )
         case .confirmPendingAction:
             guard let preview = confirmPendingStudioActionPreview() else {
                 return ScreenplayLocalStudioCommandFeedback(

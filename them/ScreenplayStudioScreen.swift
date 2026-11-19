@@ -1235,6 +1235,7 @@ Replace is best when this file should become the script you edit. Append is safe
     @MainActor
     private func handleBridgeStudioAction(_ request: ScreenplayStudioActionRequest) async {
         switch request.action {
+        case .replaceLiteralLine: await vm.applyLiteralLineEdit(request.literalLineEdit)
         case .saveDraft:
             await vm.manualSaveDraft()
         case .saveRevisionSnapshot:
@@ -1862,9 +1863,7 @@ Replace is best when this file should become the script you edit. Append is safe
         jumpStartLine: Int,
         jumpEndLine: Int
     ) {
-        vm.errorText = ""
-        vm.fountainDraft = nextDraft
-        vm.noteManualDraftEdit()
+        vm.applyStudioPageEdit(nextDraft)
         liveDraftBridge.jumpToLine(max(1, jumpStartLine))
         liveDraftBridge.highlightLineRange(startLine: max(1, jumpStartLine), endLine: max(jumpStartLine, jumpEndLine))
         liveDraftBridge.requestEditorFocus()
@@ -13601,7 +13600,7 @@ The door closes softly. That is worse than a slam.
         guard shouldRoutePromptToPage(text, routingMode) else { return }
         guard liveDraftBridge.pendingReplacementTarget == nil,
               liveDraftBridge.submittedReplacementTarget == nil else { return }
-        guard studioPromptLooksLikeRewriteIntent(text) else { return }
+        guard studioPromptLooksLikeRewriteIntent(text), ScreenplayLiteralLineEdit.parse(text) == nil else { return }
 
         if let selection = liveDraftBridge.editorSelection, selection.hasSelection {
             prepareReplacementTarget(for: selection)
