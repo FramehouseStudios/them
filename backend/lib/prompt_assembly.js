@@ -20,6 +20,7 @@
 
 import { buildTraitsBlockForPrompt } from "./trait_library.js";
 import { buildAcceptedTwistsBlockForPrompt } from "./accepted_twist_log.js";
+import { GENRE_LEXICONS } from "./genre_classifier.js";
 import {
   FEATURE_MAP_BLOCK_OPEN,
   FEATURE_MAP_BLOCK_CLOSE,
@@ -487,13 +488,52 @@ function inferStoryMomentumDiagnostic(userInput = "", task = {}) {
   };
 }
 
+const STORY_PLAN_GENRES = Object.freeze([
+  "science fiction",
+  "science-fiction",
+  "romantic comedy",
+  "rom-com",
+  ...Object.keys(GENRE_LEXICONS),
+]);
+
+function isWholeStorySubject(subject) {
+  const media = /^(?:story|feature(?: film)?|movie|film|screenplay|script)$/;
+  if (media.test(subject)) return true;
+  return STORY_PLAN_GENRES.some((genre) =>
+    (subject === genre && genre !== "action") ||
+    (subject.startsWith(genre + " ") && media.test(subject.slice(genre.length + 1)))
+  );
+}
+
+function presentsWholeStoryPitch(lower) {
+  const pitch = lower
+    .replace(/^(?:i(?: have(?: got)?|['’]ve got) an idea for|here['’]s my idea for)\s+/, "")
+    .replace(/^(?:(?:i|we) (?:want to|wanna)|(?:i|we)['’]d like to|let['’]s)\s+(?:write|make)\s+/, "");
+  const match = pitch.match(/^(?:a|an|the|my|our)\s+([^.!?:]+?)(?:\s+(?:about|where|in which|that follows)\s+|:\s+)(?=\w)/);
+  return Boolean(match && isWholeStorySubject(match[1].trim()));
+}
+
 function asksForWholeStoryPlan(lower) {
   const request = lower.replace(/^(?:(?:please|can you|could you|help me|i want to|let's)\s+)*/, "");
-  return /^(?:outline|plan|develop|map out|break down|(?:give me|build|make|write|draft) (?:a |the )?beat sheet for)\s+(?:(?:a|an|the|my|our|this|new|whole|full|feature[- ]length)\s+)*(?:story|feature(?: film)?|movie|film|screenplay|script)(?:\s+(?:about|where|in which|that follows)\b|\s*[.!?]?$)/.test(request);
+  const planRequest = request.match(/^(?:outline|plan|develop|map out|break down|(?:give me|build|make|write|draft) (?:a |the )?beat sheet for)\s+(.+)$/s);
+  if (!planRequest) return false;
+
+  const subject = planRequest[1]
+    .split(/\s+(?:about|where|in which|that follows)\b/, 1)[0]
+    .replace(/[.!?]+\s*$/, "")
+    .replace(/^(?:(?:a|an|the|my|our|this|new|whole|full|feature[- ]length|\d+[- ]pages?)\s+)*/, "")
+    .trim();
+  return isWholeStorySubject(subject);
 }
 
 function inferScreenplayTask(userInput = "") {
-  const text = trimToString(userInput);
+  // Studio prepends an intent label. Some transports flatten its line breaks.
+  // Classify the writer's words while preserving the original prompt for delivery.
+  const writerRequest = trimToString(userInput).replace(/^Intent:[ \t]+[^\r\n]{1,180}?\s+Writer request:\s*/i, "");
+  // The first-page form includes the premise as story material. A command
+  // inside that premise cannot change the instruction or requested act.
+  const firstPageInstruction = writerRequest.match(/^(Write the first page of a screenplay scene) for [^\r\n]+?\.\s+Scene impulse:/i);
+  const text = firstPageInstruction?.[1] ?? writerRequest;
   const lower = text.toLowerCase();
   if (!lower) return null;
   const featureMetadata = inferFeatureRequestMetadata(lower);
@@ -558,11 +598,25 @@ function inferScreenplayTask(userInput = "") {
     /\b(feature[- ]length|feature film|feature screenplay|whole movie|full script)\b.*\b(break|shape|architect|map|outline|write|draft)\b/,
   ]);
 
+  const draftLike = hasAny(lower, [
+    /\b(write|draft|generate|compose)\b.*\b(scene|sequence|beat|pages?|dialogue|monologue)\b/,
+    /\b(scene|sequence|beat)\b.*\b(write|draft|generate|compose)\b/,
+  ]);
+  const draftCommand = lower.match(/^(?:please\s+)?(?:write|draft|generate|compose|start|begin)\s+(.+)$/s);
+  const openingDraft = featureMetadata.requestedPages === 0 && Boolean(draftCommand && (
+    /^(?:(?:the|an?|my|our)\s+)?(?:opening|first)\s+(?:scene|page)\b/.test(draftCommand[1]) ||
+    presentsWholeStoryPitch(draftCommand[1])
+  ));
+  const outlineLike = /\b(outline|beat sheet|beats|act structure|three act|save the cat|story circle|hero'?s journey)\b/.test(lower);
+  const defaultFeaturePitch = !featureMetadata.featureScope &&
+    !sceneDoctorLike && !dialoguePunchupLike && !rewriteLike && !continueLike &&
+    !stuckLike && !draftLike && !outlineLike && presentsWholeStoryPitch(lower);
+
   let intent = "general_story";
   let label = "General Story Help";
   let output = "Give specific, cinematic story guidance with one concrete next move.";
 
-  const wholeStoryPlan = directWholeStoryPlan ||
+  const wholeStoryPlan = directWholeStoryPlan || defaultFeaturePitch ||
     (completeArcAndStructure && !sceneDoctorLike && !dialoguePunchupLike && !rewriteLike);
   if (wholeStoryPlan) {
     intent = "outline_structure";
@@ -580,19 +634,19 @@ function inferScreenplayTask(userInput = "") {
     intent = "rewrite_scene";
     label = "Rewrite Scene";
     output = "Return a revised scene or targeted passage in clean screenplay/Fountain style. Preserve story intent and continuity, replace only the requested span when the user names one, and improve specificity, rhythm, and emotional truth.";
-  } else if (featureCompletionLike) {
+  } else if (featureCompletionLike && !openingDraft) {
     intent = "finish_feature";
     label = "Finish Feature";
     output = "Finish the larger script: for planning, orient act/sequence pressure, next three turns, unresolved promises, character need, and the Act III payoff path. When the request asks for pages, write the next playable Fountain pages immediately with no diagnosis or strategy note unless explicitly asked.";
-  } else if (stuckLike) {
+  } else if (stuckLike && !openingDraft) {
     intent = "momentum_rescue";
     label = "Momentum Rescue";
     output = "Help the writer get moving like an elite story editor: diagnose the exact story stall, choose one strongest next beat, offer up to two alternate forks only if useful, then write a small playable sample in clean Fountain style when context is present.";
-  } else if (continueLike) {
+  } else if (continueLike && !openingDraft) {
     intent = "continue_script";
     label = "Continue Script";
     output = "Continue from the current draft in screenplay/Fountain style, matching tone, character voice, pacing, subtext, and emotional continuity. Treat the supplied draft as active continuity and do not restart the scene unless the user asks.";
-  } else if (hasAny(lower, [/\b(write|draft|generate|compose)\b.*\b(scene|sequence|beat|pages?|dialogue|monologue)\b/, /\b(scene|sequence|beat)\b.*\b(write|draft|generate|compose)\b/])) {
+  } else if (draftLike || openingDraft) {
     intent = "write_scene";
     label = "Write Scene";
     output = "Write usable screenplay pages in clean Fountain style with scene headings, action, character cues, dialogue, and restrained parentheticals.";
@@ -600,7 +654,7 @@ function inferScreenplayTask(userInput = "") {
     intent = "scene_doctor";
     label = "Scene Doctor";
     output = "Give concise script-doctor notes: what works, what is not landing, and the highest-leverage fix. Include sample replacement lines only when useful.";
-  } else if (hasAny(lower, [/\b(outline|beat sheet|beats|act structure|three act|save the cat|story circle|hero'?s journey)\b/])) {
+  } else if (outlineLike) {
     intent = "outline_structure";
     label = "Outline And Structure";
     output = "Shape the story into clear beats or structural moves with emotional cause-and-effect.";
@@ -623,7 +677,8 @@ function inferScreenplayTask(userInput = "") {
   }
 
   const task = { intent, label, output };
-  if (stuckLike) task.writerBlocked = true;
+  if (defaultFeaturePitch) task.defaultFeaturePitch = true;
+  if (stuckLike && !openingDraft) task.writerBlocked = true;
   if (featureMetadata.requestedPages > 0) task.requestedPages = featureMetadata.requestedPages;
   if (featureMetadata.requestedAct) task.requestedAct = featureMetadata.requestedAct;
   if (wholeStoryPlan && intent === "outline_structure") task.featureScope = "whole_feature";
@@ -807,12 +862,14 @@ function buildScreenplayTaskBlock(screenplayTask) {
   }
   if ((intent === "outline_structure" || intent === "finish_feature") && requestedPages === 0) {
     if (intent === "outline_structure" && featureScope === "whole_feature") {
-      lines.push("feature_plan: Act I commitment causes Act II reversal and loss; Act III resolves through a costly final choice. Give payoff and final image, then Next three scenes. Plan only.");
-      lines.push("character_arc: Give the protagonist a want, conflicting need and old tactic. Show who it hurts and how the climactic choice proves change or refusal. Give pivotal supporting characters distinct wants and choices that alter the outcome.");
+      const delivery = task.defaultFeaturePitch ? "Pages: plan silently." : "Plan only.";
+      lines.push(`feature_plan: Label Act I catalyst/commitment, Act II midpoint reversal/crisis, Act III pays off setup in a costly final choice and final image. Next three scenes. ${delivery}`);
+      lines.push("character_arc: Give the lead a want, conflicting need and old tactic. Show who it hurts and how the climactic choice proves change, refusal or conviction. Give key supporting characters distinct wants and choices that alter the outcome.");
     }
+    if (task.defaultFeaturePitch) lines.push("For a page-writing turn, use the following architecture silently and deliver playable Fountain pages. In conversation, develop one original take on the writer's premise and show how a concrete opening image changes meaning at the end.");
     lines.push("feature_architecture_delivery_order:");
     lines.push("  - First deliver a compact complete causal spine covering Act I, Act II, and Act III before expanding any act. Never spend the opening budget detailing Act I while later acts remain unstated.");
-    lines.push("  - The spine must name catalyst, commitment, midpoint reversal, crisis or all-is-lost, climax, final image, and at least one setup -> payoff path.");
+    lines.push("  - Give each act its own heading. Act I lays the catalyst and commitment, Act II carries the midpoint reversal and crisis, and Act III delivers the payoff, climactic choice, and final image.");
     lines.push("  - Connect each major turn with because/therefore causality and show how the old tactic fails and how the climactic choice proves change or refusal.");
     lines.push("  - Immediately after the complete spine, add a literal 'Next three scenes' heading and list three playable scene turns from the current story state. Only then add optional detail.");
   }
@@ -859,7 +916,7 @@ function buildScreenplayTaskBlock(screenplayTask) {
 function screenplayModeGuidanceForIntent(intent) {
   switch (intent) {
     case "write_scene":
-      return "Start in Fountain. Give the lead an immediate want, let an opposing goal push back, and land a visible turn that changes what someone can do next.";
+      return "Start in Fountain. Give the lead an immediate want, let an opposing goal push back, and land a visible turn that changes what someone can do next. For an opening, silently connect the three-act arc and show the lead's old tactic through behavior that plants a later cost.";
     case "rewrite_scene":
       return "Preserve the writer's intention and continuity while replacing the weak passage with stronger playable pages. Raise objective, obstacle, subtext, image, rhythm, and the scene turn. If this is page-targeted, output only the revised screenplay text. Give at most one craft sentence before pages when not page-targeted.";
     case "continue_script":
@@ -871,7 +928,7 @@ function screenplayModeGuidanceForIntent(intent) {
     case "outline_structure":
       return "Shape beats by cause and effect. Lead with a compact complete Act I / Act II / Act III causal spine, then track act pressure, reversals, setups, payoffs, and the emotional consequence of each turn.";
     case "character_development":
-      return "Translate psychology into visible behavior: want, need, contradiction, tactics, silence, and the choice the audience can watch.";
+      return "Show want, concealed need, and who pays for the old tactic. Full arc: opening behavior, mounting pressure, costly final choice proving change, refusal, or conviction, and lasting consequence. For one scene, show only its turn.";
     case "emotional_continuity":
       return "Track the emotional baton between beats. Preserve what just happened inside each character before adding the next action.";
     case "pacing_pass":

@@ -167,12 +167,17 @@ const COMPLETE_FEATURE_OUTLINE = [
   "Next three scenes: Eli refuses the demand. June leaves with the token. Mara follows their plan instead of issuing orders.",
 ].join("\n\n");
 
-for (const [missingTurn, original, replacement] of [
-  ["climax", "In the climax, June", "June"],
-  ["final image", " The final image puts Mara in the passenger seat at dawn.", ""],
+const FINAL_IMAGE = "The final image puts Mara in the passenger seat at dawn.";
+const withoutFinalImage = COMPLETE_FEATURE_OUTLINE.replace(` ${FINAL_IMAGE}`, "");
+for (const [missingTurn, incompleteFeature] of [
+  ["climax", COMPLETE_FEATURE_OUTLINE.replace("In the climax, June", "June")],
+  ["final image", withoutFinalImage],
+  ["Act III final image", withoutFinalImage.replace("\n\nAct III:", ` Someone imagines this ending. ${FINAL_IMAGE}\n\nAct III:`)],
+  ["Act II midpoint", COMPLETE_FEATURE_OUTLINE
+    .replace("the midpoint reversal", "a discovery")
+    .replace("Act III: Mara", "Act III: The midpoint reversal is explained here. Mara")],
 ]) {
   test(`[studio-quality] sends an outline missing its ${missingTurn} to the bounded repair`, async () => {
-    const incompleteFeature = COMPLETE_FEATURE_OUTLINE.replace(original, replacement);
     const calls = [];
     const result = await enforceStudioStructuralAnalysisQuality({
       reply: incompleteFeature,
