@@ -743,6 +743,60 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     }
 
     @MainActor
+    func testLiveReceiptKeepsIndependentRecoveryAndItsOriginalBase() async {
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.autosaveEnabled = false
+        let project = "live-receipt-recovery"
+        let remote = "INT. ROOM - DAY\n\nThe blinds close."
+        let recovered = remote + " \n"
+        model.selectedProjectID = project
+        model.applyStructuralUITestDraft("INT. ROOM - DAY\n\nThe blinds open.", versionID: "old")
+        store.save(ownerUserId: owner, projectId: project, draft: recovered,
+                   baseVersionId: "writer-base", dirty: true)
+
+        XCTAssertTrue(model.applyRemoteLiveDraft(remote, projectID: project, sourceDeviceID: "other-device"))
+        await model.handleDraftDebouncedChange(remote)
+        XCTAssertEqual(store.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: project)?.draft, recovered)
+
+        model.adoptRemoteLiveVersion("new", projectID: project, draftChecksum: LiveDraftText.checksum(remote))
+        XCTAssertEqual(model.latestVersionID, "new")
+        XCTAssertEqual(model.fountainDraft, remote)
+        XCTAssertFalse(model.hasUnsavedDraftChanges)
+        XCTAssertEqual(model.recoveryCandidate.map { Array($0.draft.utf8) }, Array(recovered.utf8))
+        XCTAssertEqual(model.recoveryCandidate?.baseVersionId, "writer-base")
+        let relaunched = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: recoveryKey)
+        XCTAssertEqual(relaunched.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: project)?.draft, recovered)
+    }
+
+    @MainActor
+    func testLiveReceiptLeavesMatchingRecoveryUntilAuthoritativeTextArrives() throws {
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.autosaveEnabled = false
+        let project = "live-receipt-authority"
+        let remote = "INT. ROOM - DAY\n\nThe blinds close."
+        let otherEdit = remote + "\nShe pockets the key."
+        model.selectedProjectID = project
+        model.applyStructuralUITestDraft(remote, versionID: "old")
+        store.save(ownerUserId: owner, projectId: project, draft: remote,
+                   baseVersionId: "old", dirty: true, preserveExactText: true)
+        store.savePreservedConflict(ownerUserId: owner, projectId: project, draft: otherEdit, baseVersionId: "old")
+
+        model.adoptRemoteLiveVersion("new", projectID: project, draftChecksum: LiveDraftText.checksum(remote))
+        XCTAssertEqual(store.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: project)?.draft, remote)
+        XCTAssertEqual(model.recoveryCandidate?.draft, otherEdit)
+
+        let data = try JSONSerialization.data(withJSONObject: [
+            "id": project, "title": "Script", "activeVersionId": "new",
+            "versions": [["id": "new", "draft": remote]]
+        ])
+        model.hydrateDraft(from: try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: data))
+        XCTAssertNil(store.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: project))
+        XCTAssertEqual(model.recoveryCandidate?.draft, otherEdit)
+    }
+
+    @MainActor
     func testLiveSyncVersionAdoptionKeepsExactLocalDraftAvailableToRecover() async {
         let local = "INT. DINER - NIGHT\n\nShe waits.\n\nA phone BUZZES."
         let remote = "INT. DINER - NIGHT\n\nShe waits."

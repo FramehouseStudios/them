@@ -100,10 +100,19 @@ final class V1SmokeUITests: XCTestCase {
         let app = launchApp(openStudio: true, openCommandBar: true)
         defer { app.terminate() }
         let prompt = element(identifier: "studio.prompt.field", in: app)
-        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        guard drawer.waitForExistence(timeout: 8), prompt.waitForExistence(timeout: 8),
+              revealInStudioDrawer(prompt, drawer: drawer, scrollingUp: false, maxSwipes: 12) else {
+            XCTFail("The opened command bar must expose a hittable prompt field.")
+            return
+        }
+        // Drive the focus transition directly. Launch can mount the prompt
+        // before SwiftUI delivers its initial keyboard focus.
+        prompt.tap()
         guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
         let keyboardSend = app.buttons["studio.prompt.keyboard-send"]
-        XCTAssertTrue(keyboardSend.waitForExistence(timeout: 5))
+        XCTAssertTrue(keyboardSend.waitForExistence(timeout: 5),
+                      "Focusing the prompt must expose its keyboard Send action.")
         let inspectorToggle = app.buttons["studio.sidebar.right.toggle"]
         XCTAssertTrue(waitForHittability(of: inspectorToggle, timeout: 5))
         inspectorToggle.tap()
@@ -119,7 +128,6 @@ final class V1SmokeUITests: XCTestCase {
         add(pageKeyboard)
         XCTAssertTrue(waitForDisappearance(of: keyboardSend, timeout: 3))
         inspectorToggle.tap()
-        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
         XCTAssertTrue(drawer.waitForExistence(timeout: 5))
         XCTAssertTrue(revealInStudioDrawer(prompt, drawer: drawer, scrollingUp: false, maxSwipes: 12))
         prompt.tap()
@@ -1020,9 +1028,32 @@ final class V1SmokeUITests: XCTestCase {
         defer { app.terminate() }
 
         let savedTab = app.buttons["studio.right-panel.saved"]
+#if os(iOS)
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        let draftTab = app.buttons["studio.right-panel.draft"]
+        let window = app.windows.firstMatch
+        guard drawer.waitForExistence(timeout: 8), savedTab.waitForExistence(timeout: 8),
+              window.waitForExistence(timeout: 3), waitForSelection(of: draftTab, timeout: 3) else {
+            XCTFail("The Saved fixture must start on the Draft inspector with a visible Saved tab.")
+            return
+        }
+        let windowFrame = window.frame
+        let touchArea = savedTab.frame.intersection(drawer.frame).intersection(windowFrame)
+        let savedValue = savedTab.value as? String
+        guard !touchArea.isEmpty, savedValue != "Selected" else {
+            XCTFail("Saved must be visible and unselected before the touch. Visible area: \(touchArea). Value: \(savedValue ?? "nil").")
+            return
+        }
+        // XCTest can report a frame that extends beyond the visible drawer
+        // while it opens. Send one touch inside the overlapping area.
+        window.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: touchArea.midX - windowFrame.minX, dy: touchArea.midY - windowFrame.minY)).tap()
+#else
         XCTAssertTrue(savedTab.waitForExistence(timeout: 8))
         savedTab.tap()
-
+#endif
+        XCTAssertTrue(waitForSelection(of: savedTab, timeout: 3),
+                      "A tap inside the visible Saved tab must select it.")
         XCTAssertTrue(app.descendants(matching: .any)["studio.saved.panel"].waitForExistence(timeout: 4))
         let saveButton = app.buttons["studio.saved.save"]
         XCTAssertTrue(saveButton.waitForExistence(timeout: 4))
