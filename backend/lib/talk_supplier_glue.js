@@ -52,31 +52,25 @@ function createSttSupplier({
       });
       sttForm.append("file", file);
 
-      let sttResp;
       try {
-        sttResp = await fetcher(
+        // Keep the request deadline active until the transcription body is read.
+        const { response, rawText } = await fetcher(
           "https://api.openai.com/v1/audio/transcriptions",
           {
             method: "POST",
             headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
             body: sttForm,
           },
-          STT_TIMEOUT_MS
+          STT_TIMEOUT_MS,
+          async (response) => ({ response, rawText: await response.text() })
         );
+        return { model, response, rawText, elapsedMs: Date.now() - startedAt };
       } catch (err) {
         if (isAbort(err)) {
           throw timeoutError("stt", "Transcription timed out.");
         }
         throw err;
       }
-
-      const rawText = await sttResp.text();
-      return {
-        model,
-        response: sttResp,
-        rawText,
-        elapsedMs: Date.now() - startedAt,
-      };
     },
   });
 }
