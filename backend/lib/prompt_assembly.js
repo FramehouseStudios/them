@@ -529,7 +529,11 @@ function asksForWholeStoryPlan(lower) {
 function inferScreenplayTask(userInput = "") {
   // Studio prepends an intent label. Some transports flatten its line breaks.
   // Classify the writer's words while preserving the original prompt for delivery.
-  const text = trimToString(userInput).replace(/^Intent:[ \t]+[^\r\n]{1,180}?\s+Writer request:\s*/i, "");
+  const writerRequest = trimToString(userInput).replace(/^Intent:[ \t]+[^\r\n]{1,180}?\s+Writer request:\s*/i, "");
+  // The first-page form includes the premise as story material. A command
+  // inside that premise cannot change the instruction or requested act.
+  const firstPageInstruction = writerRequest.match(/^(Write the first page of a screenplay scene) for [^\r\n]+?\.\s+Scene impulse:/i);
+  const text = firstPageInstruction?.[1] ?? writerRequest;
   const lower = text.toLowerCase();
   if (!lower) return null;
   const featureMetadata = inferFeatureRequestMetadata(lower);

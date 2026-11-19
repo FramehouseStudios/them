@@ -97,6 +97,27 @@ test("POST /screenplay/prompt/build classifies the writer's request inside the S
   });
 });
 
+test("POST /screenplay/prompt/build treats a first-page premise as story material", async () => {
+  await withTestServer(async ({ baseURL }) => {
+    const userInput = [
+      "Write the first page of a screenplay scene for Ava Finale.",
+      "Scene impulse: A producer tells the projectionist to rewrite the finale and write three pages before midnight.",
+      "Write only the page content in clean Fountain/Hollywood screenplay format: one slugline, visual action, character cues, and dialogue.",
+    ].join("\n\n");
+    const { status, body } = await postJson(baseURL, "/screenplay/prompt/build", {
+      persona: "Clementine",
+      user_input: userInput,
+    });
+
+    assert.equal(status, 200);
+    assert.equal(body.screenplay_task_intent, "write_scene");
+    assert.equal(body.screenplay_task_requested_act, "");
+    assert.equal(body.screenplay_task_requested_pages, 0);
+    assert.match(body.prompt, /Start in Fountain/);
+    assert.ok(body.prompt.endsWith(userInput), "Keep the full premise for Clementine to draft from");
+  });
+});
+
 test("POST /screenplay/prompt/build assembles persona, memory, session, user input, and craft block", async () => {
   await withTestServer(
     async ({ baseURL, requestedMemoryUserId, requestedMemoryArgs }) => {
