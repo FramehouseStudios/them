@@ -1415,6 +1415,48 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         XCTAssertEqual(stored.first?.lastError, "offline 6")
     }
 
+    func testAcknowledgedAutosaveRetiresOnlyTheExactOwnedCopy() async throws {
+        let outbox = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let words = "INT. ROOM - NIGHT\n\nMara sets the cafe\u{0301} key down."
+        let duplicate = makeEntry(id: "passive", draft: words)
+        let explicit = makeEntry(id: "checkpoint", draft: words, createdAt: 101, source: "studio_snapshot")
+        let otherWords = makeEntry(id: "edited", draft: words + " She leaves.", createdAt: 102)
+        try await outbox.enqueue(explicit)
+        try await outbox.markParked(id: explicit.id, error: "kept for review")
+        try await outbox.enqueue(duplicate)
+        try await outbox.enqueue(otherWords)
+        let unowned = try await outbox.retireAcknowledgedAutosave(id: duplicate.id,
+            projectId: duplicate.projectId, ownerUserId: "someone-else",
+            confirmedDraft: words, versionId: duplicate.baseVersionId)
+        let stale = try await outbox.retireAcknowledgedAutosave(id: duplicate.id,
+            projectId: duplicate.projectId, ownerUserId: duplicate.ownerUserId,
+            confirmedDraft: words, versionId: "different-version")
+        let changed = try await outbox.retireAcknowledgedAutosave(id: otherWords.id,
+            projectId: duplicate.projectId, ownerUserId: duplicate.ownerUserId,
+            confirmedDraft: words, versionId: duplicate.baseVersionId)
+        let canonicallyEquivalent = try await outbox.retireAcknowledgedAutosave(id: duplicate.id,
+            projectId: duplicate.projectId, ownerUserId: duplicate.ownerUserId,
+            confirmedDraft: words.precomposedStringWithCanonicalMapping, versionId: duplicate.baseVersionId)
+        let parked = try await outbox.retireAcknowledgedAutosave(id: explicit.id,
+            projectId: duplicate.projectId, ownerUserId: duplicate.ownerUserId,
+            confirmedDraft: words, versionId: duplicate.baseVersionId)
+        XCTAssertFalse(unowned)
+        XCTAssertFalse(stale)
+        XCTAssertFalse(changed)
+        XCTAssertFalse(canonicallyEquivalent)
+        XCTAssertFalse(parked)
+
+        let acknowledged = try await outbox.retireAcknowledgedAutosave(id: duplicate.id,
+            projectId: duplicate.projectId, ownerUserId: duplicate.ownerUserId,
+            confirmedDraft: words, versionId: duplicate.baseVersionId)
+        XCTAssertTrue(acknowledged)
+        let reopened = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let retained = try await reopened.entriesForTesting()
+        XCTAssertEqual(Set(retained.map(\.id)), [explicit.id, otherWords.id])
+        XCTAssertTrue(retained.contains { $0.id == explicit.id && $0.status == .parked })
+        XCTAssertTrue(retained.contains { $0.id == otherWords.id && $0.draft.utf8.elementsEqual(otherWords.draft.utf8) })
+    }
+
     func testUITestResetRemovesPersistedDraftSaveQueue() async throws {
         let store = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         try await store.enqueue(makeEntry(id: "stale-ui-save"))

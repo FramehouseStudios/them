@@ -34,6 +34,12 @@ nonisolated struct ScreenplayDraftSaveOutboxEntry: Identifiable, Codable, Equata
     var retries: Int
     var nextAttemptAt: TimeInterval
     var lastError: String
+
+    func matchesAcknowledgedAutosave(draft confirmedDraft: String, versionId: String) -> Bool {
+        source == "studio_autosave" && notes.isEmpty &&
+            !versionId.isEmpty && baseVersionId == versionId &&
+            ScreenplayDraftSaveCompletionPolicy.hasSameBytes(draft, confirmedDraft)
+    }
 }
 
 nonisolated struct ScreenplayDraftSaveOutboxSnapshot: Equatable {
@@ -287,6 +293,23 @@ actor ScreenplayDraftSaveOutbox {
                 entries[queuedIndex].updatedAt = now.timeIntervalSince1970
             }
         }
+        do { try persist() } catch { entries = previous; throw error }
+        publishSnapshot()
+        return true
+    }
+
+    /// Retire only this exact passive duplicate. Other writer versions and
+    /// parked choices do not participate in a local acknowledgement.
+    func retireAcknowledgedAutosave(id: String, projectId: String, ownerUserId: String,
+                                    confirmedDraft: String, versionId: String) throws -> Bool {
+        try loadIfNeeded()
+        guard let index = entries.firstIndex(where: { $0.id == id }) else { return true }
+        let entry = entries[index]
+        guard entry.projectId == projectId, entry.ownerUserId == ownerUserId,
+              entry.status != .parked,
+              entry.matchesAcknowledgedAutosave(draft: confirmedDraft, versionId: versionId) else { return false }
+        let previous = entries
+        entries.remove(at: index)
         do { try persist() } catch { entries = previous; throw error }
         publishSnapshot()
         return true

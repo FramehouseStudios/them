@@ -1482,6 +1482,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         didSet {
             if !selectedProjectID.utf8.elementsEqual(oldValue.utf8) {
                 editorExternalDraftMutationRevision &+= 1
+                lastAcknowledgedDraftSave = nil
             }
         }
     }
@@ -1706,6 +1707,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private var remoteLiveDraftFollowFallbackTask: Task<Void, Never>?
     private var lastSavedDraftFingerprint = ""
     private var lastRevisionBaseDraft = ""
+    private var lastAcknowledgedDraftSave: DraftSaveRequest?
     private var loadedDraftProjectID: String = ""
     private var lastManualDraftEditAt: Date = .distantPast
     private var lastSeenScreenplayStateVersion = ""
@@ -6365,6 +6367,27 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 throw URLError(.notConnectedToInternet)
             }
 #endif
+            if let confirmed = lastAcknowledgedDraftSave,
+               confirmed.projectId == request.projectId, confirmed.ownerUserId == request.ownerUserId,
+               confirmed.authContext == request.authContext, confirmed.authorityGeneration == request.authorityGeneration,
+               confirmed.title == request.title, confirmed.phase == request.phase,
+               loadedDraftProjectID == request.projectId, latestVersionID == confirmed.baseVersionId,
+               request.outboxEntry.matchesAcknowledgedAutosave(draft: confirmed.draft, versionId: latestVersionID) {
+                guard try await draftSaveOutbox.retireAcknowledgedAutosave(id: request.id,
+                    projectId: request.projectId, ownerUserId: request.ownerUserId,
+                    confirmedDraft: confirmed.draft, versionId: confirmed.baseVersionId),
+                    draftSaveAuthorityIsCurrent(request) else { return false }
+                if latestVersionID == confirmed.baseVersionId,
+                   ScreenplayDraftSaveCompletionPolicy.hasSameBytes(fountainDraft, confirmed.draft) {
+                    hasUnsavedDraftChanges = false
+                    isManualDraftEditing = false
+                    lastManualDraftEditAt = .distantPast
+                    autosaveStatusText = "Saved"
+                    persistLocalDraftRecovery(projectId: request.projectId, draft: fountainDraft,
+                        baseVersionId: confirmed.baseVersionId, dirty: false)
+                }
+                return true
+            }
             switch try await emptyBaseDraftSavePreflight(for: request) {
             case .notRequired, .versionlessProject:
                 break
@@ -6503,6 +6526,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 selectedProjectID = nextProject.id
             }
             latestVersionID = nextVersionId
+            lastAcknowledgedDraftSave = request.rebased(on: nextVersionId)
             if let savedAnchors = result.payload.version?.studioWriteAnchors {
                 studioWriteAnchors = savedAnchors.filter { anchor in
                     !anchor.writeId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("binding:")
