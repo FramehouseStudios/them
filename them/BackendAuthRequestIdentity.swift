@@ -53,3 +53,23 @@ nonisolated extension BackendAuthClient {
         ScreenplayStudioAuthContextPolicy.matches(expected: expected, current: currentRequestOwner())
     }
 }
+
+nonisolated extension URLRequest {
+    mutating func applyProjectOwnerHeaders(
+        includeUserIdentity: Bool,
+        includeAuthToken: Bool,
+        clientTokenOverride: String?
+    ) {
+        if !includeUserIdentity {
+            setValue(nil, forHTTPHeaderField: "X-User-Id")
+        }
+        if !includeAuthToken {
+            setValue(nil, forHTTPHeaderField: "Authorization")
+        }
+        let cleanClientToken = (clientTokenOverride ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanClientToken.isEmpty {
+            setValue(cleanClientToken, forHTTPHeaderField: "X-Client-Token")
+        }
+    }
+}

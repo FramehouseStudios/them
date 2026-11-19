@@ -7685,8 +7685,7 @@ actor BackendMemoryAPI {
                 URLQueryItem(name: "version_limit", value: String(max(1, versionLimit))),
             ]
         )
-        applyProjectOwnerHeaders(
-            to: &request,
+        request.applyProjectOwnerHeaders(
             includeUserIdentity: includeUserIdentity,
             includeAuthToken: includeAuthToken,
             clientTokenOverride: clientTokenOverride
@@ -7767,8 +7766,7 @@ actor BackendMemoryAPI {
                 URLQueryItem(name: "include_project", value: includeProject ? "1" : "0"),
             ]
         )
-        applyProjectOwnerHeaders(
-            to: &request,
+        request.applyProjectOwnerHeaders(
             includeUserIdentity: includeUserIdentity,
             includeAuthToken: includeAuthToken,
             clientTokenOverride: clientTokenOverride
@@ -7820,10 +7818,12 @@ actor BackendMemoryAPI {
         studioThreadViewState: BackendScreenplayThreadViewState? = nil,
         studioDiffAcknowledgedKeys: [String]? = nil,
         studioDiffAcknowledgedEntries: [BackendScreenplayDiffAcknowledgementEntry]? = nil,
-        studioAskNoteHistory: [BackendScreenplayStudioExchange]? = nil
+        studioAskNoteHistory: [BackendScreenplayStudioExchange]? = nil,
+        activate: Bool = true, expectedOwner: ScreenplayStudioAuthContext? = nil
     ) async throws -> BackendReadResult<BackendScreenplayProjectMutationResponse> {
+        _ = try projectWriteIdentity(expectedOwner)
         _ = try? await bootstrapSession(force: false)
-        var request = try makeWriteRequest(path: "/screenplay/projects")
+        var request = try makeWriteRequest(path: "/screenplay/projects", identity: projectWriteIdentity(expectedOwner, generateUserID: true))
         var payload: [String: Any] = [
             "title": title,
             "phase": phase,
@@ -7831,7 +7831,7 @@ actor BackendMemoryAPI {
             "characters": characters,
             "setting": setting,
             "tone": tone,
-            "activate": true,
+            "activate": activate,
         ]
         if let logline {
             payload["logline"] = logline
@@ -7883,6 +7883,7 @@ actor BackendMemoryAPI {
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
         let (data, response) = try await session.data(for: request)
+        _ = try projectWriteIdentity(expectedOwner)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -7905,7 +7906,7 @@ actor BackendMemoryAPI {
             backendBuild: parsed.backendBuild,
             backendBootId: parsed.backendBootId
         )
-        updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
+        if activate { updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true, shouldDeliver: ownerDeliveryGuard(expectedOwner)) }
         return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
     }
 
@@ -7921,8 +7922,7 @@ actor BackendMemoryAPI {
             throw BackendMemoryAPIError.server(status: 400, message: "project_id_required")
         }
         var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/activate")
-        applyProjectOwnerHeaders(
-            to: &request,
+        request.applyProjectOwnerHeaders(
             includeUserIdentity: includeUserIdentity,
             includeAuthToken: includeAuthToken,
             clientTokenOverride: clientTokenOverride
@@ -7982,8 +7982,7 @@ actor BackendMemoryAPI {
             throw BackendMemoryAPIError.server(status: 400, message: "expected_outline_revision_invalid")
         }
         var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/outline")
-        applyProjectOwnerHeaders(
-            to: &request,
+        request.applyProjectOwnerHeaders(
             includeUserIdentity: includeUserIdentity,
             includeAuthToken: includeAuthToken,
             clientTokenOverride: clientTokenOverride
@@ -8171,8 +8170,7 @@ actor BackendMemoryAPI {
             throw BackendMemoryAPIError.server(status: 400, message: "project_id_required")
         }
         var request = try makeRequest(path: "/screenplay/projects/\(normalizedProjectId)/collaborators")
-        applyProjectOwnerHeaders(
-            to: &request,
+        request.applyProjectOwnerHeaders(
             includeUserIdentity: includeUserIdentity,
             includeAuthToken: includeAuthToken,
             clientTokenOverride: clientTokenOverride
@@ -8224,8 +8222,7 @@ actor BackendMemoryAPI {
             throw BackendMemoryAPIError.server(status: 400, message: "valid_email_required")
         }
         var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/collaborators")
-        applyProjectOwnerHeaders(
-            to: &request,
+        request.applyProjectOwnerHeaders(
             includeUserIdentity: includeUserIdentity,
             includeAuthToken: includeAuthToken,
             clientTokenOverride: clientTokenOverride
@@ -8287,8 +8284,7 @@ actor BackendMemoryAPI {
             limit: max(1, limit),
             extraQueryItems: query
         )
-        applyProjectOwnerHeaders(
-            to: &request,
+        request.applyProjectOwnerHeaders(
             includeUserIdentity: includeUserIdentity,
             includeAuthToken: includeAuthToken,
             clientTokenOverride: clientTokenOverride
@@ -8354,8 +8350,7 @@ actor BackendMemoryAPI {
             throw BackendMemoryAPIError.server(status: 400, message: "comment_or_voice_required")
         }
         var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/comments")
-        applyProjectOwnerHeaders(
-            to: &request,
+        request.applyProjectOwnerHeaders(
             includeUserIdentity: includeUserIdentity,
             includeAuthToken: includeAuthToken,
             clientTokenOverride: clientTokenOverride
@@ -8432,8 +8427,10 @@ actor BackendMemoryAPI {
         clientRequestId: String = "",
         includeUserIdentity: Bool = true,
         includeAuthToken: Bool = true,
-        clientTokenOverride: String? = nil
+        clientTokenOverride: String? = nil,
+        activate: Bool = true, expectedOwner: ScreenplayStudioAuthContext? = nil
     ) async throws -> BackendReadResult<BackendScreenplayVersionMutationResponse> {
+        _ = try projectWriteIdentity(expectedOwner)
         _ = try? await bootstrapSession(force: false)
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else {
@@ -8448,6 +8445,7 @@ actor BackendMemoryAPI {
             "draft": draft,
             "phase": phase,
             "source": source,
+            "activate": activate,
         ]
         if !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             payload["title"] = title
@@ -8501,15 +8499,16 @@ actor BackendMemoryAPI {
         var http: HTTPURLResponse?
         var didAttemptAuthRefresh = false
         while true {
-            var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/version")
-            applyProjectOwnerHeaders(
-                to: &request,
+            var request = try makeWriteRequest(path: "/screenplay/projects/\(normalizedProjectId)/version",
+                                               identity: projectWriteIdentity(expectedOwner, generateUserID: true))
+            request.applyProjectOwnerHeaders(
                 includeUserIdentity: includeUserIdentity,
                 includeAuthToken: includeAuthToken,
                 clientTokenOverride: clientTokenOverride
             )
             request.httpBody = requestBody
             let responsePair = try await session.data(for: request)
+            _ = try projectWriteIdentity(expectedOwner)
             guard let response = responsePair.1 as? HTTPURLResponse else {
                 throw BackendMemoryAPIError.invalidResponse
             }
@@ -8549,7 +8548,7 @@ actor BackendMemoryAPI {
                 backendBuild: parsed.backendBuild,
                 backendBootId: parsed.backendBootId
             )
-            updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
+            if activate { updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true, shouldDeliver: ownerDeliveryGuard(expectedOwner)) }
             return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
         }
         guard (200...299).contains(http.statusCode) else {
@@ -8569,7 +8568,7 @@ actor BackendMemoryAPI {
             backendBuild: parsed.backendBuild,
             backendBootId: parsed.backendBootId
         )
-        updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true)
+        if activate { updateSyncState(mergeSyncStates(base: bodySync, incoming: headerSync), emitTurnEvent: true, shouldDeliver: ownerDeliveryGuard(expectedOwner)) }
         return BackendReadResult(payload: parsed, sync: syncState, notModified: false)
     }
 
@@ -9907,23 +9906,16 @@ actor BackendMemoryAPI {
         return request.value(forHTTPHeaderField: "Authorization") != "Bearer \(currentToken)"
     }
 
-    private func applyProjectOwnerHeaders(
-        to request: inout URLRequest,
-        includeUserIdentity: Bool,
-        includeAuthToken: Bool,
-        clientTokenOverride: String?
-    ) {
-        if !includeUserIdentity {
-            request.setValue(nil, forHTTPHeaderField: "X-User-Id")
+    private func ownerDeliveryGuard(_ owner: ScreenplayStudioAuthContext?) -> @Sendable () -> Bool {
+        guard let owner else { return { true } }
+        return { [requestIdentityProvider] in
+            ScreenplayStudioAuthContextPolicy.matches(expected: owner, current: requestIdentityProvider(false).ownerContext)
         }
-        if !includeAuthToken {
-            request.setValue(nil, forHTTPHeaderField: "Authorization")
-        }
-        let cleanClientToken = (clientTokenOverride ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if !cleanClientToken.isEmpty {
-            request.setValue(cleanClientToken, forHTTPHeaderField: "X-Client-Token")
-        }
+    }
+
+    private func projectWriteIdentity(_ owner: ScreenplayStudioAuthContext?,
+                                      generateUserID: Bool = false) throws -> BackendAuthRequestIdentity? {
+        try owner.map { try requestIdentityProvider(generateUserID).requiringOwner($0) }
     }
 
     private func run<T: Decodable>(_ request: URLRequest, as type: T.Type) async throws -> T {

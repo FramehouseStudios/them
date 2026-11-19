@@ -3,6 +3,31 @@ import XCTest
 @testable import them
 
 final class BackendTurnOwnerBoundaryTests: XCTestCase {
+    func testFirstPageProjectAndVersionRejectOwnerChangeDuringBootstrap() async throws {
+        let operations: [(BackendMemoryAPI) async throws -> Void] = [
+            { api in
+                _ = try await api.upsertScreenplayProject(title: "Draft", activate: false,
+                    expectedOwner: TurnOwnerFixture.ownerA.ownerContext)
+            },
+            { api in
+                _ = try await api.upsertScreenplayProjectVersion(projectId: "project", draft: "New scene",
+                    activate: false, expectedOwner: TurnOwnerFixture.ownerA.ownerContext)
+            },
+        ]
+        for operation in operations {
+            let fixture = TurnOwnerFixture(transition: .bootstrap(TurnOwnerFixture.ownerB))
+            defer { fixture.close() }
+            do {
+                try await operation(fixture.api)
+                XCTFail("The first-page mutation must reject the superseded owner.")
+            } catch BackendMemoryAPIError.server(let status, let message) {
+                XCTAssertEqual(status, 409)
+                XCTAssertEqual(message, "request_owner_superseded")
+            }
+            XCTAssertEqual(fixture.requests.snapshot().map(\.path), ["/session"])
+        }
+    }
+
     func testIdentityOwnerUsesIntentGenerationRatherThanRotatingTokenOrEpoch() async throws {
         let original = TurnOwnerFixture.ownerA
         let refreshed = TurnOwnerFixture.refreshedA

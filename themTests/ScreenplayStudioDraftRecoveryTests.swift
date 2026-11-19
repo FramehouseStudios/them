@@ -1816,49 +1816,110 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
             draft: "INT. DINER - NIGHT",
             existingProjectID: "",
             isAutoCreatingProject: false,
-            createKey: "draft-key",
-            lastCreateKey: ""
+            isPromotionDeferred: false
         ))
         XCTAssertFalse(ScreenplayRestoredLiveDraftProjectPromotionPolicy.shouldCreateProject(
             isStudioSurfaceActive: false,
             draft: "INT. DINER - NIGHT",
             existingProjectID: "",
             isAutoCreatingProject: false,
-            createKey: "draft-key",
-            lastCreateKey: ""
+            isPromotionDeferred: false
         ))
         XCTAssertFalse(ScreenplayRestoredLiveDraftProjectPromotionPolicy.shouldCreateProject(
             isStudioSurfaceActive: true,
             draft: "   ",
             existingProjectID: "",
             isAutoCreatingProject: false,
-            createKey: "draft-key",
-            lastCreateKey: ""
+            isPromotionDeferred: false
         ))
         XCTAssertFalse(ScreenplayRestoredLiveDraftProjectPromotionPolicy.shouldCreateProject(
             isStudioSurfaceActive: true,
             draft: "INT. DINER - NIGHT",
             existingProjectID: "project-existing",
             isAutoCreatingProject: false,
-            createKey: "draft-key",
-            lastCreateKey: ""
+            isPromotionDeferred: false
         ))
         XCTAssertFalse(ScreenplayRestoredLiveDraftProjectPromotionPolicy.shouldCreateProject(
             isStudioSurfaceActive: true,
             draft: "INT. DINER - NIGHT",
             existingProjectID: "",
             isAutoCreatingProject: true,
-            createKey: "draft-key",
-            lastCreateKey: ""
+            isPromotionDeferred: false
         ))
         XCTAssertFalse(ScreenplayRestoredLiveDraftProjectPromotionPolicy.shouldCreateProject(
             isStudioSurfaceActive: true,
             draft: "INT. DINER - NIGHT",
             existingProjectID: "",
             isAutoCreatingProject: false,
-            createKey: "draft-key",
-            lastCreateKey: "draft-key"
+            isPromotionDeferred: true
         ))
+    }
+
+    @MainActor
+    func testFirstPageHandoffKeepsEditsAcrossBothSuspensions() async throws {
+        let owner = ScreenplayStudioAuthContext(userID: "first-page-writer", sessionIntentGeneration: 1)
+        let suite = "first-page-promotion-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults)
+        let initial = "INT. STUDIO - NIGHT\n\nOriginal words."
+        let editedBeforeSave = initial + "\n\nThe writer adds this before seeding."
+        let editedDuringSave = editedBeforeSave + "  \n"
+        let project = projectSummary(id: "first-draft")
+        var visible: String? = initial
+        var result: ScreenplayFirstPagePromotion.Outcome?
+        try await ScreenplayFirstPagePromotion.run(
+            owner: owner, seed: initial, draftBeforeCreate: initial, currentDraft: { visible },
+            recovery: recovery,
+            create: {
+                visible = editedBeforeSave
+                return project
+            },
+            save: { receivedProject, receivedDraft in
+                XCTAssertEqual(receivedProject.id, project.id)
+                XCTAssertEqual(receivedDraft, editedBeforeSave)
+                let staged = try XCTUnwrap(recovery.dirtyOrdinarySnapshot(ownerUserId: owner.userID, projectId: project.id))
+                XCTAssertEqual(staged.draft, editedBeforeSave)
+                visible = editedDuringSave
+                return "version-one"
+            },
+            finish: { result = $0 }
+        )
+        guard case .retained(let title) = result else { return XCTFail("Expected local recovery instead of adoption.") }
+        XCTAssertEqual(title, project.title)
+        let saved = try XCTUnwrap(recovery.dirtyOrdinarySnapshot(ownerUserId: owner.userID, projectId: project.id))
+        XCTAssertEqual(Array(saved.draft.utf8), Array(editedDuringSave.utf8))
+        XCTAssertEqual(saved.baseVersionId, "version-one")
+        let offered = try XCTUnwrap(recovery.recoverySnapshot(
+            ownerUserId: owner.userID, projectId: project.id, serverDraft: editedBeforeSave,
+            fingerprint: { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        ))
+        XCTAssertEqual(Array(offered.draft.utf8), Array(editedDuringSave.utf8))
+        XCTAssertNil(recovery.dirtyOrdinarySnapshot(ownerUserId: "different-writer", projectId: project.id))
+    }
+
+    @MainActor
+    func testFirstPageHandoffDoesNotAdoptAfterWorkspaceChanges() async throws {
+        let owner = ScreenplayStudioAuthContext(userID: "first-page-writer", sessionIntentGeneration: 1)
+        let suite = "first-page-promotion-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults)
+        let initial = "INT. STUDIO - NIGHT\n\nOriginal words."
+        var visible: String? = initial
+        try await ScreenplayFirstPagePromotion.run(
+            owner: owner, seed: initial, draftBeforeCreate: initial, currentDraft: { visible },
+            recovery: recovery,
+            create: {
+                visible = nil
+                return projectSummary(id: "first-draft")
+            },
+            save: { _, _ in
+                XCTFail("A superseded workspace must not start the version write.")
+                return "version-one"
+            },
+            finish: { _ in XCTFail("A superseded workspace must not adopt a project.") }
+        )
     }
 
     func testSaveFailurePresentationDistinguishesManualAutosaveAndSnapshot() {
