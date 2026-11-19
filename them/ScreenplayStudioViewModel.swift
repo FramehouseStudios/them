@@ -1706,7 +1706,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private var remoteLiveDraftFollowFallbackTask: Task<Void, Never>?
     private var lastSavedDraftFingerprint = ""
     private var lastRevisionBaseDraft = ""
-    private var loadedDraftProjectID: String = ""
+    @Published private(set) var loadedDraftProjectID: String = ""
+
+    private var isSwitchingLoadedDraftProject: Bool {
+        !loadedDraftProjectID.isEmpty &&
+            !ScreenplayProjectScopedState.matches(loadedDraftProjectID, selectedProjectId: selectedProjectID)
+    }
     private var lastManualDraftEditAt: Date = .distantPast
     private var lastSeenScreenplayStateVersion = ""
     private var outlineRevisionProjectID = ""
@@ -2284,8 +2289,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let normalized = fountainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         hasUnsavedDraftChanges = fingerprint(for: normalized) != lastSavedDraftFingerprint
         if !normalized.isEmpty {
+            // The last native keystroke may arrive while a different project
+            // is selected but its page still has not replaced this one.
             persistLocalDraftRecovery(
-                projectId: selectedProjectID,
+                projectId: loadedDraftProjectID.isEmpty ? selectedProjectID : loadedDraftProjectID,
                 draft: fountainDraft,
                 baseVersionId: latestVersionID,
                 dirty: hasUnsavedDraftChanges
@@ -5952,8 +5959,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let projectID = selectedProjectID
         let authContext = currentStudioAuthContext()
         func isCurrentDraft() -> Bool {
-            !Task.isCancelled && !isHydratingDraft && selectedProjectID == projectID
-                && authContextIsCurrent(authContext) && fountainDraft.utf8.elementsEqual(draft.utf8)
+            !Task.isCancelled && !isHydratingDraft && !isSwitchingLoadedDraftProject
+                && selectedProjectID == projectID && authContextIsCurrent(authContext)
+                && fountainDraft.utf8.elementsEqual(draft.utf8)
         }
         // The debounce's Task may start after a newer edit, and layout calls
         // suspend. An old snapshot must not retire or persist the writer's page.
@@ -6046,7 +6054,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
         notes: String,
         baseVersionOverride: String?
     ) -> DraftSaveRequest? {
-        guard let project = selectedProject else { return nil }
+        guard !isSwitchingLoadedDraftProject, let project = selectedProject,
+              ScreenplayProjectScopedState.matches(project.id, selectedProjectId: selectedProjectID) else { return nil }
         let ownerUserId = BackendAuthClient.currentAuthSessionState().user?.userId
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let authContext = currentStudioAuthContext()
@@ -6207,6 +6216,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
         baseVersionOverride: String? = nil,
         draftOverride: String? = nil
     ) async {
+        guard !isSwitchingLoadedDraftProject else {
+            errorText = "Wait for the selected project to finish loading before saving."
+            return
+        }
         guard let request = makeDraftSaveRequest(
             draft: draftOverride ?? fountainDraft,
             source: source,
@@ -7002,6 +7015,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     private func syncLiveDraftBridgeProjectContext(clearWhenEmpty: Bool = false) {
+        guard !isSwitchingLoadedDraftProject else { return }
         let bridge = ScreenplayLiveDraftBridge.shared
         let projectID = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? (selectedProject?.id ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -7144,7 +7158,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 $0.isPreservedConflict &&
                 $0.draft != draft
         } ?? false
-        if !dirty && !hasDifferentPreservedConflict {
+        if !dirty, recoveryCandidate?.projectId == normalizedProjectId, !hasDifferentPreservedConflict {
             recoveryCandidate = nil
         }
     }
