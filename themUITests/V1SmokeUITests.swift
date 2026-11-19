@@ -157,6 +157,36 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(openAccount.waitForExistence(timeout: 8))
         openAccount.tap()
 
+        let submit = app.buttons["profile-auth-submit"]
+        let apple = app.buttons["Sign in with Apple"]
+        let signInOptions = app.buttons["profile-auth-options"]
+        XCTAssertTrue(submit.waitForExistence(timeout: 6))
+        XCTAssertTrue(apple.waitForExistence(timeout: 4))
+        XCTAssertFalse(app.switches["profile-auth-remember-me"].exists)
+        let signInScreen = XCTAttachment(screenshot: app.screenshot())
+        signInScreen.name = "Sign-in entry points"
+        signInScreen.lifetime = .keepAlways
+        add(signInScreen)
+
+        let forgotPassword = app.buttons["profile-auth-forgot-password"]
+        XCTAssertTrue(scrollFullyIntoWindow(forgotPassword, in: app))
+        forgotPassword.tap()
+        XCTAssertTrue(app.buttons["Request Reset"].waitForExistence(timeout: 4))
+        let back = app.buttons["profile-auth-reset-back"]
+        XCTAssertTrue(scrollFullyIntoWindow(back, in: app))
+        back.tap()
+        XCTAssertTrue(submit.waitForExistence(timeout: 4))
+
+        let switchMode = app.buttons["profile-auth-switch-mode"]
+        XCTAssertTrue(scrollFullyIntoWindow(switchMode, in: app))
+        switchMode.tap()
+        XCTAssertTrue(app.secureTextFields["Confirm Password"].waitForExistence(timeout: 4))
+        XCTAssertTrue(scrollFullyIntoWindow(switchMode, in: app))
+        switchMode.tap()
+        XCTAssertTrue(apple.waitForExistence(timeout: 4))
+
+        XCTAssertTrue(scrollFullyIntoWindow(signInOptions, in: app))
+        signInOptions.tap()
         XCTAssertTrue(
             app.switches["profile-auth-remember-me"].waitForExistence(timeout: 6),
             "Profile did not expose the Remember me option."
@@ -167,11 +197,8 @@ final class V1SmokeUITests: XCTestCase {
         )
 
         let demo = app.buttons["profile-auth-use-local-demo"]
-        for _ in 0..<6 where !demo.isHittable {
-            app.swipeUp()
-        }
+        XCTAssertTrue(scrollFullyIntoWindow(demo, in: app))
         XCTAssertTrue(demo.waitForExistence(timeout: 4), "Local debug login was not visible on a loopback backend.")
-        XCTAssertTrue(app.buttons["Sign in with Apple"].waitForExistence(timeout: 4))
     }
 
     func test_profile_remembered_login_restores_through_keychain_relaunch_and_disables() {
@@ -179,6 +206,10 @@ final class V1SmokeUITests: XCTestCase {
             let openAccount = app.buttons["home.open-account"]
             XCTAssertTrue(openAccount.waitForExistence(timeout: 8))
             openAccount.tap()
+            let options = app.buttons["profile-auth-options"]
+            XCTAssertTrue(options.waitForExistence(timeout: 6))
+            XCTAssertTrue(scrollFullyIntoWindow(options, in: app))
+            options.tap()
             XCTAssertTrue(app.switches["profile-auth-remember-me"].waitForExistence(timeout: 6))
         }
 
@@ -4849,18 +4880,8 @@ final class V1SmokeUITests: XCTestCase {
         password.tap()
         password.typeText(credentials.password + "\n")
 
-        // The mode picker also contains a Sign In button. Exclude that actual
-        // segmented-control element and the home shortcut, rather than tapping
-        // an arbitrary label match or hard-coded screen coordinate.
-        let modeButtons = app.segmentedControls.buttons.matching(identifier: "Sign In").allElementsBoundByIndex
-        let submitButtons = app.buttons.matching(identifier: "Sign In").allElementsBoundByIndex.filter { candidate in
-            candidate.identifier != "home.open-account"
-                && !modeButtons.contains { $0.frame == candidate.frame }
-        }
-        guard submitButtons.count == 1, let submit = submitButtons.first else {
-            throw NSError(domain: "themUITests.recovery", code: 3,
-                userInfo: [NSLocalizedDescriptionKey: "The normal email sign-in action is ambiguous or missing."])
-        }
+        let submit = app.buttons["profile-auth-submit"]
+        XCTAssertTrue(submit.waitForExistence(timeout: 5), "The normal email sign-in action is missing.")
         XCTAssertTrue(scrollFullyIntoWindow(submit, in: app))
         XCTAssertTrue(waitForHittability(of: submit, timeout: 5))
         submit.tap()
