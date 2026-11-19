@@ -478,7 +478,7 @@ struct ScreenplayPromptBuilder {
             lines.append("- Target act from request: \(String(requestedAct.prefix(120)))")
         }
         if pageCount > 0 {
-            let target = targetPages > 0 ? targetPages : 110
+            let target = targetPages > 0 ? targetPages : ScreenplayFeatureProgressionGuide.defaultTargetPages
             lines.append("- Estimated position: p\(pageCount) / \(target)")
         } else if targetPages > 0 {
             lines.append("- Target length: \(targetPages) pages")
@@ -641,6 +641,11 @@ struct ScreenplayPromptBuilder {
         return ""
     }
 
+    private static func pageAfter(_ page: Int, adding count: Int) -> Int {
+        let (result, overflow) = page.addingReportingOverflow(count)
+        return overflow ? Int.max : result
+    }
+
     private static func featurePageTargetSizingLines(
         requestedPages: Int,
         act: String,
@@ -648,8 +653,8 @@ struct ScreenplayPromptBuilder {
         pageCount: Int,
         targetPages: Int
     ) -> [String] {
-        let target = targetPages > 0 ? targetPages : 110
-        let safePage = pageCount > 0 ? min(max(1, pageCount), target) : 0
+        let target = targetPages > 0 ? targetPages : ScreenplayFeatureProgressionGuide.defaultTargetPages
+        let safePage = max(0, pageCount)
         let cleanAct = act.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanRequestedAct = requestedAct.trimmingCharacters(in: .whitespacesAndNewlines)
         let activeAct = cleanRequestedAct.isEmpty ? cleanAct : cleanRequestedAct
@@ -666,8 +671,8 @@ struct ScreenplayPromptBuilder {
             let storyStateChanges = max(1, Int(ceil(Double(requestedPages) / 2.0)))
             let sceneTurns = sceneTurnBudget(for: requestedPages)
             if safePage > 0 {
-                let startPage = min(max(1, safePage + 1), target)
-                let endPage = min(max(startPage, startPage + requestedPages - 1), target)
+                let startPage = pageAfter(safePage, adding: 1)
+                let endPage = pageAfter(startPage, adding: requestedPages - 1)
                 let startSequence = featureSequenceBand(for: startPage, targetPages: target)
                 let endSequence = featureSequenceBand(for: endPage, targetPages: target)
                 lines.append("- Page target window: p\(startPage)-p\(endPage) / \(target)")
@@ -687,8 +692,8 @@ struct ScreenplayPromptBuilder {
             lines.append("- Story-state change floor: at least \(storyStateChanges) visible leverage/reveal/cost/tactic shift\(storyStateChanges == 1 ? "" : "s") across the batch.")
             lines.append("- Sizing rule: if model space is tight, complete the strongest contiguous page run with a clean handoff; never replace requested pages with an outline.")
         } else if safePage > 0 {
-            let startPage = min(max(1, safePage + 1), target)
-            let endPage = min(max(startPage, startPage + 4), target)
+            let startPage = pageAfter(safePage, adding: 1)
+            let endPage = pageAfter(startPage, adding: 4)
             let runSequence = featureSequenceBand(for: startPage, targetPages: target)
             lines.append("- Next useful run: p\(startPage)-p\(endPage) / \(target)")
             if !runSequence.isEmpty {

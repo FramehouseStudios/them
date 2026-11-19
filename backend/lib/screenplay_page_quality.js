@@ -1,3 +1,5 @@
+import { DEFAULT_FEATURE_TARGET_PAGES, findSequenceForPage } from "./feature_screenplay_map.js";
+
 function normalizeLineText(value = "") {
   return String(value || "")
     .replace(/[ \t]{2,}/g, " ")
@@ -1117,11 +1119,9 @@ function inferFeatureActKind(featureContext = {}) {
     featureContext.target_pages ??
     featureContext.featureTargetPages ??
     featureContext.feature_target_pages
-  ) || 110;
-  if (pageCount > 0 && pageCount >= Math.round(targetPages * (86 / 110))) return "act3";
-  if (pageCount > 0 && pageCount >= Math.round(targetPages * (26 / 110))) return "act2";
-  if (pageCount > 0) return "act1";
-  return "";
+  ) || DEFAULT_FEATURE_TARGET_PAGES;
+  const sequence = findSequenceForPage(pageCount, targetPages);
+  return ({ "Act I": "act1", "Act II": "act2", "Act III": "act3" })[sequence?.act] || "";
 }
 
 function featureObligationPhrasesForAct(featureActKind = "", featureContext = {}) {

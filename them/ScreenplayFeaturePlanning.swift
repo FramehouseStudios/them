@@ -20,7 +20,8 @@ struct ScreenplayFeatureProgressionGuide: Equatable {
     let nextMoves: [String]
     let comingNext: String
 
-    static let defaultTargetPages = 110
+    // A feature recommendation, not a length limit. Preserve explicit project targets.
+    static let defaultTargetPages = 120
 
     static func guide(
         actPosition: String,
@@ -37,7 +38,7 @@ struct ScreenplayFeatureProgressionGuide: Equatable {
         let next = nextStep(after: step)
         let range = pageRange(for: step, targetPages: target)
         let progress = safePage > 0 && !lowPageConflictsWithAct
-            ? "p\(min(safePage, target)) / \(target)"
+            ? "p\(safePage) / \(target)"
             : "Act estimate"
         let firstMove = step.nextMoves.first ?? "Advance the next irreversible character choice."
         let nextScenePlan = "\(step.act) - \(step.label): \(step.obligation) \(firstMove)"
@@ -174,7 +175,10 @@ struct ScreenplayFeatureProgressionGuide: Equatable {
     }
 
     private static func pageRange(for step: Step, targetPages: Int) -> (start: Int, end: Int) {
-        let start = min(max(1, Int((step.startRatio * Double(targetPages)).rounded())), targetPages)
+        let index = template.firstIndex(of: step) ?? 0
+        let previousEnd = index > 0 ? template[index - 1].endRatio * Double(targetPages) : 0
+        // Keep inclusive ranges contiguous at every chosen length.
+        let start = min(max(1, Int(previousEnd.rounded()) + 1), targetPages)
         let end = min(max(start, Int((step.endRatio * Double(targetPages)).rounded())), targetPages)
         return (start, end)
     }
