@@ -2087,7 +2087,9 @@ function buildModelPrompt({
   const sessionBlock = buildSessionContextBlock(sessionContext);
   if (sessionBlock) parts.push(sessionBlock);
 
-  const featureMapBlock = buildFeatureMapBlock(sessionContext, screenplayTask);
+  const featureMapBlock = personaText.includes(FEATURE_MAP_BLOCK_OPEN)
+    ? ""
+    : buildFeatureMapBlock(sessionContext, screenplayTask);
   if (featureMapBlock) parts.push(featureMapBlock);
 
   // Order: accepted_twists (story context) before block_signal

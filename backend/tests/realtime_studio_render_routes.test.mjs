@@ -1023,7 +1023,7 @@ test("[studio-render] sync: first page pass receives feature metadata when clien
   });
 });
 
-test("[studio-render] sync: canonical Apple feature prompt is not duplicated", async () => {
+test("[studio-render] sync: an existing feature map keeps one copy and receives missing scene craft", async () => {
   const deps = defaultDeps();
   await withTestServer(deps, async (baseURL) => {
     const r = await postJson(baseURL, "/realtime/studio_render", {
@@ -1042,6 +1042,8 @@ test("[studio-render] sync: canonical Apple feature prompt is not duplicated", a
     assert.equal(r.status, 200);
     const prompt = deps._calls.renderInvocations[0].systemPrompt;
     assert.equal((prompt.match(/<feature_film_map>/g) || []).length, 1);
+    assert.equal((prompt.match(/<screenplay_task>/g) || []).length, 1);
+    assert.match(prompt, /screenplay_craft: Distinct voices, tactics and subtext/);
   });
 });
 
