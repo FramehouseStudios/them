@@ -138,14 +138,22 @@ enum ScreenplayStudioExportSupport {
 #else
         _ = preferredDirectoryURL
         _ = noteSavedDirectory
-        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(artifact.filename)
-        try artifact.data.write(to: tempURL, options: .atomic)
+        let filename = artifact.filename
+        guard !filename.isEmpty, filename != ".", filename != "..",
+              filename == (filename as NSString).lastPathComponent else {
+            throw BackendMemoryAPIError.invalidResponse
+        }
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
+        let tempURL = folder.appendingPathComponent(filename, isDirectory: false)
+        try artifact.data.write(to: tempURL, options: [.atomic, .completeFileProtection])
         return tempURL
 #endif
     }
 
     @MainActor
-    static func exportCurrentDraft(format: String, deps: Dependencies) async {
+    static func exportCurrentDraft(format: String, deps: Dependencies) async -> URL? {
         Task { await deps.refreshFormatLint("Export " + format.uppercased()) }
         do {
             let artifact: BackendScreenplayExportArtifact
@@ -156,7 +164,10 @@ enum ScreenplayStudioExportSupport {
                 format: format
             )
 #elseif DEBUG
-            if deps.isRunningUITests {
+            // Standalone UI smoke tests can export without a backend. The
+            // authenticated writer loop supplies one and uses the shipping path.
+            let hasTestBackend = ProcessInfo.processInfo.environment["THEM_UITEST_BACKEND_BASE_URL"] != nil
+            if deps.isRunningUITests && !hasTestBackend {
                 artifact = try makeUITestArtifact(
                     draft: deps.draft,
                     title: deps.projectTitle,
@@ -175,11 +186,15 @@ enum ScreenplayStudioExportSupport {
                 ),
                 noteSavedDirectory: deps.noteSavedDirectory
             )
+#if os(macOS)
             if let savedURL {
                 deps.setInfo(savedInfoText(filename: artifact.filename, savedURL: savedURL))
             }
+#endif
+            return savedURL
         } catch {
             deps.setError(ScreenplayExportFormatMenu.displayMessage(for: error, format: format))
+            return nil
         }
     }
 

@@ -126,7 +126,7 @@ struct ScreenplayStudioDraftIntegrityActions {
 struct ScreenplayStudioDraftToolsActions {
     let onSaveNow: () -> Void
     let onImport: () -> Void
-    let onExport: (String) -> Void
+    let onExport: (String) async -> URL?
     let onRefreshExportFormats: () -> Void
     let onOpenGoogleDocs: () -> Void
     let onRefreshFormatLint: () -> Void
@@ -339,6 +339,10 @@ struct ScreenplayStudioDraftToolsCard: View {
 }
 
 private struct ScreenplayStudioDraftDocumentControls: View {
+#if os(iOS)
+    @State private var exportCopy: URL?
+    @State private var isPreparingExport = false
+#endif
     @Binding var autosaveEnabled: Bool
     let presentation: ScreenplayStudioDraftDocumentPresentation
     let actions: ScreenplayStudioDraftToolsActions
@@ -446,6 +450,19 @@ private struct ScreenplayStudioDraftDocumentControls: View {
             saveButton
             importButton
             exportMenu
+#if os(iOS)
+            if let exportCopy {
+                ShareLink(item: exportCopy) {
+                    Label("Share \(exportCopy.lastPathComponent)", systemImage: "square.and.arrow.up")
+                        .font(IOThemTypography.UI.calloutStrong)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("studio.export.share")
+                .accessibilityHint("Opens sharing options, including Save to Files")
+            }
+#endif
         }
     }
 
@@ -484,7 +501,7 @@ private struct ScreenplayStudioDraftDocumentControls: View {
                 isExportExpanded.toggle()
             } label: {
                 HStack(spacing: 8) {
-                    Label("Export Copy", systemImage: "square.and.arrow.up")
+                    Label(isPreparingExport ? "Preparing export…" : "Export Copy", systemImage: "square.and.arrow.up")
                     Spacer(minLength: 8)
                     Image(systemName: isExportExpanded ? "chevron.up" : "chevron.down")
                 }
@@ -492,6 +509,7 @@ private struct ScreenplayStudioDraftDocumentControls: View {
                 .frame(maxWidth: .infinity, minHeight: 32)
                 .contentShape(Rectangle())
             }
+            .disabled(isPreparingExport)
             .accessibilityIdentifier("studio.export.menu")
             .accessibilityValue(isExportExpanded ? "Expanded" : "Collapsed")
             .accessibilityHint("Shows or hides screenplay export formats in this document")
@@ -499,8 +517,14 @@ private struct ScreenplayStudioDraftDocumentControls: View {
             if isExportExpanded {
                 ForEach(presentation.exportItems) { item in
                     Button {
+                        guard !isPreparingExport else { return }
                         isExportExpanded = false
-                        actions.onExport(item.format)
+                        isPreparingExport = true
+                        exportCopy = nil
+                        Task {
+                            defer { isPreparingExport = false }
+                            exportCopy = await actions.onExport(item.format)
+                        }
                     } label: {
                         Text(item.title)
                             .font(IOThemTypography.UI.calloutStrong)
@@ -534,7 +558,7 @@ private struct ScreenplayStudioDraftDocumentControls: View {
         Menu {
             ForEach(presentation.exportItems) { item in
                 Button(item.title) {
-                    actions.onExport(item.format)
+                    Task { _ = await actions.onExport(item.format) }
                 }
                 .accessibilityIdentifier("studio.export.\(item.format.lowercased())")
                 .disabled(!item.isEnabled)

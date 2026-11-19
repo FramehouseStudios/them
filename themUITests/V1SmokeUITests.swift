@@ -461,8 +461,18 @@ final class V1SmokeUITests: XCTestCase {
             app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "Markdown")).firstMatch.tap()
         }
 
+#if os(iOS)
+        let share = app.buttons["studio.export.share"]
+        XCTAssertTrue(share.waitForExistence(timeout: 6), "Export must offer the generated copy for sharing.")
+        XCTAssertTrue(share.label.contains(".md"))
+        share.tap()
+        let saveToFiles = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", "Save to Files")).firstMatch
+        XCTAssertTrue(saveToFiles.waitForExistence(timeout: 8), "The system share sheet must offer Save to Files.")
+#else
         XCTAssertTrue(staticText(containing: ".md", in: app).waitForExistence(timeout: 6),
             "Export must report its Markdown artifact, not match an earlier saved status.")
+#endif
     }
 
     @MainActor
@@ -482,7 +492,7 @@ final class V1SmokeUITests: XCTestCase {
         let uniqueSuffix = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12).uppercased()
         let projectTitle = "Writer Loop \(uniqueSuffix)"
         let marker = "WRITER LOOP DRAFT \(uniqueSuffix)"
-        let expectedMarkdownFilename = "Writer-Loop-\(uniqueSuffix).md"
+        let expectedMarkdownFilename = "writer-loop-\(uniqueSuffix.lowercased()).md"
 
         var app = launchApp(
             openStudio: true,
@@ -668,9 +678,12 @@ final class V1SmokeUITests: XCTestCase {
         let markdownExport = app.buttons["studio.export.md"]
         XCTAssertTrue(markdownExport.waitForExistence(timeout: writerLoopWait(5)), "Export Copy did not offer Markdown.")
         markdownExport.tap()
+        let shareExport = app.buttons["studio.export.share"]
+        XCTAssertTrue(shareExport.waitForExistence(timeout: writerLoopWait(10)),
+                      "Markdown export did not offer its copy to share.")
         XCTAssertTrue(
-            staticText(containing: expectedMarkdownFilename, in: app).waitForExistence(timeout: writerLoopWait(10)),
-            "Markdown export did not report its .md artifact."
+            shareExport.label.contains(expectedMarkdownFilename),
+            "The share action did not stage the backend attachment: \(shareExport.label)"
         )
         app.terminate()
 
@@ -1186,10 +1199,10 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(app.buttons["studio.them.reversal-card.ui-twist-midpoint.dismiss"].exists)
 
         let dismissReversal = app.buttons["studio.them.reversal-card.ui-twist-midpoint.dismiss"]
-        XCTAssertTrue(
-            revealInStudioDrawer(dismissReversal, drawer: drawer, scrollingUp: true, maxSwipes: 8),
-            "The unaccepted reversal Dismiss action was not reachable."
-        )
+        guard revealFullyInStudioDrawer(dismissReversal, drawer: drawer, maxSwipes: 8) else {
+            XCTFail("The unaccepted reversal Dismiss action was not fully visible.")
+            return
+        }
         XCTAssertTrue(dismissReversal.isEnabled)
 #if os(macOS)
         dismissReversal.click()
@@ -4823,11 +4836,22 @@ final class V1SmokeUITests: XCTestCase {
         }
         for _ in 0..<4 {
             if accountIsFullyVisible() { break }
-            if account.frame.midX > homeRail.frame.midX {
-                homeRail.swipeLeft(velocity: .slow)
-            } else {
-                homeRail.swipeRight(velocity: .slow)
-            }
+            let railFrame = homeRail.frame
+            let viewport = railFrame.intersection(app.windows.firstMatch.frame)
+            let accountFrame = account.frame
+            guard !viewport.isEmpty, !accountFrame.isEmpty else { break }
+
+            // A full swipe can fling past Sign In and send the next swipe
+            // back to the first item. Drag toward its measured position and
+            // stop before lifting so the rail settles near the target.
+            let distance = accountFrame.midX - viewport.midX
+            let limit = viewport.width * 0.4
+            let travel = min(max(abs(distance), 44), limit) * (distance < 0 ? -1 : 1)
+            let anchor = homeRail.coordinate(withNormalizedOffset: .zero).withOffset(
+                CGVector(dx: viewport.midX - railFrame.minX, dy: viewport.midY - railFrame.minY)
+            )
+            let end = anchor.withOffset(CGVector(dx: -travel, dy: 0))
+            anchor.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.12)
         }
         guard accountIsFullyVisible() else {
             throw NSError(domain: "themUITests.recovery", code: 6,

@@ -5067,7 +5067,7 @@ private var projectsSidebarContent: some View {
             snapshotLabel: $vm.snapshotLabel,
             presentation: draftToolsPresentation,
             actions: draftToolsActions
-        )
+        ).id(vm.selectedProjectID)
     }
 
     private var draftToolsPresentation: ScreenplayStudioDraftToolsPresentation {
@@ -5164,9 +5164,7 @@ private var projectsSidebarContent: some View {
             onImport: {
                 importDraftDocument()
             },
-            onExport: { format in
-                Task { await exportCurrentDraft(format: format) }
-            },
+            onExport: { format in await exportCurrentDraft(format: format) },
             onRefreshExportFormats: {
                 Task { await vm.refreshScreenplayExportFormats() }
             },
@@ -17318,7 +17316,7 @@ Look at the city.
     }
 
     @MainActor
-    private func exportCurrentDraft(format: String) async {
+    private func exportCurrentDraft(format: String) async -> URL? {
         await ScreenplayStudioExportSupport.exportCurrentDraft(
             format: format,
             deps: studioExportDependencies()
