@@ -46,6 +46,7 @@ import {
   FEATURE_MAP_BLOCK_OPEN,
   inferScreenplayTask,
   MEMORY_BLOCK_OPEN,
+  SCREENPLAY_TASK_BLOCK_OPEN,
 } from "./prompt_assembly.js";
 import { normalizeScreenplayOutputContractText } from "./screenplay_output_contract.js";
 import {
@@ -315,7 +316,7 @@ async function buildStudioRenderPromptMemoryContext({
     3_000
   );
   const inferredScreenplayTask = inferScreenplayTask(explicitTaskHint || transcript || query);
-  const screenplayTask = hasFeatureMapBlock ? null : inferredScreenplayTask;
+  const screenplayTask = promptText.includes(SCREENPLAY_TASK_BLOCK_OPEN) ? null : inferredScreenplayTask;
   const isMomentumRescue = inferredScreenplayTask?.writerBlocked === true ||
     inferredScreenplayTask?.writer_blocked === true;
   const isStructuralAnalysis = Boolean(

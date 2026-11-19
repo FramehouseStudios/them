@@ -27,6 +27,8 @@ import {
   FEATURE_MAP_BLOCK_OPEN,
 } from "../lib/prompt_assembly.js";
 import { createJsonPersistence } from "../lib/persistence_json.js";
+import { fitSystemPromptForTurnLatency } from "../lib/system_prompt_trim.js";
+import { structuralScreenplayModelReasonForTask } from "../lib/structural_screenplay_quality.js";
 
 function freshPersistence() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "io-them-creative-memory-"));
@@ -1125,6 +1127,82 @@ test("[screenplay-task] inferScreenplayTask routes core Clementine writing jobs"
     inferScreenplayTask("My second act is dragging and the middle feels static.").storyDiagnostic.actObligation,
     /Act II/
   );
+});
+
+test("[screenplay-task] sends complete cinematic character arcs and structure to feature planning", () => {
+  for (const userInput of [
+    "Build a complete character arc and story structure for cinema.",
+    "Plan the complete character arc and three-act story structure for a 90-page feature film. No screenplay pages yet.",
+    "Give me the full story structure and character arc.",
+    "Build an entire story spine and character arc. Do not write screenplay pages yet.",
+    "Outline a movie about two astronauts who learn their spacecraft is a film set.",
+    "Give me a beat sheet for a story about sisters re-opening a cinema.",
+    "Help me develop a story where a pianist loses her hearing.",
+    "Outline a film about a nurse who must rewrite what she told the police.",
+  ]) {
+    const task = inferScreenplayTask(userInput);
+    assert.equal(task.intent, "outline_structure", userInput);
+    assert.equal(task.featureScope, "whole_feature");
+    assert.equal(task.requestedPages, undefined);
+    assert.equal(structuralScreenplayModelReasonForTask(task), "screenplay_feature_architecture");
+
+    const prompt = buildModelPrompt({
+      persona: "Clementine protects writer canon. ".repeat(280),
+      userInput,
+      screenplayTask: task,
+      sessionContext: { targetPages: 90, pageCount: 27 },
+    });
+    assert.match(prompt, /target_pages: 90/);
+    const fitted = fitSystemPromptForTurnLatency(prompt, {
+      routingLane: "creative",
+      chatModelPlan: { tier: "rich" },
+      richMaxChars: 6_200,
+    });
+    assert.ok(fitted.length <= 6_200);
+    assert.match(fitted, /feature_plan: Act I.*Act II.*Act III/);
+    assert.match(fitted, /costly final choice/);
+    assert.match(fitted, /payoff and final image/);
+    assert.match(fitted, /Next three scenes/);
+    const taskBlock = fitted.match(/<screenplay_task>([\s\S]*?)<\/screenplay_task>/)?.[1];
+    assert.ok(taskBlock);
+    assert.doesNotMatch(taskBlock, /Fountain pages first/);
+    assert.match(fitted, /character_arc:.*want, conflicting need and old tactic.*who it hurts.*climactic choice.*supporting characters distinct wants and choices that alter the outcome/);
+    assert.doesNotMatch(fitted, /requested_page_batch:/);
+  }
+
+  assert.equal(inferScreenplayTask("Develop her character arc for this one scene.").intent, "character_development");
+  assert.equal(inferScreenplayTask("Rewrite only the last line of dialogue in Act III.").intent, "rewrite_scene");
+  const scene = inferScreenplayTask("Write a scene using the full character arc and story structure.");
+  assert.equal(scene.intent, "write_scene");
+  for (const userInput of [
+    "Outline a scene for my film.",
+    "Outline my screenplay's opening scene.",
+    "Outline the story for Act II.",
+    "Give me a beat sheet for the opening scene.",
+  ]) {
+    assert.notEqual(inferScreenplayTask(userInput).featureScope, "whole_feature", userInput);
+  }
+  const pages = inferScreenplayTask("Write the next five pages of my 90-page feature film.");
+  assert.equal(pages.featureScope, "page_batch");
+  assert.equal(pages.requestedPages, 5);
+});
+
+test("[screenplay-task] preserves default cinematic craft on a scene-writing turn under the fast budget", () => {
+  const userInput = "Write a scene where Maya wants Ben to leave the cinema.";
+  const prompt = buildModelPrompt({
+    persona: "Clementine protects writer canon. ".repeat(280),
+    userInput,
+    screenplayTask: inferScreenplayTask(userInput),
+  });
+  const fitted = fitSystemPromptForTurnLatency(prompt, { fastMaxChars: 3_800 });
+  assert.ok(fitted.length <= 3_800);
+  const taskBlock = fitted.match(/<screenplay_task>([\s\S]*?)<\/screenplay_task>/)?.[1];
+  assert.ok(taskBlock);
+  assert.match(taskBlock, /screenplay_craft:.*distinct voices, tactics and subtext/i);
+  assert.match(taskBlock, /screenplay_craft:.*costly choices/i);
+  assert.match(taskBlock, /screenplay_craft:.*plant and pay off filmable details\.$/im);
+  assert.match(taskBlock, /mode_contract:.*Fountain.*immediate want.*push back.*visible turn/im);
+  assert.doesNotMatch(fitted, /feature_plan:/);
 });
 
 test("[screenplay-task] recognizes flexible feature-length targets", () => {

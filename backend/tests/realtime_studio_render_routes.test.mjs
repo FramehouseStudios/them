@@ -532,6 +532,34 @@ test("[studio-render] sync: feature architecture uses the structural feature bud
   });
 });
 
+test("[studio-render] sync: an ordinary movie outline gets the complete character arc and structure", async () => {
+  const deps = defaultDeps({
+    renderStudioRealtimeText: async (options) => {
+      deps._calls.renderInvocations.push(options);
+      return VALID_FEATURE_ARCHITECTURE_REPLY;
+    },
+  });
+  await withTestServer(deps, async (baseURL) => {
+    const r = await postJson(baseURL, "/realtime/studio_render", {
+      transcript: "Outline a movie about two astronauts who learn their spacecraft is a film set.",
+      screenplay_target: "voice_pin",
+      screenplay_act: "Act II",
+    });
+
+    assert.equal(r.status, 200);
+    assert.equal(r.body.reply, VALID_FEATURE_ARCHITECTURE_REPLY);
+    assert.equal(r.body.structural_quality.passed, true);
+    assert.equal(r.body.structural_quality.repaired, false);
+    assert.equal(r.body.structural_quality.model_reason, "screenplay_feature_architecture");
+    assert.equal(deps._calls.renderInvocations.length, 1);
+    assert.equal(deps._calls.renderInvocations[0].modelTier, "structural");
+    assert.equal(deps._calls.renderInvocations[0].maxTokens, 2_600);
+    assert.match(deps._calls.renderInvocations[0].systemPrompt, /feature_plan: Act I.*Act II.*Act III/);
+    assert.match(deps._calls.renderInvocations[0].systemPrompt, /character_arc:.*climactic choice/);
+    assert.equal(r.body.screenplay_quality, undefined);
+  });
+});
+
 test("[studio-render] sync: applies corrected character bible memory to page prompt", async () => {
   const memoryCalls = [];
   const deps = defaultDeps({
@@ -995,7 +1023,7 @@ test("[studio-render] sync: first page pass receives feature metadata when clien
   });
 });
 
-test("[studio-render] sync: canonical Apple feature prompt is not duplicated", async () => {
+test("[studio-render] sync: an existing feature map keeps one copy and receives missing scene craft", async () => {
   const deps = defaultDeps();
   await withTestServer(deps, async (baseURL) => {
     const r = await postJson(baseURL, "/realtime/studio_render", {
@@ -1014,6 +1042,8 @@ test("[studio-render] sync: canonical Apple feature prompt is not duplicated", a
     assert.equal(r.status, 200);
     const prompt = deps._calls.renderInvocations[0].systemPrompt;
     assert.equal((prompt.match(/<feature_film_map>/g) || []).length, 1);
+    assert.equal((prompt.match(/<screenplay_task>/g) || []).length, 1);
+    assert.match(prompt, /screenplay_craft: Distinct voices, tactics and subtext/);
   });
 });
 

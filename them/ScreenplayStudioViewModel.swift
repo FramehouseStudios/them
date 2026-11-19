@@ -6684,20 +6684,32 @@ final class ScreenplayStudioViewModel: ObservableObject {
         infoText = "Another collaborator updated this draft. Choose keep mine or load server."
         do {
             let retained = try await draftSaveOutbox.retainConflict(
-                projectId: conflict.projectId, ownerUserId: ownerUserId)
+                projectId: conflict.projectId, ownerUserId: ownerUserId, excludingServerDraft: conflict.serverDraft)
             guard authContextIsCurrent(context), selectedProjectID == conflict.projectId,
                   conflictState == conflict else { return }
-            if let retained, !hasUnsavedDraftChanges, !isManualDraftEditing {
-                isHydratingDraft = true
-                fountainDraft = retained.draft
-                isHydratingDraft = false
-                loadedDraftProjectID = conflict.projectId
-                isManualDraftEditing = true
-                lastManualDraftEditAt = Date()
+            let editorShowsServerDraft = ScreenplayDraftSaveCompletionPolicy.hasSameBytes(fountainDraft, conflict.serverDraft)
+            var recoveryBase = conflict.baseVersionId
+            if editorShowsServerDraft || (!hasUnsavedDraftChanges && !isManualDraftEditing) {
+                let ordinary = localDraftRecoveryStore.dirtyOrdinarySnapshot(ownerUserId: ownerUserId, projectId: conflict.projectId)
+                let newerLocal = ordinary.flatMap { snapshot in
+                    let newerThanQueued = retained.map { snapshot.savedAt > $0.createdAt } ?? true
+                    let differsFromServer = !ScreenplayDraftSaveCompletionPolicy.hasSameBytes(snapshot.draft, conflict.serverDraft)
+                    return newerThanQueued && differsFromServer ? snapshot : nil
+                }
+                if let writerDraft = newerLocal?.draft ?? retained?.draft {
+                    recoveryBase = newerLocal?.baseVersionId ?? retained?.baseVersionId ?? conflict.baseVersionId
+                    isHydratingDraft = true
+                    fountainDraft = writerDraft
+                    latestVersionID = recoveryBase
+                    isHydratingDraft = false
+                    loadedDraftProjectID = conflict.projectId
+                    isManualDraftEditing = true
+                    lastManualDraftEditAt = Date()
+                }
             }
             hasUnsavedDraftChanges = true
             persistRecoveryForUnconfirmedSave(projectId: conflict.projectId, draft: fountainDraft,
-                baseVersionId: conflict.baseVersionId, surfaceCandidate: false)
+                baseVersionId: recoveryBase, surfaceCandidate: false)
         } catch {
             guard authContextIsCurrent(context), selectedProjectID == conflict.projectId else { return }
             errorText = "Your queued drafts were retained, but conflict recovery could not be updated: \(error.localizedDescription)"

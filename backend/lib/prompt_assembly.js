@@ -64,7 +64,8 @@ const CLEMENTINE_CREATIVE_PACT = [
   "feature compass and feature-length continuity: silently lock act, sequence, scene job, want/need, emotional handoff, open setup, exit turn, next three turns, Act III payoff path, and final-image pressure.",
   "continuation memory contract and page batch discipline: spend the first remembered turn before inventing; for 5-15 page asks, change story state every 1-2 pages and hand each turn into the next.",
   "expert page engine and subtext engine: every scene needs objective, obstacle, pressure clock, tactic, reversal/cost, residue, exit image, and dialogue shaped by concealment, interruption, pressure, and character-specific rhythm.",
-  "screenplay craft: favor playable behavior, subtext, image, conflict, rhythm, and causality over explanation; image system: plant/echo/transform motifs; production format: use clean playable Fountain with no novelistic interiority.",
+  "screenplay_craft: Distinct voices, tactics and subtext. Costly choices drive turns. Plant and pay off filmable details.",
+  "image system and production format: For pages, write clean playable Fountain. Keep action and recurring details filmable.",
   "self-check loop: silently plan, write, verify act/continuity/page quality, and repair the weakest point before final output; never announce the loop.",
   "writer's block rescue and momentum: when the writer is stuck or broad, diagnose the missing want, obstacle, consequence, tactic change, act pressure, or exit turn; choose one strong pressure engine and convert it into playable behavior.",
   "speed discipline and collaboration: pages begin immediately without throat-clearing, menus, or permission loops; ask at most one question only when truly blocked, otherwise make the next best creative move.",
@@ -486,11 +487,24 @@ function inferStoryMomentumDiagnostic(userInput = "", task = {}) {
   };
 }
 
+function asksForWholeStoryPlan(lower) {
+  const request = lower.replace(/^(?:(?:please|can you|could you|help me|i want to|let's)\s+)*/, "");
+  return /^(?:outline|plan|develop|map out|break down|(?:give me|build|make|write|draft) (?:a |the )?beat sheet for)\s+(?:(?:a|an|the|my|our|this|new|whole|full|feature[- ]length)\s+)*(?:story|feature(?: film)?|movie|film|screenplay|script)(?:\s+(?:about|where|in which|that follows)\b|\s*[.!?]?$)/.test(request);
+}
+
 function inferScreenplayTask(userInput = "") {
   const text = trimToString(userInput);
   const lower = text.toLowerCase();
   if (!lower) return null;
   const featureMetadata = inferFeatureRequestMetadata(lower);
+  const completeArcAndStructure = featureMetadata.requestedPages === 0 &&
+    !/^(?:please\s+)?(?:write|draft|generate|compose)\b.{0,24}\b(?:scene|pages?|screenplay)\b/.test(lower) &&
+    /\b(?:complete|full|whole|entire)\b/.test(lower) &&
+    /\bcharacter arcs?\b/.test(lower) &&
+    /\b(?:story structure|three[- ]act structure|feature structure|story spine)\b/.test(lower);
+  const directWholeStoryPlan = featureMetadata.requestedPages === 0 &&
+    featureMetadata.featureScope !== "page_batch" &&
+    asksForWholeStoryPlan(lower);
   const sceneDoctorLike = hasAny(lower, [
     /\b(scene doctor|doctor this|doctor the scene|coverage|feedback|notes|diagnose|what'?s wrong|what'?s not working|fix this scene|why isn'?t this working)\b/,
   ]);
@@ -548,7 +562,13 @@ function inferScreenplayTask(userInput = "") {
   let label = "General Story Help";
   let output = "Give specific, cinematic story guidance with one concrete next move.";
 
-  if (sceneDoctorLike && !rewriteLike) {
+  const wholeStoryPlan = directWholeStoryPlan ||
+    (completeArcAndStructure && !sceneDoctorLike && !dialoguePunchupLike && !rewriteLike);
+  if (wholeStoryPlan) {
+    intent = "outline_structure";
+    label = "Feature Story Plan";
+    output = "Plan a complete causal story and character arc. Keep the plan separate from screenplay pages.";
+  } else if (sceneDoctorLike && !rewriteLike) {
     intent = "scene_doctor";
     label = "Scene Doctor";
     output = "Give concise script-doctor notes: what works, what is not landing, and the highest-leverage fix. Include sample replacement lines only when useful.";
@@ -606,7 +626,8 @@ function inferScreenplayTask(userInput = "") {
   if (stuckLike) task.writerBlocked = true;
   if (featureMetadata.requestedPages > 0) task.requestedPages = featureMetadata.requestedPages;
   if (featureMetadata.requestedAct) task.requestedAct = featureMetadata.requestedAct;
-  if (featureMetadata.featureScope) task.featureScope = featureMetadata.featureScope;
+  if (wholeStoryPlan && intent === "outline_structure") task.featureScope = "whole_feature";
+  else if (featureMetadata.featureScope) task.featureScope = featureMetadata.featureScope;
   const storyDiagnostic = inferStoryMomentumDiagnostic(text, task);
   if (storyDiagnostic) task.storyDiagnostic = storyDiagnostic;
   return task;
@@ -785,10 +806,14 @@ function buildScreenplayTaskBlock(screenplayTask) {
     lines.push("  - Writer-block-to-pages: convert the strongest rescue engine into pages without a pep talk. Avoid cinematic vapor: every beat needs concrete behavior or consequence.");
   }
   if ((intent === "outline_structure" || intent === "finish_feature") && requestedPages === 0) {
+    if (intent === "outline_structure" && featureScope === "whole_feature") {
+      lines.push("feature_plan: Act I commitment causes Act II reversal and loss; Act III resolves through a costly final choice. Give payoff and final image, then Next three scenes. Plan only.");
+      lines.push("character_arc: Give the protagonist a want, conflicting need and old tactic. Show who it hurts and how the climactic choice proves change or refusal. Give pivotal supporting characters distinct wants and choices that alter the outcome.");
+    }
     lines.push("feature_architecture_delivery_order:");
     lines.push("  - First deliver a compact complete causal spine covering Act I, Act II, and Act III before expanding any act. Never spend the opening budget detailing Act I while later acts remain unstated.");
     lines.push("  - The spine must name catalyst, commitment, midpoint reversal, crisis or all-is-lost, climax, final image, and at least one setup -> payoff path.");
-    lines.push("  - Connect each major turn with because/therefore causality and show how the protagonist's old tactic fails until changed behavior wins the climax.");
+    lines.push("  - Connect each major turn with because/therefore causality and show how the old tactic fails and how the climactic choice proves change or refusal.");
     lines.push("  - Immediately after the complete spine, add a literal 'Next three scenes' heading and list three playable scene turns from the current story state. Only then add optional detail.");
   }
   if (intent === "momentum_rescue") {
@@ -834,7 +859,7 @@ function buildScreenplayTaskBlock(screenplayTask) {
 function screenplayModeGuidanceForIntent(intent) {
   switch (intent) {
     case "write_scene":
-      return "Write the scene as usable pages first: slugline, action, character cues, dialogue, and playable behavior. Build objective, obstacle, pressure clock, escalation, reversal or turn, emotional residue, and an exit image. Keep explanation out unless asked.";
+      return "Start in Fountain. Give the lead an immediate want, let an opposing goal push back, and land a visible turn that changes what someone can do next.";
     case "rewrite_scene":
       return "Preserve the writer's intention and continuity while replacing the weak passage with stronger playable pages. Raise objective, obstacle, subtext, image, rhythm, and the scene turn. If this is page-targeted, output only the revised screenplay text. Give at most one craft sentence before pages when not page-targeted.";
     case "continue_script":
@@ -2062,7 +2087,9 @@ function buildModelPrompt({
   const sessionBlock = buildSessionContextBlock(sessionContext);
   if (sessionBlock) parts.push(sessionBlock);
 
-  const featureMapBlock = buildFeatureMapBlock(sessionContext, screenplayTask);
+  const featureMapBlock = personaText.includes(FEATURE_MAP_BLOCK_OPEN)
+    ? ""
+    : buildFeatureMapBlock(sessionContext, screenplayTask);
   if (featureMapBlock) parts.push(featureMapBlock);
 
   // Order: accepted_twists (story context) before block_signal
