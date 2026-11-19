@@ -5997,19 +5997,20 @@ final class ScreenplayStudioViewModel: ObservableObject {
             return
         }
 
+        // This observer also runs after hydration. A clean or empty page is
+        // not permission to replace a different unsaved draft kept locally.
         guard !normalized.isEmpty else {
             autosaveStatusText = "Draft empty"
-            if !selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                clearLocalDraftRecovery(projectId: selectedProjectID)
-            }
             return
         }
-        persistLocalDraftRecovery(
-            projectId: selectedProjectID,
-            draft: draft,
-            baseVersionId: latestVersionID,
-            dirty: hasUnsavedDraftChanges
-        )
+        if hasUnsavedDraftChanges {
+            persistLocalDraftRecovery(
+                projectId: projectID,
+                draft: draft,
+                baseVersionId: latestVersionID,
+                dirty: true
+            )
+        }
         guard conflictState == nil else {
             autosaveStatusText = "Conflict detected"
             return
