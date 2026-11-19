@@ -122,3 +122,17 @@ import Foundation
     #expect(sequence[4] == .parenthetical)
     #expect(sequence[5] == .dialogue)
 }
+
+
+@Test func liveSceneHeadingNormalizationKeepsCaretWithTheTypedWords() {
+    let original = "ROOM"
+    let normalized = FountainFormatter.normalizeLiveEditorLine(original, as: .sceneHeading)
+    #expect(normalized == "INT. ROOM")
+    #expect(FountainFormatter.liveEditorCaretOffset(after: normalized, from: original, at: 4) == 9)
+    #expect(FountainFormatter.liveEditorCaretOffset(after: normalized, from: original, at: 2) == 7)
+
+    let missingPeriod = "INT ROOM"
+    let corrected = FountainFormatter.normalizeLiveEditorLine(missingPeriod, as: .sceneHeading)
+    #expect(corrected == "INT. ROOM")
+    #expect(FountainFormatter.liveEditorCaretOffset(after: corrected, from: missingPeriod, at: 6) == 7)
+}

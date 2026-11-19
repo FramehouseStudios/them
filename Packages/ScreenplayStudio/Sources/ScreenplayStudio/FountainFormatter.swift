@@ -293,6 +293,29 @@ public enum FountainFormatter {
         }
     }
 
+    /// Keeps the typing position with the writer's text when normalization
+    /// inserts a heading prefix or repairs punctuation within a line.
+    public static func liveEditorCaretOffset(after normalizing: String, from original: String, at offset: Int) -> Int {
+        let source = original as NSString
+        let target = normalizing as NSString
+        let clamped = max(0, min(offset, source.length))
+        if clamped == source.length { return target.length }
+
+        let retainedLine = target.range(of: original, options: .caseInsensitive)
+        if retainedLine.location != NSNotFound, retainedLine.length == source.length {
+            return retainedLine.location + clamped
+        }
+
+        let suffix = source.substring(from: clamped)
+        let retainedSuffix = target.range(of: suffix, options: [.caseInsensitive, .anchored, .backwards])
+        if retainedSuffix.location != NSNotFound { return retainedSuffix.location }
+
+        guard clamped > 0 else { return 0 }
+        let prefix = source.substring(to: clamped)
+        let retainedPrefix = target.range(of: prefix, options: [.caseInsensitive, .anchored])
+        return retainedPrefix.location == NSNotFound ? min(clamped, target.length) : NSMaxRange(retainedPrefix)
+    }
+
     public static func normalizeEditorLine(
         _ rawLine: String,
         as element: ScreenplayEditorElement,

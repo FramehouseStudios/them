@@ -95,6 +95,34 @@ final class V1SmokeUITests: XCTestCase {
 #endif
     }
 
+    func test_scene_heading_normalization_keeps_the_native_caret_with_typed_text() throws {
+#if os(iOS)
+        let app = launchApp(openStudio: true)
+        defer { app.terminate() }
+
+        let sceneMode = app.buttons["Scene"]
+        let editor = app.textViews["studio.draft.editor"]
+        XCTAssertTrue(waitForHittability(of: sceneMode, timeout: 8))
+        sceneMode.tap()
+        XCTAssertTrue(waitForHittability(of: editor, timeout: 8))
+        guard dismissKeyboardTypingTutorialIfPresent(in: app) else {
+            XCTFail("The keyboard tutorial kept the scene-heading editor unavailable.")
+            return
+        }
+
+        editor.typeText("R")
+        XCTAssertTrue(waitForDraft(in: app, containing: "INT. R", timeout: 8),
+            "Scene mode did not apply the Fountain heading prefix.")
+        editor.typeText("oom")
+        XCTAssertTrue(waitForDraft(in: app, containing: "INT. ROOM", timeout: 8),
+            "The remaining letters must follow R after the prefix is inserted.")
+        XCTAssertEqual(editor.value as? String, "INT. ROOM")
+        XCTAssertEqual(accessibleDraftText(in: app), "INT. ROOM")
+#else
+        throw XCTSkip("The native scene-heading regression specifically covers the iPhone editor.")
+#endif
+    }
+
     func test_keyboard_actions_follow_page_and_prompt_focus() throws {
 #if os(iOS)
         let app = launchApp(openStudio: true, openCommandBar: true)

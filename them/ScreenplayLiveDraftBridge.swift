@@ -9378,11 +9378,9 @@ struct MacCursorInsertTextEditor: NSViewRepresentable {
             )
             guard normalized != context.lineText else { return }
 
-            let selection = textView.selectedRange()
-            let offsetIntoLine = max(0, selection.location - context.lineRange.location)
-            let originalLength = (context.lineText as NSString).length
-            let nextLength = (normalized as NSString).length
-            let adjustedLocation = min(context.lineRange.location + min(offsetIntoLine, nextLength), (textView.string as NSString).length - originalLength + nextLength)
+            let adjustedLocation = context.lineRange.location + FountainFormatter.liveEditorCaretOffset(
+                after: normalized, from: context.lineText, at: textView.selectedRange().location - context.lineRange.location
+            )
 
             isApplyingProgrammaticChange = true
             textView.textStorage?.replaceCharacters(in: context.lineRange, with: normalized)
@@ -11606,14 +11604,9 @@ struct IOSCursorInsertTextEditor: UIViewRepresentable {
             )
             guard normalized != context.lineText else { return }
 
-            let selection = textView.selectedRange
-            let offsetIntoLine = max(0, selection.location - context.lineRange.location)
-            let originalLength = (context.lineText as NSString).length
-            let nextLength = (normalized as NSString).length
             let nextText = (textView.text as NSString?)?.replacingCharacters(in: context.lineRange, with: normalized) ?? normalized
-            let adjustedLocation = min(
-                context.lineRange.location + min(offsetIntoLine, nextLength),
-                (nextText as NSString).length - originalLength + nextLength
+            let adjustedLocation = context.lineRange.location + FountainFormatter.liveEditorCaretOffset(
+                after: normalized, from: context.lineText, at: textView.selectedRange.location - context.lineRange.location
             )
 
             isApplyingProgrammaticChange = true
