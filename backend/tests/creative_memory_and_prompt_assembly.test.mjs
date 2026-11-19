@@ -1136,6 +1136,9 @@ test("[screenplay-task] sends complete cinematic character arcs and structure to
     "Give me the full story structure and character arc.",
     "Build an entire story spine and character arc. Do not write screenplay pages yet.",
     "Outline a movie about two astronauts who learn their spacecraft is a film set.",
+    "Outline a science fiction feature about two astronauts who learn their spacecraft is a film set.",
+    "Give me a beat sheet for a 90-page thriller about sisters re-opening a cinema.",
+    "Help me develop a horror film about a pianist who hears her sister in an empty theater.",
     "Give me a beat sheet for a story about sisters re-opening a cinema.",
     "Help me develop a story where a pianist loses her hearing.",
     "Outline a film about a nurse who must rewrite what she told the police.",
@@ -1160,8 +1163,9 @@ test("[screenplay-task] sends complete cinematic character arcs and structure to
     });
     assert.ok(fitted.length <= 6_200);
     assert.match(fitted, /feature_plan: Act I.*Act II.*Act III/);
+    assert.match(fitted, /feature_plan:.*catalyst.*commitment.*midpoint.*crisis/i);
     assert.match(fitted, /costly final choice/);
-    assert.match(fitted, /payoff and final image/);
+    assert.match(fitted, /pays off setup.*final image/);
     assert.match(fitted, /Next three scenes/);
     const taskBlock = fitted.match(/<screenplay_task>([\s\S]*?)<\/screenplay_task>/)?.[1];
     assert.ok(taskBlock);
@@ -1176,6 +1180,9 @@ test("[screenplay-task] sends complete cinematic character arcs and structure to
   assert.equal(scene.intent, "write_scene");
   for (const userInput of [
     "Outline a scene for my film.",
+    "Outline the opening scene for my thriller film.",
+    "Give me a beat sheet for a scene in my horror film.",
+    "Outline the action.",
     "Outline my screenplay's opening scene.",
     "Outline the story for Act II.",
     "Give me a beat sheet for the opening scene.",

@@ -20,6 +20,7 @@
 
 import { buildTraitsBlockForPrompt } from "./trait_library.js";
 import { buildAcceptedTwistsBlockForPrompt } from "./accepted_twist_log.js";
+import { GENRE_LEXICONS } from "./genre_classifier.js";
 import {
   FEATURE_MAP_BLOCK_OPEN,
   FEATURE_MAP_BLOCK_CLOSE,
@@ -487,9 +488,30 @@ function inferStoryMomentumDiagnostic(userInput = "", task = {}) {
   };
 }
 
+const STORY_PLAN_GENRES = Object.freeze([
+  "science fiction",
+  "science-fiction",
+  "romantic comedy",
+  "rom-com",
+  ...Object.keys(GENRE_LEXICONS),
+]);
+
 function asksForWholeStoryPlan(lower) {
   const request = lower.replace(/^(?:(?:please|can you|could you|help me|i want to|let's)\s+)*/, "");
-  return /^(?:outline|plan|develop|map out|break down|(?:give me|build|make|write|draft) (?:a |the )?beat sheet for)\s+(?:(?:a|an|the|my|our|this|new|whole|full|feature[- ]length)\s+)*(?:story|feature(?: film)?|movie|film|screenplay|script)(?:\s+(?:about|where|in which|that follows)\b|\s*[.!?]?$)/.test(request);
+  const planRequest = request.match(/^(?:outline|plan|develop|map out|break down|(?:give me|build|make|write|draft) (?:a |the )?beat sheet for)\s+(.+)$/s);
+  if (!planRequest) return false;
+
+  const subject = planRequest[1]
+    .split(/\s+(?:about|where|in which|that follows)\b/, 1)[0]
+    .replace(/[.!?]+\s*$/, "")
+    .replace(/^(?:(?:a|an|the|my|our|this|new|whole|full|feature[- ]length|\d+[- ]pages?)\s+)*/, "")
+    .trim();
+  const media = /^(?:story|feature(?: film)?|movie|film|screenplay|script)$/;
+  if (media.test(subject)) return true;
+  return STORY_PLAN_GENRES.some((genre) =>
+    (subject === genre && genre !== "action") ||
+    (subject.startsWith(genre + " ") && media.test(subject.slice(genre.length + 1)))
+  );
 }
 
 function inferScreenplayTask(userInput = "") {
@@ -807,7 +829,7 @@ function buildScreenplayTaskBlock(screenplayTask) {
   }
   if ((intent === "outline_structure" || intent === "finish_feature") && requestedPages === 0) {
     if (intent === "outline_structure" && featureScope === "whole_feature") {
-      lines.push("feature_plan: Act I commitment causes Act II reversal and loss; Act III resolves through a costly final choice. Give payoff and final image, then Next three scenes. Plan only.");
+      lines.push("feature_plan: Act I catalyst and commitment drive Act II midpoint reversal and crisis. Act III pays off setup in a costly final choice and final image. Next three scenes. Plan only.");
       lines.push("character_arc: Give the protagonist a want, conflicting need and old tactic. Show who it hurts and how the climactic choice proves change or refusal. Give pivotal supporting characters distinct wants and choices that alter the outcome.");
     }
     lines.push("feature_architecture_delivery_order:");

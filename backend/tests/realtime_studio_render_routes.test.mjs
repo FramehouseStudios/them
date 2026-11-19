@@ -533,7 +533,7 @@ test("[studio-render] sync: feature architecture uses the structural feature bud
   });
 });
 
-test("[studio-render] sync: an ordinary movie outline gets the complete character arc and structure", async () => {
+test("[studio-render] sync: a genre film pitch gets the complete character arc and structure", async () => {
   const deps = defaultDeps({
     renderStudioRealtimeText: async (options) => {
       deps._calls.renderInvocations.push(options);
@@ -542,7 +542,7 @@ test("[studio-render] sync: an ordinary movie outline gets the complete characte
   });
   await withTestServer(deps, async (baseURL) => {
     const r = await postJson(baseURL, "/realtime/studio_render", {
-      transcript: "Outline a movie about two astronauts who learn their spacecraft is a film set.",
+      transcript: "Help me develop a thriller film about an editor who must expose a forged affidavit without betraying her brother.",
       screenplay_target: "voice_pin",
       screenplay_act: "Act II",
     });
