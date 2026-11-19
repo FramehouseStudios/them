@@ -631,6 +631,42 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     }
 
     @MainActor
+    func testReopenedServerPageDoesNotEraseAProtectedLocalEditWhenItsObserverRuns() async throws {
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let keptDraft = "INT. HALL - NIGHT\r\n\r\nA dropped key rolls into the dark. \n"
+        for serverDraft in ["INT. HALL - NIGHT\n\nA light turns off.", ""] {
+            let projectID = UUID().uuidString
+            let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+            model.autosaveEnabled = false
+            model.selectedProjectID = "other-project"
+            model.applyStructuralUITestDraft("", versionID: "")
+            store.save(ownerUserId: owner, projectId: projectID, draft: keptDraft,
+                       baseVersionId: "base", dirty: true, preserveExactText: true)
+
+            let data = try JSONSerialization.data(withJSONObject: [
+                "id": projectID, "title": "Script", "activeVersionId": "base",
+                "versions": [["id": "base", "draft": serverDraft]]
+            ])
+            model.selectedProjectID = projectID
+            model.hydrateDraft(from: try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: data))
+            XCTAssertEqual(model.fountainDraft, serverDraft)
+            XCTAssertEqual(model.recoveryCandidate.map { Array($0.draft.utf8) }, Array(keptDraft.utf8))
+
+            await model.handleDraftDebouncedChange(serverDraft)
+            XCTAssertEqual(model.recoveryCandidate.map { Array($0.draft.utf8) }, Array(keptDraft.utf8))
+            let relaunchedStore = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: recoveryKey)
+            XCTAssertEqual(
+                relaunchedStore.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: projectID)
+                    .map { Array($0.draft.utf8) },
+                Array(keptDraft.utf8)
+            )
+            model.restoreDraftFromRecovery()
+            XCTAssertEqual(Array(model.fountainDraft.utf8), Array(keptDraft.utf8))
+            XCTAssertTrue(model.hasUnsavedDraftChanges)
+        }
+    }
+
+    @MainActor
     func testLiveSyncVersionAdoptionKeepsExactLocalDraftAvailableToRecover() async {
         let local = "INT. DINER - NIGHT\n\nShe waits.\n\nA phone BUZZES."
         let remote = "INT. DINER - NIGHT\n\nShe waits."
