@@ -1722,10 +1722,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
     private let draftSaveOutbox: ScreenplayDraftSaveOutbox
     private let outlineMutationOutbox = ScreenplayOutlineMutationOutbox.shared
     private let craftClient = BackendClient()
-    private let projectSelectionAPI = BackendMemoryAPI()
+    private let projectSelectionAPI: BackendMemoryAPI
     private let conflictProjectLoader: ((String) async throws -> BackendScreenplayProjectSummary)?
     private var clientTokenOwnedProjectIDs: Set<String> = []
     private var activeLoadRequestID: UUID?
+    private var activeCollaborationRefresh: (projectID: String, owner: ScreenplayStudioAuthContext, id: UUID)?
 
     convenience init() {
         self.init(localDraftRecoveryStore: ScreenplayLocalDraftRecoveryStore())
@@ -1733,10 +1734,12 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
     init(localDraftRecoveryStore: ScreenplayLocalDraftRecoveryStore,
          draftSaveOutbox: ScreenplayDraftSaveOutbox = .shared,
-         conflictProjectLoader: ((String) async throws -> BackendScreenplayProjectSummary)? = nil) {
+         conflictProjectLoader: ((String) async throws -> BackendScreenplayProjectSummary)? = nil,
+         projectSelectionAPI: BackendMemoryAPI = BackendMemoryAPI()) {
         self.localDraftRecoveryStore = localDraftRecoveryStore
         self.draftSaveOutbox = draftSaveOutbox
         self.conflictProjectLoader = conflictProjectLoader
+        self.projectSelectionAPI = projectSelectionAPI
         fountainDraft = ScreenplayLiveDraftBridge.shared.draftText
         draftDebounceCancellable = $fountainDraft
             .removeDuplicates(by: ScreenplayDraftSaveCompletionPolicy.hasSameBytes)
@@ -3987,16 +3990,36 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
     func refreshCollaborationData(source: String = "Background") async {
         let id = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !id.isEmpty else { return }
-        guard !isCollaborationRefreshing else { return }
+        let owner = currentStudioAuthContext()
+        guard !id.isEmpty,
+              activeCollaborationRefresh?.projectID != id || activeCollaborationRefresh?.owner != owner else { return }
 
+        let requestID = UUID()
+        activeCollaborationRefresh = (id, owner, requestID)
         isCollaborationRefreshing = true
-        defer { isCollaborationRefreshing = false }
+        defer {
+            if activeCollaborationRefresh?.id == requestID {
+                activeCollaborationRefresh = nil
+                isCollaborationRefreshing = false
+            }
+        }
+
+        func isCurrentRefresh() -> Bool {
+            !Task.isCancelled && activeCollaborationRefresh?.id == requestID &&
+                selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines) == id &&
+                authContextIsCurrent(owner)
+        }
+
         collaborationErrorText = ""
         do {
-            try await loadCollaborators(projectId: id)
-            try await loadComments(projectId: id)
+            let collaboratorPayload = try await loadCollaborators(projectId: id)
+            guard isCurrentRefresh() else { return }
+            applyCollaboratorsPayload(collaboratorPayload)
+            let commentPayload = try await loadComments(projectId: id)
+            guard isCurrentRefresh() else { return }
+            applyCommentsPayload(commentPayload)
         } catch {
+            guard isCurrentRefresh() else { return }
             collaborationErrorText = StudioCraftResilience.presentedError(
                 error,
                 source: source,
@@ -6869,7 +6892,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         }
     }
 
-    private func loadCollaborators(projectId: String) async throws {
+    private func loadCollaborators(projectId: String) async throws -> BackendScreenplayCollaboratorsResponse {
         let ownerHeaders = projectOwnerHeaderOptions(forProjectID: projectId)
         let result: BackendReadResult<BackendScreenplayCollaboratorsResponse>
         do {
@@ -6882,10 +6905,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
         } catch BackendMemoryAPIError.server(let status, _) where ownerHeaders.usesDebugClientTokenOwner && status == 404 {
             result = try await projectSelectionAPI.fetchScreenplayCollaborators(projectId: projectId)
         }
-        applyCollaboratorsPayload(result.payload)
+        return result.payload
     }
 
-    private func loadComments(projectId: String) async throws {
+    private func loadComments(projectId: String) async throws -> BackendScreenplayCommentsResponse {
         let ownerHeaders = projectOwnerHeaderOptions(forProjectID: projectId)
         let result: BackendReadResult<BackendScreenplayCommentsResponse>
         do {
@@ -6904,7 +6927,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
                 actorEmail: resolvedCommentActorEmail()
             )
         }
-        applyCommentsPayload(result.payload)
+        return result.payload
     }
 
     private func projectOwnerHeaderOptions(
@@ -6958,10 +6981,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     private func applyCollaboratorsPayload(_ payload: BackendScreenplayCollaboratorsResponse) {
+        let projectID = payload.project?.id ?? payload.projectId ?? selectedProjectID
+        guard ScreenplayProjectScopedState.matches(projectID, selectedProjectId: selectedProjectID) else { return }
         if let project = payload.project {
-            upsertProject(project)
-            selectedProject = project
-            selectedProjectID = project.id
+            applyProjectMetadataUpdate(project)
             hydrateCollaboration(from: project)
             syncLiveDraftBridgeProjectContext()
         }
@@ -6994,10 +7017,10 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     private func applyCommentsPayload(_ payload: BackendScreenplayCommentsResponse) {
+        let projectID = payload.project?.id ?? payload.projectId ?? selectedProjectID
+        guard ScreenplayProjectScopedState.matches(projectID, selectedProjectId: selectedProjectID) else { return }
         if let project = payload.project {
-            upsertProject(project)
-            selectedProject = project
-            selectedProjectID = project.id
+            applyProjectMetadataUpdate(project)
             hydrateCollaboration(from: project)
             syncLiveDraftBridgeProjectContext()
         }
