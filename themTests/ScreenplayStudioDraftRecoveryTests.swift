@@ -631,6 +631,48 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
     }
 
     @MainActor
+    func testStaleDraftImportKeepsOtherProjectRecoveryAfterSwitch() throws {
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.autosaveEnabled = false
+        let origin = "import-origin"
+        let incoming = "import-incoming"
+        let incomingDraft = "INT. STORE - DAY\r\n\r\nThe door stays locked. "
+        let incomingEdit = incomingDraft + "\nThe lock clicks. "
+        let importText = "EXT. FIELD - DAY\n\nA cloud covers the sun."
+
+        model.selectedProjectID = origin
+        model.applyStructuralUITestDraft("INT. HALL - NIGHT\n\nA light goes out.", versionID: "origin-base")
+        let staleDestination = try XCTUnwrap(model.prepareDraftImport())
+
+        model.selectedProjectID = incoming
+        model.applyStructuralUITestDraft(incomingDraft, versionID: "incoming-base")
+        model.publishNativeEditorDraft(incomingEdit)
+        store.save(ownerUserId: owner, projectId: incoming, draft: incomingEdit,
+                   baseVersionId: "incoming-base", dirty: true, preserveExactText: true)
+        XCTAssertFalse(model.importExternalDraft(importText, sourceName: "fixture.fountain",
+                                                 appendToExisting: false, destination: staleDestination))
+        let destinationBeforeTyping = try XCTUnwrap(model.prepareDraftImport())
+        let latestEdit = incomingEdit + "\nShe keeps the key. "
+        model.publishNativeEditorDraft(latestEdit)
+        store.save(ownerUserId: owner, projectId: incoming, draft: latestEdit,
+                   baseVersionId: "incoming-base", dirty: true, preserveExactText: true)
+        XCTAssertFalse(model.importExternalDraft(importText, sourceName: "fixture.fountain",
+                                                 appendToExisting: false, destination: destinationBeforeTyping))
+
+        XCTAssertEqual(Array(model.fountainDraft.utf8), Array(latestEdit.utf8))
+        XCTAssertEqual(model.latestVersionID, "incoming-base")
+        XCTAssertEqual(store.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: incoming)?.draft, latestEdit)
+
+        let freshDestination = try XCTUnwrap(model.prepareDraftImport())
+        XCTAssertTrue(model.importExternalDraft(importText, sourceName: "fixture.fountain",
+                                                appendToExisting: true, destination: freshDestination))
+        XCTAssertTrue(model.fountainDraft.hasPrefix(latestEdit.trimmingCharacters(in: .whitespacesAndNewlines)))
+        XCTAssertTrue(model.fountainDraft.contains("A cloud covers the sun."))
+        XCTAssertEqual(store.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: incoming)?.draft, model.fountainDraft)
+    }
+
+    @MainActor
     func testClearDraftCannotDiscardAnotherProjectRecoveryWhileItLoads() async {
         let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
         let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)

@@ -145,7 +145,7 @@ jobs:
         run: npm test
 
   quality-gate:
-    name: Quality Gate
+    name: Signed writer and platform checks
     runs-on: macos-latest
     # The earlier 75-minute cap assumed ~35 min end to end. Exact hosted run
     # 37438457583 (2026-10-06) took 21m20s for themTests, 13m29s for the
@@ -261,12 +261,6 @@ jobs:
       - name: Run iOS V1 UI smoke tests (required)
         run: scripts/run_v1_ui_smoke.sh
 
-      - name: Run signed iPhone offline-save recovery (required)
-        working-directory: backend
-        env:
-          SCREENPLAY_SAVE_INCLUDE_MACOS: "0"
-        run: npm run eval:screenplay-save-network-fault
-
       - name: Run iPhone voice-fault smoke and macOS scaffold build (required)
         run: scripts/run_voice_network_fault_smokes.sh
 
@@ -310,7 +304,63 @@ jobs:
             /tmp/them-smoke/them-home.png
             ${{ runner.temp }}/them-v1-ui-smoke/*.xcresult
             ${{ runner.temp }}/them-v1-ui-smoke/v1-destination-failure-*.json
-            ${{ runner.temp }}/them-screenplay-save-network-fault-smokes/*.xcresult
-            ${{ runner.temp }}/them-save-recovery-*/*.xcresult
             ${{ runner.temp }}/them-voice-network-fault-smokes/*.xcresult
             ${{ runner.temp }}/them-voice-network-fault-smokes/v1-destination-failure-*.json
+
+  # Run on a fresh Mac. On #1019 the fourth erase/boot on one job left
+  # Xcode unable to discover the simulator before XCTest could start.
+  offline-save-recovery:
+    name: Signed iPhone offline-save recovery
+    runs-on: macos-latest
+    timeout-minutes: 45
+    env:
+      OPENAI_API_KEY: ""
+      KNOWLEDGE_RAG_WARMUP_ON_BOOT: "0"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Run signed iPhone offline-save recovery (required)
+        working-directory: backend
+        env:
+          ARTIFACT_DIR: ${{ runner.temp }}/them-signed-offline-recovery
+          SCREENPLAY_SAVE_INCLUDE_MACOS: "0"
+        run: npm run eval:screenplay-save-network-fault
+
+      - name: Upload Offline Recovery Failure Artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: offline-save-recovery-failure-logs
+          if-no-files-found: ignore
+          path: |
+            ${{ runner.temp }}/them-signed-offline-recovery/them-save-recovery-*/*.xcresult
+            ${{ runner.temp }}/them-signed-offline-recovery/v1-destination-failure-*.json
+
+  required-quality:
+    name: Quality Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    needs: [quality-gate, offline-save-recovery]
+    if: ${{ always() }}
+    steps:
+      - name: Require both iPhone proof jobs
+        env:
+          WRITER_RESULT: ${{ needs.quality-gate.result }}
+          RECOVERY_RESULT: ${{ needs.offline-save-recovery.result }}
+        run: |
+          if [[ "$WRITER_RESULT" != success || "$RECOVERY_RESULT" != success ]]; then
+            printf 'Required jobs did not pass. Writer and platform: %s. Offline recovery: %s.\n' "$WRITER_RESULT" "$RECOVERY_RESULT" >&2
+            exit 1
+          fi
