@@ -7,6 +7,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import express from "express";
+import { normalizeSnippet } from "../lib/utils.js";
 
 import {
   mountRealtimeStudioRenderRoutes,
@@ -1047,6 +1048,41 @@ test("[studio-render] sync: an existing feature map keeps one copy and receives 
   });
 });
 
+test("[studio-render] long prompts preserve character craft, continuity and script lines on both routes", async () => {
+  const deps = defaultDeps({ normalizeSnippet });
+  const body = {
+    transcript: "Continue the scene.",
+    system_prompt: [
+      "Write only screenplay pages.",
+      "Old planning note. ".repeat(810).trimEnd(),
+      "LIVE DRAFT HANDOFF:",
+      "ELI",
+      "The key is gone.",
+    ].join("\n"),
+    screenplay_target: "page",
+    screenplay_act: "Act II",
+    screenplay_feature_sequence: "Courthouse trap",
+    screenplay_character_arc_state: "Mara must trust Eli with the last piece of evidence.",
+  };
+  await withTestServer(deps, async (baseURL) => {
+    const sync = await postJson(baseURL, "/realtime/studio_render", body);
+    const stream = await postSse(baseURL, "/realtime/studio_render_stream", body);
+    assert.equal(sync.status, 200);
+    assert.equal(stream.status, 200);
+    assert.equal(sync.body.reply, VALID_SCREENPLAY_REPLY);
+    assert.match(stream.text, /event: done/);
+  });
+
+  const syncPrompt = deps._calls.renderInvocations[0].systemPrompt;
+  const streamPrompt = deps._calls.streamInvocations[0].systemPrompt;
+  assert.equal(syncPrompt, streamPrompt);
+  assert.ok(syncPrompt.length <= 16_000, `got ${syncPrompt.length} characters`);
+  assert.match(syncPrompt, /LIVE DRAFT HANDOFF:\nELI\nThe key is gone\./);
+  assert.match(syncPrompt, /Mara must trust Eli with the last piece of evidence\./);
+  assert.match(syncPrompt, /<screenplay_task>\nintent: continue_script\n/);
+  assert.match(syncPrompt, /screenplay_craft: Distinct voices, tactics and subtext\. Costly choices reveal character and drive turns\./);
+});
+
 test("[studio-render] sync: malformed page receives exactly one repair before success", async () => {
   const calls = [];
   const deps = defaultDeps({
@@ -1061,7 +1097,11 @@ test("[studio-render] sync: malformed page receives exactly one repair before su
   await withTestServer(deps, async (baseURL) => {
     const r = await postJson(baseURL, "/realtime/studio_render", {
       transcript: "Write the next page.",
-      system_prompt: "CANON_CORRECTION: Mara is Eli's sister.",
+      system_prompt: [
+        "Write only screenplay pages.",
+        "Old planning note. ".repeat(810).trimEnd(),
+        "CANON_CORRECTION: Mara is Eli's sister.",
+      ].join("\n"),
       screenplay_target: "page",
     });
 
@@ -1073,6 +1113,8 @@ test("[studio-render] sync: malformed page receives exactly one repair before su
     assert.equal(calls[1].modelTier, "structural_repair");
     assert.match(calls[1].systemPrompt, /QUALITY_FAILURE:/);
     assert.match(calls[1].systemPrompt, /Mara is Eli's sister/);
+    assert.match(calls[1].systemPrompt, /<screenplay_task>\n[\s\S]*Costly choices reveal character and drive turns\.[\s\S]*<\/screenplay_task>/);
+    assert.ok(calls[1].systemPrompt.length <= 16_000);
     assert.match(calls[1].transcript, /WRITER_REQUEST:/);
   });
 });

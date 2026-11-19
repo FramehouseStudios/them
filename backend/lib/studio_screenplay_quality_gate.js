@@ -1,4 +1,5 @@
 import { inferScreenplayTask } from "./prompt_assembly.js";
+import { fitStudioRenderSystemPrompt } from "./system_prompt_trim.js";
 import {
   classifyScreenplayLines,
   evaluateScreenplayPageQuality,
@@ -343,7 +344,7 @@ function buildStudioScreenplayRepairRequest({
     ...directives.map((line) => `- ${line}`),
     "- Output only the repaired screenplay pages. Never discuss this repair pass.",
     "ORIGINAL_SYSTEM_CONTEXT:",
-    cleanMultiline(systemPrompt, MAX_REPAIR_SYSTEM_CONTEXT_CHARS),
+    fitStudioRenderSystemPrompt(systemPrompt, MAX_REPAIR_SYSTEM_CONTEXT_CHARS),
   ].filter(Boolean).join("\n");
   const repairTranscript = [
     "WRITER_REQUEST:",

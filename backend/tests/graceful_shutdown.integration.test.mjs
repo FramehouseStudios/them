@@ -95,7 +95,8 @@ test("[shutdown-integration] SIGTERM drains two active talk streams and refuses 
       REQUIRE_USER_AUTH: "0",
       TALK_TEST_DEBUG_TRANSCRIPT_ENABLED: "1",
       TALK_TEST_DEBUG_OFFLINE_ENABLED: "1",
-      TALK_TEST_DEBUG_STREAM_END_DELAY_MS: "300",
+      // Keep both responses open for observation within the 3-second shutdown grace.
+      TALK_TEST_DEBUG_STREAM_END_DELAY_MS: "1500",
       TALK_STREAM_AUDIO_ENABLED: "1",
       SHUTDOWN_GRACE_MS: "3000",
     },
@@ -106,8 +107,10 @@ test("[shutdown-integration] SIGTERM drains two active talk streams and refuses 
       createSession(server),
       createSession(server),
     ]);
-    const first = await startStreamingTalk(server, firstToken, "First active shutdown turn");
-    const second = await startStreamingTalk(server, secondToken, "Second active shutdown turn");
+    const [first, second] = await Promise.all([
+      startStreamingTalk(server, firstToken, "First active shutdown turn"),
+      startStreamingTalk(server, secondToken, "Second active shutdown turn"),
+    ]);
     await waitForTalkCount(server, 2);
 
     assert.equal(server.child.kill("SIGTERM"), true);

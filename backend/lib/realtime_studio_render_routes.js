@@ -49,6 +49,7 @@ import {
   SCREENPLAY_TASK_BLOCK_OPEN,
 } from "./prompt_assembly.js";
 import { normalizeScreenplayOutputContractText } from "./screenplay_output_contract.js";
+import { fitStudioRenderSystemPrompt } from "./system_prompt_trim.js";
 import {
   enforceStudioScreenplayQuality,
   enforceStudioStructuralAnalysisQuality,
@@ -384,12 +385,12 @@ async function buildStudioRenderPromptMemoryContext({
   }
   try {
     return {
-      systemPrompt: buildModelPrompt({
+      systemPrompt: fitStudioRenderSystemPrompt(buildModelPrompt({
         persona: systemPrompt,
         creativeMemory: memoryForPrompt,
         sessionContext,
         screenplayTask,
-      }),
+      })),
       memoryApplied,
       acceptedCausalFacts,
       creativeMemory: promptMemory,
@@ -912,10 +913,7 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
       });
     }
 
-    const systemPrompt = normalizeSnippet(
-      req.body?.system_prompt ?? req.body?.instructions ?? "",
-      16_000,
-    );
+    const systemPrompt = fitStudioRenderSystemPrompt(req.body?.system_prompt ?? req.body?.instructions);
     const shouldApplyScreenplayContract = shouldApplyStudioRenderScreenplayContract(req.body);
     const requestedPages = shouldApplyScreenplayContract
       ? studioScreenplayRequestedPages({ body: req.body, transcript })
@@ -1051,10 +1049,7 @@ function mountRealtimeStudioRenderRoutes(app, deps = {}) {
       });
     }
 
-    const systemPrompt = normalizeSnippet(
-      req.body?.system_prompt ?? req.body?.instructions ?? "",
-      16_000,
-    );
+    const systemPrompt = fitStudioRenderSystemPrompt(req.body?.system_prompt ?? req.body?.instructions);
     const shouldApplyScreenplayContract = shouldApplyStudioRenderScreenplayContract(req.body);
     const requestedPages = shouldApplyScreenplayContract
       ? studioScreenplayRequestedPages({ body: req.body, transcript })

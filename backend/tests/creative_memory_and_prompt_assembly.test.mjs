@@ -1199,7 +1199,7 @@ test("[screenplay-task] preserves default cinematic craft on a scene-writing tur
   const taskBlock = fitted.match(/<screenplay_task>([\s\S]*?)<\/screenplay_task>/)?.[1];
   assert.ok(taskBlock);
   assert.match(taskBlock, /screenplay_craft:.*distinct voices, tactics and subtext/i);
-  assert.match(taskBlock, /screenplay_craft:.*costly choices/i);
+  assert.match(taskBlock, /screenplay_craft:.*costly choices reveal character and drive turns/i);
   assert.match(taskBlock, /screenplay_craft:.*plant and pay off filmable details\.$/im);
   assert.match(taskBlock, /mode_contract:.*Fountain.*immediate want.*push back.*visible turn/im);
   assert.doesNotMatch(fitted, /feature_plan:/);
