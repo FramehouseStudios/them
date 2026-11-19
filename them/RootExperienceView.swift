@@ -2725,7 +2725,7 @@ struct RootExperienceView: View {
         }
         voice.onSpeechProgressSnapshot = { audioSnapshot, partial, speechAge in
             let cleaned = partial.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !cleaned.isEmpty else { return }
+            guard !cleaned.isEmpty, !isStudioSurfaceActive || ScreenplayLiteralLineEdit.parse(cleaned) == nil else { return }
             let screenplayModeHint = isStudioSurfaceActive || shouldAutoOpenStudioForScriptIntent(cleaned)
             let speculativePreparedPrompt = buildPreparedTurnPrompt(
                 confirmedTranscript: cleaned,
