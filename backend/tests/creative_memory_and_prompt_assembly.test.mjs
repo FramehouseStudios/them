@@ -1136,9 +1136,15 @@ test("[screenplay-task] sends complete cinematic character arcs and structure to
     "Give me the full story structure and character arc.",
     "Build an entire story spine and character arc. Do not write screenplay pages yet.",
     "Outline a movie about two astronauts who learn their spacecraft is a film set.",
+    "Outline a science fiction feature about two astronauts who learn their spacecraft is a film set.",
+    "Give me a beat sheet for a 90-page thriller about sisters re-opening a cinema.",
+    "Help me develop a horror film about a pianist who hears her sister in an empty theater.",
     "Give me a beat sheet for a story about sisters re-opening a cinema.",
     "Help me develop a story where a pianist loses her hearing.",
     "Outline a film about a nurse who must rewrite what she told the police.",
+    "I have an idea for a movie about two astronauts who discover their spacecraft is a film set.",
+    "I've got an idea for a science fiction feature where the last astronaut has to bring a crew home without telling them they never left Earth.",
+    "A thriller about sisters trying to reopen a cinema before its last screening.",
   ]) {
     const task = inferScreenplayTask(userInput);
     assert.equal(task.intent, "outline_structure", userInput);
@@ -1159,9 +1165,10 @@ test("[screenplay-task] sends complete cinematic character arcs and structure to
       richMaxChars: 6_200,
     });
     assert.ok(fitted.length <= 6_200);
-    assert.match(fitted, /feature_plan: Act I.*Act II.*Act III/);
+    assert.match(fitted, /feature_plan: Label Act I.*Act II.*Act III/);
+    assert.match(fitted, /feature_plan:.*catalyst.*commitment.*midpoint.*crisis/i);
     assert.match(fitted, /costly final choice/);
-    assert.match(fitted, /payoff and final image/);
+    assert.match(fitted, /pays off setup.*final image/);
     assert.match(fitted, /Next three scenes/);
     const taskBlock = fitted.match(/<screenplay_task>([\s\S]*?)<\/screenplay_task>/)?.[1];
     assert.ok(taskBlock);
@@ -1170,17 +1177,48 @@ test("[screenplay-task] sends complete cinematic character arcs and structure to
     assert.doesNotMatch(fitted, /requested_page_batch:/);
   }
 
+  const firstPitch = "I have an idea for a movie about two astronauts who discover their spacecraft is a film set.";
+  const pitchPrompt = buildModelPrompt({ screenplayTask: inferScreenplayTask(firstPitch) });
+  assert.match(pitchPrompt, /target_pages: 120/);
+  assert.match(pitchPrompt, /concrete opening image changes meaning at the end/);
+  assert.match(pitchPrompt, /climactic choice proves change, refusal or conviction/);
+
+  const characterRequest = "Develop the complete character arc for the projectionist.";
+  const characterTask = inferScreenplayTask(characterRequest);
+  assert.equal(characterTask.intent, "character_development");
+  const characterPrompt = buildModelPrompt({
+    persona: "Clementine protects writer canon. ".repeat(280),
+    userInput: characterRequest,
+    screenplayTask: characterTask,
+  });
+  const fittedCharacterPrompt = fitSystemPromptForTurnLatency(characterPrompt, { fastMaxChars: 3_800 });
+  assert.ok(fittedCharacterPrompt.length <= 3_800);
+  assert.match(fittedCharacterPrompt, /opening behavior.*costly final choice.*lasting consequence/);
   assert.equal(inferScreenplayTask("Develop her character arc for this one scene.").intent, "character_development");
   assert.equal(inferScreenplayTask("Rewrite only the last line of dialogue in Act III.").intent, "rewrite_scene");
   const scene = inferScreenplayTask("Write a scene using the full character arc and story structure.");
   assert.equal(scene.intent, "write_scene");
   for (const userInput of [
     "Outline a scene for my film.",
+    "Outline the opening scene for my thriller film.",
+    "Give me a beat sheet for a scene in my horror film.",
+    "Outline the action.",
     "Outline my screenplay's opening scene.",
     "Outline the story for Act II.",
     "Give me a beat sheet for the opening scene.",
   ]) {
     assert.notEqual(inferScreenplayTask(userInput).featureScope, "whole_feature", userInput);
+  }
+  for (const [userInput, intent] of [
+    ["I have an idea for a movie about two astronauts on a set. Write the opening scene.", "write_scene"],
+    ["I have an idea for a movie about two astronauts on a set. Rewrite only the last line.", "rewrite_scene"],
+    ["I have an idea for a movie about two astronauts on a set. I'm stuck on what happens next.", "momentum_rescue"],
+    ["I have an idea for a movie about two astronauts on a set. Outline the opening scene.", "outline_structure"],
+    ["I watched a movie about two astronauts on a set.", "general_story"],
+  ]) {
+    const task = inferScreenplayTask(userInput);
+    assert.equal(task.intent, intent, userInput);
+    assert.notEqual(task.featureScope, "whole_feature", userInput);
   }
   const pages = inferScreenplayTask("Write the next five pages of my 90-page feature film.");
   assert.equal(pages.featureScope, "page_batch");
@@ -1424,7 +1462,7 @@ test("[feature-film-map] finish_feature prompt carries act-to-act completion bra
   assert.ok(out.includes("Never solve Act III by adding information the movie has not earned"));
   assert.ok(out.includes("feature_architecture_delivery_order:"));
   assert.ok(out.includes("First deliver a compact complete causal spine covering Act I, Act II, and Act III"));
-  assert.ok(out.includes("catalyst, commitment, midpoint reversal, crisis or all-is-lost, climax, final image"));
+  assert.match(out, /Act I lays the catalyst and commitment, Act II carries the midpoint reversal and crisis, and Act III delivers the payoff, climactic choice, and final image/);
   assert.ok(out.includes("Immediately after the complete spine, add a literal 'Next three scenes' heading"));
   assert.ok(out.includes("mode_guidance: Operate at feature scale. Locate the current act/sequence"));
 });

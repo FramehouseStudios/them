@@ -159,7 +159,7 @@ function evaluateStorySpecificGrounding(reply = "", storyContext = null, modelRe
 
 function featureActSections(text = "") {
   const source = normalizeText(text);
-  const markers = [...source.matchAll(/(?:^|\n)[\t #*_\-]*act\s*(iii|ii|i|3|2|1|three|two|one)\b/gim)];
+  const markers = [...source.matchAll(/(?:^|\n)[\t #*_\-]*(?:\d+[.)]\s+[*_# ]*)?act\s*(iii|ii|i|3|2|1|three|two|one)\b/gim)];
   const sections = { act1: "", act2: "", act3: "" };
   for (let index = 0; index < markers.length; index += 1) {
     const marker = markers[index];
@@ -319,22 +319,19 @@ function evaluateSceneDoctor(text, storyContext = null) {
 
 function evaluateFeatureArchitecture(text, storyContext = null) {
   const words = countWords(text);
-  const hasActOne = /\bact\s*(?:i|1|one)\b/i.test(text);
-  const hasActTwo = /\bact\s*(?:ii|2|two)\b/i.test(text);
-  const hasActThree = /\bact\s*(?:iii|3|three)\b/i.test(text);
-  const majorFeatureTurns = [
-    /\b(?:catalyst|inciting incident|inciting event|act i turn|commitment|break into two)\b/i,
-    /\b(?:midpoint|midway|mid[- ]film reversal)\b/i,
-    /\b(?:all[- ]is[- ]lost|crisis|low point|dark night|rock bottom)\b/i,
-    /\b(?:climax|climactic choice|final confrontation|final choice|decisive choice)\b/i,
-    /\b(?:final|last|closing|ending) (?:image|shot|frame)\b/i,
-  ].every((pattern) => pattern.test(text));
+  const { act1, act2, act3 } = featureActSections(text);
+  const majorFeatureTurns =
+    /\b(?:catalyst|inciting incident|inciting event|act i turn|commitment|break into two)\b/i.test(act1) &&
+    /\b(?:midpoint|midway|mid[- ]film reversal)\b/i.test(act2) &&
+    /\b(?:all[- ]is[- ]lost|crisis|low point|dark night|rock bottom)\b/i.test(act2) &&
+    /\b(?:climax|climactic choice|final confrontation|final choice|decisive choice)\b/i.test(act3) &&
+    /\b(?:final|last|closing|ending) (?:image|shot|frame)\b/i.test(act3);
   const causalBridgeCount = (
     text.match(/\b(?:because|therefore|which forces|forcing|so that|as a result|leads to|drives|creates|turns into|makes [^.\n]{0,80} inevitable)\b/gi) || []
   ).length;
   const dimensions = {
     developed: words >= 110,
-    threeActProgression: hasActOne && hasActTwo && hasActThree,
+    threeActProgression: Boolean(act1 && act2 && act3),
     causalActBridges: causalBridgeCount >= 2,
     characterArcEngine: countMatches(text.toLowerCase(), [
       /\b(?:want|goal|objective)\b/,
@@ -343,7 +340,7 @@ function evaluateFeatureArchitecture(text, storyContext = null) {
     ]) >= 2,
     majorFeatureTurns,
     setupPayoffPath: (
-      (/\b(?:setup|plant|promise)\b/i.test(text) && /\b(?:payoff|pays? off|echo|returns?|transform)\b/i.test(text)) ||
+      (/\b(?:setup|plant(?:ed|s)?|promise)\b/i.test(text) && /\b(?:payoff|pays? off|echo|returns?|transform)\b/i.test(text)) ||
       tracksKnownSetupIntoActThree(text, storyContext)
     ),
     sceneForwardPlan: /\b(?:next (?:three )?(?:scene|beat|turn)s?|sequence\s*(?:one|two|three|[1-8])|scene\s*(?:one|two|three|[1-3]))\b/i.test(text),
@@ -533,7 +530,7 @@ function buildStructuralScreenplayRepairMessages({
       ]
     : [
         "Deliver one causal Act I / Act II / Act III feature architecture anchored to character change.",
-        "Include commitment, midpoint reversal, crisis or all-is-lost, climax, final image, a setup-payoff path, and the next playable scene turns.",
+        "Give each act its own heading. Put the catalyst and commitment in Act I, midpoint reversal and crisis in Act II, and setup payoff, climactic choice and final image in Act III.",
       ];
   return [
     {

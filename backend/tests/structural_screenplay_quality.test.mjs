@@ -152,6 +152,19 @@ test("[structural-quality] accepts causal feature architecture with a scene-forw
   assert.equal(quality.score, 1);
 });
 
+test("[structural-quality] accepts numbered Markdown acts and a tragic character choice", () => {
+  const quality = evaluateStructuralScreenplayReply({
+    modelReason: "screenplay_feature_architecture",
+    reply: [
+      "1. **Act I:** Ada wants to keep her family's theater open, but her false belief is that accepting help would make it someone else's. The catalyst is an eviction notice. At commitment, she sells the lobby sign because it buys one more week.",
+      "2. **Act II:** Selling the sign drives away the only patrons who recognize her dead mother's name. At the midpoint, her sister offers a partnership. Ada's old tactic is to call it a takeover. That refusal creates a crisis when her sister removes the seats she loaned Ada.",
+      "3. **Act III:** Ada needs to share the work. Her final choice is to turn her sister away when she brings back one chair, which forces her to watch the last screening alone. The sign planted in the opening pays off in the final image: its outline remains on the wall above Ada's empty theater.",
+      "Next three scenes: a patron walks past the bare entrance; Ada meets her sister in the box office; the first row of seats disappears.",
+    ].join("\n\n"),
+  });
+  assert.equal(quality.ok, true, quality.reason);
+});
+
 test("[structural-quality] rejects structurally fluent advice that ignores the active movie", () => {
   const quality = evaluateStructuralScreenplayReply({
     modelReason: "screenplay_feature_architecture",
