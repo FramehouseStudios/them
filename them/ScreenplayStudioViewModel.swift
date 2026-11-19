@@ -2016,7 +2016,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
     /// saved version yet, so "unsaved" stays honest until `adoptRemoteLiveVersion`.
     @discardableResult
     func applyRemoteLiveDraft(_ text: String, projectID: String, sourceDeviceID: String) -> Bool {
-        guard ScreenplayProjectScopedState.matches(projectID, selectedProjectId: selectedProjectID) else {
+        guard !isSwitchingLoadedDraftProject,
+              ScreenplayProjectScopedState.matches(projectID, selectedProjectId: selectedProjectID) else {
             return false
         }
         // A remote update is not the writer's Keep Mine / Load Server decision.
@@ -2029,7 +2030,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         if !sourceDeviceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             remoteLiveDraftStatusText = "Live from \(LiveDraftDeviceIdentity.displayLabel(for: sourceDeviceID))"
         }
-        scheduleRemoteLiveDraftFollowFallback()
+        scheduleRemoteLiveDraftFollowFallback(projectID: projectID)
         guard fountainDraft != text else { return true }
         isHydratingDraft = true
         fountainDraft = text
@@ -2087,13 +2088,28 @@ final class ScreenplayStudioViewModel: ObservableObject {
     /// of seconds. If that never comes (it went offline, its save failed), this
     /// device must not sit on unsaved words forever: resume the normal
     /// autosave path, where a stale base is handled by the conflict flow.
-    private func scheduleRemoteLiveDraftFollowFallback() {
+    private func scheduleRemoteLiveDraftFollowFallback(projectID: String) {
         remoteLiveDraftFollowFallbackTask?.cancel()
+        let owner = currentStudioAuthContext()
         remoteLiveDraftFollowFallbackTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(LiveDraftSyncPolicy.followFallbackInterval * 1_000_000_000))
             guard let self, !Task.isCancelled, self.isFollowingRemoteLiveDraft else { return }
             self.isFollowingRemoteLiveDraft = false
             self.remoteLiveDraftFollowFallbackTask = nil
+            guard self.authContextIsCurrent(owner), !self.isSwitchingLoadedDraftProject,
+                  ScreenplayProjectScopedState.matches(projectID, selectedProjectId: self.selectedProjectID) else { return }
+
+            // The next autosave may reuse the ordinary recovery slot.
+            if let local = self.localDraftRecoveryStore.dirtyOrdinarySnapshot(ownerUserId: owner.userID, projectId: projectID),
+               !local.draft.utf8.elementsEqual(self.fountainDraft.utf8) {
+                self.localDraftRecoveryStore.savePreservedConflict(
+                    ownerUserId: owner.userID, projectId: projectID,
+                    draft: local.draft, baseVersionId: local.baseVersionId, savedAt: local.savedAt
+                )
+                self.evaluateLocalDraftRecovery(
+                    projectId: projectID, serverDraft: self.fountainDraft, hasAuthoritativeServerText: false
+                )
+            }
             await self.handleDraftDebouncedChange(self.fountainDraft)
         }
     }
@@ -2109,7 +2125,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
     /// the page saved without issuing a duplicate save.
     func adoptRemoteLiveVersion(_ versionID: String, projectID: String, draftChecksum: String) {
         let cleanVersionID = versionID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanVersionID.isEmpty,
+        guard !cleanVersionID.isEmpty, !isSwitchingLoadedDraftProject,
               ScreenplayProjectScopedState.matches(projectID, selectedProjectId: selectedProjectID),
               !ScreenplayProjectScopedState.matches(conflictState?.projectId, selectedProjectId: projectID),
               LiveDraftText.checksum(fountainDraft) == draftChecksum else {
@@ -2124,17 +2140,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
         isManualDraftEditing = false
         conflictState = nil
         autosaveStatusText = "Saved"
-        if !selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let ownerUserID = currentStudioAuthContext().userID
-            localDraftRecoveryStore.clearOrdinaryDraft(
-                ownerUserId: ownerUserID,
-                projectId: selectedProjectID
-            )
-            evaluateLocalDraftRecovery(
-                projectId: selectedProjectID,
-                serverDraft: fountainDraft
-            )
-        }
+        // A checksum receipt can advance the editor's version. Only the
+        // full server text can confirm which local recovery copy is redundant.
+        evaluateLocalDraftRecovery(
+            projectId: selectedProjectID, serverDraft: fountainDraft, hasAuthoritativeServerText: false
+        )
         syncLiveDraftBridgeProjectContext()
     }
 
@@ -6065,6 +6075,11 @@ final class ScreenplayStudioViewModel: ObservableObject {
             autosaveStatusText = "Draft empty"
             return
         }
+        if isFollowingRemoteLiveDraft {
+            // Mirrored keystrokes cannot replace the writer's recovery copy.
+            autosaveStatusText = remoteLiveDraftStatusText
+            return
+        }
         if hasUnsavedDraftChanges {
             persistLocalDraftRecovery(
                 projectId: projectID,
@@ -6088,12 +6103,6 @@ final class ScreenplayStudioViewModel: ObservableObject {
         guard hasUnsavedDraftChanges else {
             isManualDraftEditing = false
             autosaveStatusText = "Saved"
-            return
-        }
-        if isFollowingRemoteLiveDraft {
-            // The typing device owns this save; we adopt its version id when
-            // it announces one (adoptRemoteLiveVersion).
-            autosaveStatusText = remoteLiveDraftStatusText
             return
         }
         let saveIntent = resolvedDraftSaveIntent(for: draft)
@@ -7172,7 +7181,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
 
     private func evaluateLocalDraftRecovery(
         projectId: String,
-        serverDraft: String
+        serverDraft: String,
+        hasAuthoritativeServerText: Bool = true
     ) {
         let normalizedProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedProjectId.isEmpty else {
@@ -7183,7 +7193,8 @@ final class ScreenplayStudioViewModel: ObservableObject {
             ownerUserId: currentStudioAuthContext().userID,
             projectId: normalizedProjectId,
             serverDraft: serverDraft,
-            fingerprint: { [weak self] value in self?.fingerprint(for: value) ?? value }
+            fingerprint: { [weak self] value in self?.fingerprint(for: value) ?? value },
+            hasAuthoritativeServerText: hasAuthoritativeServerText
         ) else {
             recoveryCandidate = nil
             return
