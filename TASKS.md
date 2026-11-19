@@ -5,6 +5,42 @@
 ## Status vocabulary
 `ready` → `ready-for-support` → `in-progress` → `review` → `merged`
 
+### Original #979 fixture hydration boundary — T-1472 (2026-11-13)
+
+- **Owner:** Jarvis; Zora bounded read-only source challenge.
+- **Verified red:** exact4af hosted recovery1/1/0; ordinary offline queue contains only marker, not seeded page; stale-conflict case passes. Artifact/hash retained privately.
+- **Fix:** reuse preserved919b24 / original39ca DEBUG helper readiness, matching selected+loaded draft project and cancellation; same40x250ms budget. All test identities/assertions/runtime bytes otherwise unchanged.
+- **Proof:** exactfd03 signed erasedowned81F recovery2/0/0; both identities once; all1411 source/four driver hashes unchanged; authenticated fixture livePID/nonce verified, known external API attempts0. Swiftparse/diff/D009fivezero. No unchanged broad local reruns or live-model/phone/real401 claim.
+- **Next:** record proof and normally fast-forward original979; fresh hosted checks and genuine non-author review required. Main Autosave failure and production hold persist. See docs/original-979-fixture-hydration-2026-11-13.md. READY FOR CONTINUE.
+
+### Original #979 immutable conflict-chain proof — T-1469 root execution
+
+- **Owner:** Jarvis; Einstein bounded contract/driver preparation; root reviewed and executed.
+- **Fixed:** exact-one parked count contradicted the canonical immutable save chain. Require durable full writer text and explicit choice, exact server-version sets and one clean post-choice relaunch; no recovery copies deleted.
+- **Proof:** candidate9d signed erasedowned81F canonical recovery2/0/0; source/driver hashes unchanged, exact identities once, authenticated local fixture PID/nonce verified. Offline exact-lock136 packages; hostNode26.7, no paid calls. BackendNode20/fullunits are inherited7b proof, not repeated. Parse/diff/D009 fivezero.
+- **GitHub/next:** normal descendant update to original979 only; fresh required checks/re-review remain. Main71 Autosave firstred and productionhold remain; real-phone journey and separate authfreeze unresolved. See docs/original-979-recovery-chain-contract-2026-11-13.md. READY FOR CONTINUE.
+
+### Original979 immutable recovery-chain test contract — T-1469 (2026-11-13)
+
+- **Owner:** Einstein, bounded source/artifact investigation and explicitly assigned test-only candidate; only new `codex/T-1469-recovery-chain-contract`, exact published7b base. Root retains execution/publication and both held merges.
+- **Verified red:**979required recovery1/1/0 at stale-conflict readiness: queued1/parked0→queued0/parked2, same87-character writer fingerprint/full-preview hash and selected/loaded/conflict project. No individual outbox-entry metadata; no proved second-copy origin, writer loss or duplicate race. Keep Mine was not reached.
+- **Contract:** honor preserved accepted527c58d6's nonempty-chain/stronger-version principle; existing actor test deliberately preserves2same-byte immutable intents. Change only the current failing method: whole fingerprint/count/project/head checks, exact2prechoice/3postchoice version sets, preserve zero unchosen uploads and all exact-one chosen/fulltext/idempotency/active/cleanup assertions, then one clean chosen-version relaunch with metadata-only new failure evidence. Existing deadlines/tap unchanged; all41 test IDs retained.
+- **Proof/limits:** syntaxparse/diff0; canonical D009 exact71fivezero; all other source/methods unchanged7b. No native/backend/npm/provider/GitHub action or fresh actual401-refresh claim. Evidence: `docs/original-979-recovery-chain-contract-2026-11-13.md`; root must review before tests/publication. Production held; READY FOR CONTINUE.
+
+### Original979 on landed recovery main — T-1465 (2026-11-12)
+
+- **Owner:** Einstein, bounded preserving integration assigned by Jarvis; only new `codex/T-1465-979-recovery-main-sync` worktree. Merge6f7913c6 preserves original9796c + protected main71; six conflict stages/two outputs backed up before three contextual hunks.
+- **Source:** runtime/unit/Packages/scripts/workflows exactmain71; dependency bytes exact6c. Retain all41 UI test identities and original selected-Them assertion; adapt original readiness guards to canonical shared content helper. Both TASKS blocks retained; no recovery/auth/content assertion removed.
+- **Fresh proof:** cached isolated Node20.20.2/npm10.8.2, offlineci/ls/compiler0; focused12/0/1, fullbackend2758/0/2 once. Existing talk-preview skip, plus unconfigured live-Postgres skip in full. All1408 frozen/worktree source files unchanged. Exact71 canonical D009 five0, parse/diff0; no native/providers/host ports.
+- **Attribution/next:** audit0 inherited only from unchanged6c dependencies; parent hosted native evidence remains inherited. Local-only candidate; root reviews before normal original979 advancement, fresh exact-head checks and genuine independent human review. No GitHub/main/production change; root's unresolved reconnect freeze remains separate. Evidence: `docs/original-979-recovery-main-sync-2026-11-12.md`. Production held; READY FOR CONTINUE.
+
+### Original979 on landed foundation — T-1461 (2026-11-12)
+
+- **Owner:** Einstein, bounded integration assigned by Jarvis; only new `codex/T-1461-979-foundation-sync` worktree. Original979c508 and landedmainbc retained by no-ff85f957c5; no conflicts or source overwrite.
+- **Source:** entire backend/dependency bytes remain original979c508; app/Packages/units/scripts/workflows match mainbc. Original two V1 helper/assertion hunks and proofdoc remain; whole candidate is not main-identical. No recovery/auth assertion weakened.
+- **Proof:** fresh isolated Node20.20.2/npm10.8.2 offlineinstall/ls exit0; focused12/0/1, fullbackend2752/0/2; fresh official productionaudit0;1,390 sourcefiles/zero mismatches; actualmain D009 five0/diffpass. Skips explicit, no native/sim/model/host-port use.
+- **Boundary/next:** local/unpublished only; root reviews descendant before normal original979 advancement/base targeting, fresh hosted checks and genuine non-author approval. No GitHub/main/protection/production changes; dirty973 and recovery/simulator ownership untouched. Evidence: `docs/original-979-foundation-sync-2026-11-12.md`. Productionheld; READY FOR CONTINUE.
+
 ### Original904 conflict recovery authority — T-1460 (2026-11-12)
 
 - **Owner:** Jarvis runtime/proof; Zora bounded artifact/source challenge; Einstein separate original979 security integration, no shared file ownership.
