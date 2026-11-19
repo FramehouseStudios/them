@@ -309,14 +309,14 @@ function compactScreenplayTaskBody(body, bodyLimit) {
   const intent = intentLine.replace(/^intent:\s*/i, "");
   const featurePlan = firstLineStartingWith(lines, "feature_plan:");
   const craft = firstLineStartingWith(lines, "screenplay_craft:");
-  const sceneMode = intent === "write_scene"
+  const specificMode = intent === "write_scene" || intent === "character_development"
     ? firstLineStartingWith(lines, "mode_guidance:").replace(/^mode_guidance:/, "mode_contract:")
     : "";
   return compactSemanticLines([
     { value: intentLine, maxChars: 100 },
     { value: featurePlan, maxChars: 185, minChars: 172 },
     { value: craft, maxChars: craft.length, minChars: craft.length },
-    { value: sceneMode, maxChars: sceneMode.length, minChars: sceneMode.length },
+    { value: specificMode, maxChars: specificMode.length, minChars: specificMode.length },
     { value: firstLineStartingWith(lines, "character_arc:"), maxChars: 240 },
     { value: firstLineStartingWith(lines, "label:"), maxChars: 120 },
     { value: firstLineStartingWith(lines, "role:"), maxChars: 150 },
@@ -327,7 +327,7 @@ function compactScreenplayTaskBody(body, bodyLimit) {
       value: featurePlan ? "" : "craft_contract: whole-feature authorship; page batch discipline; expert page engine; subtext engine; image system; speed discipline; Fountain pages first; verify continuity.",
       maxChars: 180,
     },
-    { value: featurePlan || sceneMode ? "" : screenplayModeContract(intent), maxChars: 230 },
+    { value: featurePlan || specificMode ? "" : screenplayModeContract(intent), maxChars: 230 },
     { value: firstLineStartingWith(lines, ["likely_stall:", "diagnosis:", "strongest_engine:", "rank_1:"]), maxChars: 190 },
     { value: firstLineStartingWith(lines, "output:"), maxChars: 180 },
     { value: firstLineStartingWith(lines, "quality:"), maxChars: 170 },

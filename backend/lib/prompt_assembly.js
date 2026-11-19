@@ -829,12 +829,12 @@ function buildScreenplayTaskBlock(screenplayTask) {
   }
   if ((intent === "outline_structure" || intent === "finish_feature") && requestedPages === 0) {
     if (intent === "outline_structure" && featureScope === "whole_feature") {
-      lines.push("feature_plan: Act I catalyst and commitment drive Act II midpoint reversal and crisis. Act III pays off setup in a costly final choice and final image. Next three scenes. Plan only.");
+      lines.push("feature_plan: Label Act I catalyst/commitment, Act II midpoint reversal/crisis, Act III pays off setup in a costly final choice and final image. Next three scenes. Plan only.");
       lines.push("character_arc: Give the protagonist a want, conflicting need and old tactic. Show who it hurts and how the climactic choice proves change or refusal. Give pivotal supporting characters distinct wants and choices that alter the outcome.");
     }
     lines.push("feature_architecture_delivery_order:");
     lines.push("  - First deliver a compact complete causal spine covering Act I, Act II, and Act III before expanding any act. Never spend the opening budget detailing Act I while later acts remain unstated.");
-    lines.push("  - The spine must name catalyst, commitment, midpoint reversal, crisis or all-is-lost, climax, final image, and at least one setup -> payoff path.");
+    lines.push("  - Give each act its own heading. Act I lays the catalyst and commitment, Act II carries the midpoint reversal and crisis, and Act III delivers the payoff, climactic choice, and final image.");
     lines.push("  - Connect each major turn with because/therefore causality and show how the old tactic fails and how the climactic choice proves change or refusal.");
     lines.push("  - Immediately after the complete spine, add a literal 'Next three scenes' heading and list three playable scene turns from the current story state. Only then add optional detail.");
   }
@@ -893,7 +893,7 @@ function screenplayModeGuidanceForIntent(intent) {
     case "outline_structure":
       return "Shape beats by cause and effect. Lead with a compact complete Act I / Act II / Act III causal spine, then track act pressure, reversals, setups, payoffs, and the emotional consequence of each turn.";
     case "character_development":
-      return "Translate psychology into visible behavior: want, need, contradiction, tactics, silence, and the choice the audience can watch.";
+      return "Show want, concealed need, and who pays for the old tactic. Full arc: opening behavior, mounting pressure, costly final choice proving change, refusal, or conviction, and lasting consequence. For one scene, show only its turn.";
     case "emotional_continuity":
       return "Track the emotional baton between beats. Preserve what just happened inside each character before adding the next action.";
     case "pacing_pass":

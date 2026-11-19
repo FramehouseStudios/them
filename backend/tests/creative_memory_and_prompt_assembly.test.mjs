@@ -1162,7 +1162,7 @@ test("[screenplay-task] sends complete cinematic character arcs and structure to
       richMaxChars: 6_200,
     });
     assert.ok(fitted.length <= 6_200);
-    assert.match(fitted, /feature_plan: Act I.*Act II.*Act III/);
+    assert.match(fitted, /feature_plan: Label Act I.*Act II.*Act III/);
     assert.match(fitted, /feature_plan:.*catalyst.*commitment.*midpoint.*crisis/i);
     assert.match(fitted, /costly final choice/);
     assert.match(fitted, /pays off setup.*final image/);
@@ -1174,6 +1174,17 @@ test("[screenplay-task] sends complete cinematic character arcs and structure to
     assert.doesNotMatch(fitted, /requested_page_batch:/);
   }
 
+  const characterRequest = "Develop the complete character arc for the projectionist.";
+  const characterTask = inferScreenplayTask(characterRequest);
+  assert.equal(characterTask.intent, "character_development");
+  const characterPrompt = buildModelPrompt({
+    persona: "Clementine protects writer canon. ".repeat(280),
+    userInput: characterRequest,
+    screenplayTask: characterTask,
+  });
+  const fittedCharacterPrompt = fitSystemPromptForTurnLatency(characterPrompt, { fastMaxChars: 3_800 });
+  assert.ok(fittedCharacterPrompt.length <= 3_800);
+  assert.match(fittedCharacterPrompt, /opening behavior.*costly final choice.*lasting consequence/);
   assert.equal(inferScreenplayTask("Develop her character arc for this one scene.").intent, "character_development");
   assert.equal(inferScreenplayTask("Rewrite only the last line of dialogue in Act III.").intent, "rewrite_scene");
   const scene = inferScreenplayTask("Write a scene using the full character arc and story structure.");
@@ -1431,7 +1442,7 @@ test("[feature-film-map] finish_feature prompt carries act-to-act completion bra
   assert.ok(out.includes("Never solve Act III by adding information the movie has not earned"));
   assert.ok(out.includes("feature_architecture_delivery_order:"));
   assert.ok(out.includes("First deliver a compact complete causal spine covering Act I, Act II, and Act III"));
-  assert.ok(out.includes("catalyst, commitment, midpoint reversal, crisis or all-is-lost, climax, final image"));
+  assert.match(out, /Act I lays the catalyst and commitment, Act II carries the midpoint reversal and crisis, and Act III delivers the payoff, climactic choice, and final image/);
   assert.ok(out.includes("Immediately after the complete spine, add a literal 'Next three scenes' heading"));
   assert.ok(out.includes("mode_guidance: Operate at feature scale. Locate the current act/sequence"));
 });

@@ -555,7 +555,7 @@ test("[studio-render] sync: a genre film pitch gets the complete character arc a
     assert.equal(deps._calls.renderInvocations.length, 1);
     assert.equal(deps._calls.renderInvocations[0].modelTier, "structural");
     assert.equal(deps._calls.renderInvocations[0].maxTokens, 2_600);
-    assert.match(deps._calls.renderInvocations[0].systemPrompt, /feature_plan: Act I.*Act II.*Act III/);
+    assert.match(deps._calls.renderInvocations[0].systemPrompt, /feature_plan: Label Act I.*Act II.*Act III/);
     assert.match(deps._calls.renderInvocations[0].systemPrompt, /character_arc:.*climactic choice/);
     assert.equal(r.body.screenplay_quality, undefined);
   });
