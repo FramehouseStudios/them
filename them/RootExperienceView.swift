@@ -6139,7 +6139,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         var didInterruptSyncedVoiceInsert = false
         var didCommitSyncedVoiceFallback = false
         var didCommitEarlyStudioDraftPreviewFallback = false
-        var pendingStreamRemainderURL: URL?
+        var streamHandoff = StudioVoiceStreamHandoff()
         let syncedPlaybackClock = SegmentedPlaybackClock()
         var debugSyncedPlaybackSeekApplied = false
         var debugSyncedPlaybackSeekCount = 0
@@ -6228,7 +6228,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
 #endif
         }
 
-        var didReceiveTalkResponse = false
         var debugSyncedInsertCancelTask: Task<Void, Never>?
         let cleanClientTranscriptOverride = String(clientTranscriptOverride ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -6501,16 +6500,20 @@ Write this approved story direction directly into screenplay pages now. Maintain
         }
 
         func playStreamRemainderOrFinish() {
-            syncedPlaybackClock.completeCurrentSegment()
-            guard let remainderURL = pendingStreamRemainderURL else {
-                guard didReceiveTalkResponse else {
-                    HerLog.audio.info("waiting for full streamed audio before finishing playback")
-                    return
-                }
+            let remainderURL: URL
+            switch streamHandoff.nextAction() {
+            case .alreadyHandled:
+                return
+            case .wait:
+                syncedPlaybackClock.completeCurrentSegment()
+                return
+            case .finish:
                 finishPlaybackAndResumeMic()
                 return
+            case let .play(url):
+                remainderURL = url
             }
-            pendingStreamRemainderURL = nil
+            syncedPlaybackClock.completeCurrentSegment()
             do {
                 HerLog.audio.info("playing stream remainder path=\(remainderURL.path, privacy: .public)")
                 try orbAudio.play(url: remainderURL, onFinish: {
@@ -7250,7 +7253,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 result = try await requestTalk()
             }
             guard voiceTaskScope.isCurrent(invocationID), BackendAuthClient.requestOwnerIsCurrent(owner) else { return }
-            didReceiveTalkResponse = true
             if let failure = result.recoveredFailure {
                 backendConnectionState = .up
                 backendFailureCount = 0
@@ -7562,15 +7564,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     expectedOwner: owner
                 )
                 guard voiceTaskScope.isCurrent(invocationID), BackendAuthClient.requestOwnerIsCurrent(owner) else { return }
-                if containsStudioOpenCommand(text) {
-                    let turnId = result.commit?.turnId ?? ""
-                    if turnId.isEmpty || turnId != lastAutoOpenedStudioTurnID {
-                        openStudio()
-                        if !turnId.isEmpty {
-                            lastAutoOpenedStudioTurnID = turnId
-                        }
-                    }
-                } else if shouldAutoOpenStudioForScriptIntent(text) {
+                if shouldAutoOpenStudioForScriptIntent(text) {
                     let turnId = result.commit?.turnId ?? ""
                     if turnId.isEmpty || turnId != lastAutoOpenedStudioTurnID {
                         openStudio()
@@ -7594,7 +7588,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             handleNoteCaptureIfNeeded(result.noteAction, turnId: result.commit?.turnId)
             isThinking = false
             if didStartEarlyStreamPlayback {
-                pendingStreamRemainderURL = result.streamedRemainderURL
+                streamHandoff.responseReady(remainder: result.streamedRemainderURL)
                 if !orbAudio.isSpeaking {
                     playStreamRemainderOrFinish()
                 }

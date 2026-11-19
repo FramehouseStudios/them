@@ -51,3 +51,26 @@ final class StudioVoiceTaskScope: ObservableObject {
         return true
     }
 }
+
+/// Hands off streamed voice playback only after the remainder is known.
+struct StudioVoiceStreamHandoff {
+    enum Action: Equatable {
+        case wait
+        case play(URL)
+        case finish
+        case alreadyHandled
+    }
+
+    private var state = Action.wait
+
+    mutating func responseReady(remainder: URL?) {
+        guard state == .wait else { return }
+        state = remainder.map(Action.play) ?? .finish
+    }
+
+    mutating func nextAction() -> Action {
+        let action = state
+        if action != .wait { state = .alreadyHandled }
+        return action
+    }
+}
