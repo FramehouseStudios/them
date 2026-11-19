@@ -12378,12 +12378,12 @@ Return revised screenplay lines only.
             let nextIsVisible = !isDirectionOneSidebarVisible
             isDirectionOneSidebarVisible = nextIsVisible
             if isDirectionOneCompactLayout, nextIsVisible {
+                #if os(iOS)
+                endCompactScreenplayEditing()
+                #endif
                 isDirectionOneRightRailExpanded = false
             }
         }
-        vm.infoText = isDirectionOneSidebarVisible
-            ? "Sidebar shown."
-            : "Sidebar hidden."
     }
 
     private func toggleDirectionOneRightRailVisibility() {

@@ -706,6 +706,76 @@ final class V1SmokeUITests: XCTestCase {
             marker,
             "The sole matching server version did not preserve the exact UI-entered draft."
         )
+
+        let reopenedInspector = app.buttons["studio.sidebar.right.toggle"]
+        let reopenedInspectorDrawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        XCTAssertTrue(waitForHittability(of: reopenedInspector, timeout: writerLoopWait(5)))
+        if !reopenedInspectorDrawer.exists { reopenedInspector.tap() }
+        let reopenedDraftInspector = app.buttons["studio.right-panel.draft"]
+        if reopenedDraftInspector.waitForExistence(timeout: writerLoopWait(3)), !reopenedDraftInspector.isSelected {
+            reopenedDraftInspector.tap()
+        }
+        let reopenedAutosave = app.switches["studio.draft.document.autosave"]
+        XCTAssertTrue(revealInStudioDrawer(reopenedAutosave, drawer: reopenedInspectorDrawer, scrollingUp: true, maxSwipes: 12))
+        if writerLoopSwitchState(reopenedAutosave) == true {
+            XCTAssertTrue(toggleWriterLoopSwitch(reopenedAutosave, toBeOn: false, timeout: writerLoopWait(4)))
+        }
+        XCTAssertEqual(writerLoopSwitchState(reopenedAutosave), false)
+        reopenedInspector.tap()
+
+        let restoredEditor = app.textViews["studio.draft.editor"]
+        XCTAssertTrue(waitForHittability(of: restoredEditor, timeout: writerLoopWait(8)))
+        restoredEditor.tap()
+        restoredEditor.typeText(" Local note")
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: writerLoopWait(8)) { snapshot in
+            let text = stringValue(snapshot["draft_tail_preview"])
+            return text.utf8.count > marker.utf8.count && boolValue(snapshot["has_unsaved_draft_changes"])
+        }, "The original screenplay must have a visible unsaved edit before creating another project.")
+        let editedOriginal = accessibleDraftText(in: app)
+        XCTAssertGreaterThan(editedOriginal.utf8.count, marker.utf8.count)
+
+        let secondTitle = "New Script \(uniqueSuffix)"
+        let reopenedProjects = app.buttons["studio.sidebar.left.toggle"]
+        let reopenedProjectsDrawer = element(identifier: "studio.sidebar.left.drawer", in: app)
+        if !reopenedProjectsDrawer.exists {
+            XCTAssertTrue(waitForHittability(of: reopenedProjects, timeout: writerLoopWait(5)))
+            reopenedProjects.tap()
+        }
+        XCTAssertTrue(waitForDisappearance(of: app.keyboards.firstMatch, timeout: writerLoopWait(5)),
+            "Opening Projects on a compact phone should dismiss the screenplay keyboard.")
+        let newTitle = app.textFields["New project title"]
+        XCTAssertTrue(waitForHittability(of: newTitle, timeout: writerLoopWait(8)))
+        newTitle.tap()
+        newTitle.typeText(secondTitle)
+        let createNew = app.buttons["Create"]
+        XCTAssertTrue(waitForHittability(of: createNew, timeout: writerLoopWait(5)))
+        createNew.tap()
+        let newProjectID = try await waitForWriterLoopProject(
+            titled: secondTitle, fixture: fixture, timeout: writerLoopWait(12)
+        )
+        XCTAssertNotEqual(newProjectID, projectID)
+        XCTAssertTrue(waitForRestoreSnapshot(in: app, timeout: writerLoopWait(12)) { snapshot in
+            stringValue(snapshot["selected_project_id"]).lowercased() == newProjectID.lowercased()
+                && stringValue(snapshot["draft_tail_preview"]).isEmpty
+                && stringValue(snapshot["latest_version_id"]).isEmpty
+                && !boolValue(snapshot["is_saving"])
+        }, "Creating a named project from an existing script must select a blank page.")
+        let secondProject = try await writerLoopProject(id: newProjectID, fixture: fixture)
+        XCTAssertTrue((secondProject["versions"] as? [[String: Any]] ?? []).isEmpty)
+        let preservedProject = try await writerLoopProject(id: projectID, fixture: fixture)
+        let preservedVersions = preservedProject["versions"] as? [[String: Any]] ?? []
+        XCTAssertEqual(preservedVersions.compactMap { $0["draft"] as? String }, [marker])
+
+        let originalProject = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", projectTitle)).firstMatch
+        XCTAssertTrue(waitForHittability(of: originalProject, timeout: writerLoopWait(8)))
+        originalProject.tap()
+        if reopenedProjectsDrawer.exists { reopenedProjects.tap() }
+        let recoverLocal = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Recover Local")).firstMatch
+        XCTAssertTrue(waitForHittability(of: recoverLocal, timeout: writerLoopWait(10)),
+            "The original project must offer recovery for its unsaved edit.")
+        recoverLocal.tap()
+        XCTAssertTrue(waitForExactWriterLoopDraft(editedOriginal, in: app, timeout: writerLoopWait(8)),
+            "Recover Local must restore the original project's exact edited draft.")
 #else
         throw XCTSkip("The integrated writer-loop contract specifically covers iPhone.")
 #endif

@@ -13,6 +13,10 @@ final class BackendTurnOwnerBoundaryTests: XCTestCase {
                 _ = try await api.upsertScreenplayProjectVersion(projectId: "project", draft: "New scene",
                     activate: false, expectedOwner: TurnOwnerFixture.ownerA.ownerContext)
             },
+            { api in
+                _ = try await api.activateScreenplayProject(projectId: "project",
+                    expectedOwner: TurnOwnerFixture.ownerA.ownerContext)
+            },
         ]
         for operation in operations {
             let fixture = TurnOwnerFixture(transition: .bootstrap(TurnOwnerFixture.ownerB))
