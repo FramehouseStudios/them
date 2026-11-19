@@ -795,10 +795,9 @@ final class V1SmokeUITests: XCTestCase {
 
         for route in routes {
             let tab = app.buttons["studio.right-panel.\(route.tab)"]
-            // Navigation stays pinned; selecting it must not require a
-            // scroll/reopen recovery sequence.
-            guard tab.waitForExistence(timeout: 8), tab.isHittable else {
-                XCTFail("Missing pinned \(route.tab) inspector tab")
+            // Wait for the drawer transition while requiring a tap without scrolling.
+            guard waitForHittability(of: tab, timeout: 8) else {
+                XCTFail("The pinned \(route.tab) inspector tab did not become tappable.")
                 return
             }
             tab.tap()
