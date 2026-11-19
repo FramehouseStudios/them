@@ -261,7 +261,7 @@ function featureArchitectureDirectives(reason) {
     missing_three_act_progression: "State distinct Act I, Act II, and Act III jobs and make each act force the next.",
     missing_causal_act_bridges: "Connect the acts causally: show how commitment creates the middle trap and how the middle loss forces the climax.",
     missing_character_arc_engine: "Tie structure to the protagonist's want, need, wound or false belief, tactic failure, and changed behavior.",
-    missing_major_feature_turns: "Place the catalyst/commitment, midpoint reversal, crisis or all-is-lost turn, climax, and final image.",
+    missing_major_feature_turns: "Carry the catalyst and commitment into a midpoint reversal and crisis. Resolve the pressure through the protagonist’s costly climactic choice, then show its consequence in a filmable final image.",
     missing_setup_payoff_path: "Track at least one setup, promise, relationship wound, or image through its Act III payoff.",
     missing_scene_forward_plan: "End with the next sequence or three playable scene turns so the writer can continue immediately.",
     missing_specific_story_grounding: "Rebuild the architecture from this project's accepted state, character pressure, and due setup/payoff instead of generic beat labels.",
@@ -322,13 +322,13 @@ function evaluateFeatureArchitecture(text, storyContext = null) {
   const hasActOne = /\bact\s*(?:i|1|one)\b/i.test(text);
   const hasActTwo = /\bact\s*(?:ii|2|two)\b/i.test(text);
   const hasActThree = /\bact\s*(?:iii|3|three)\b/i.test(text);
-  const majorTurnCount = countMatches(text.toLowerCase(), [
-    /\b(?:catalyst|inciting incident|inciting event|act i turn|commitment|break into two)\b/,
-    /\bmidpoint\b/,
-    /\b(?:all is lost|crisis|low point|dark night)\b/,
-    /\b(?:climax|final confrontation|final choice)\b/,
-    /\bfinal image\b/,
-  ]);
+  const majorFeatureTurns = [
+    /\b(?:catalyst|inciting incident|inciting event|act i turn|commitment|break into two)\b/i,
+    /\b(?:midpoint|midway|mid[- ]film reversal)\b/i,
+    /\b(?:all[- ]is[- ]lost|crisis|low point|dark night|rock bottom)\b/i,
+    /\b(?:climax|climactic choice|final confrontation|final choice|decisive choice)\b/i,
+    /\b(?:final|last|closing|ending) (?:image|shot|frame)\b/i,
+  ].every((pattern) => pattern.test(text));
   const causalBridgeCount = (
     text.match(/\b(?:because|therefore|which forces|forcing|so that|as a result|leads to|drives|creates|turns into|makes [^.\n]{0,80} inevitable)\b/gi) || []
   ).length;
@@ -341,7 +341,7 @@ function evaluateFeatureArchitecture(text, storyContext = null) {
       /\b(?:need|wound|false belief|misbelief)\b/,
       /\b(?:old tactic|changed behavior|change[sd]? tactic|transformation)\b/,
     ]) >= 2,
-    majorFeatureTurns: majorTurnCount >= 4,
+    majorFeatureTurns,
     setupPayoffPath: (
       (/\b(?:setup|plant|promise)\b/i.test(text) && /\b(?:payoff|pays? off|echo|returns?|transform)\b/i.test(text)) ||
       tracksKnownSetupIntoActThree(text, storyContext)
