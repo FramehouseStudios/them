@@ -494,6 +494,52 @@ final class ScreenplayLiveDraftSyncServiceTests: XCTestCase {
         service.detach()
     }
 
+    func testProjectSwitchWaitsForHydrationAndRetainsTheDepartingEditorsWords() async throws {
+        let suite = "them-switching-draft-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
+        model.autosaveEnabled = false
+        model.selectedProjectID = "original-project"
+        let original = "INT. HALL - NIGHT\n\nThe door closes."
+        model.applyStructuralUITestDraft(original, versionID: "original-base")
+        let otherRecovery = "EXT. PIER - DAWN\n\nThe fog lifts."
+        store.save(ownerUserId: owner, projectId: "new-project", draft: otherRecovery,
+                   baseVersionId: "", dirty: true, preserveExactText: true)
+
+        let transport = FakeLiveDraftTransport()
+        let service = makeService(transport: transport)
+        service.attach(to: model)
+        defer { service.detach() }
+        await waitUntil { transport.openedStreams.count == 1 }
+        XCTAssertEqual(transport.openedStreams.first?.projectID, "original-project")
+
+        // This is the period after the project selection changes and before its
+        // asynchronous detail/version load replaces the native editor's page.
+        model.selectedProjectID = "new-project"
+        let lastEdit = original + "\r\n\r\nA key slips under it. "
+        model.publishNativeEditorDraft(lastEdit)
+        model.noteManualDraftEdit()
+        XCTAssertEqual(model.liveDraftProjectID, "")
+        await model.handleDraftDebouncedChange(lastEdit)
+        XCTAssertNotEqual(transport.openedStreams.last?.projectID, "new-project")
+        XCTAssertTrue(transport.postedSnapshots.isEmpty)
+        let savedOriginal = store.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: "original-project")
+        XCTAssertEqual(savedOriginal.map { Array($0.draft.utf8) }, Array(lastEdit.utf8))
+        XCTAssertEqual(savedOriginal?.baseVersionId, "original-base")
+        XCTAssertEqual(store.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: "new-project")?.draft, otherRecovery)
+
+        let projectData = try JSONSerialization.data(withJSONObject: ["id": "new-project", "title": "New Script"])
+        model.hydrateDraft(from: try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: projectData))
+        await waitUntil { transport.openedStreams.last?.projectID == "new-project" }
+        XCTAssertEqual(transport.openedStreams.last?.projectID, "new-project")
+        XCTAssertEqual(transport.openedStreams.last?.checksum, LiveDraftText.checksum(""))
+        XCTAssertEqual(model.fountainDraft, "")
+        XCTAssertEqual(model.recoveryCandidate?.draft, otherRecovery)
+    }
+
     func testOverlappingRemoteOpSurvivesViewModelVersionAdoptionAndRecovery() async {
         let suiteName = "live-draft-overlap-recovery-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -508,8 +554,7 @@ final class ScreenplayLiveDraftSyncServiceTests: XCTestCase {
         let remoteFollowUp = "INT. ROOM - DAY\n\nMara leaves."
         let model = ScreenplayStudioViewModel(localDraftRecoveryStore: store)
         model.selectedProjectID = projectID
-        model.fountainDraft = base
-        model.noteManualDraftEdit()
+        model.applyStructuralUITestDraft(base, versionID: "base-version")
 
         let transport = FakeLiveDraftTransport()
         let service = makeService(transport: transport)
