@@ -308,13 +308,14 @@ function compactScreenplayTaskBody(body, bodyLimit) {
   const intentLine = firstLineStartingWith(lines, "intent:");
   const intent = intentLine.replace(/^intent:\s*/i, "");
   const featurePlan = firstLineStartingWith(lines, "feature_plan:");
+  const craft = firstLineStartingWith(lines, "screenplay_craft:");
   const sceneMode = intent === "write_scene"
     ? firstLineStartingWith(lines, "mode_guidance:").replace(/^mode_guidance:/, "mode_contract:")
     : "";
   return compactSemanticLines([
     { value: intentLine, maxChars: 100 },
     { value: featurePlan, maxChars: 185, minChars: 172 },
-    { value: firstLineStartingWith(lines, "screenplay_craft:"), maxChars: 120, minChars: 117 },
+    { value: craft, maxChars: craft.length, minChars: craft.length },
     { value: sceneMode, maxChars: sceneMode.length, minChars: sceneMode.length },
     { value: firstLineStartingWith(lines, "character_arc:"), maxChars: 240 },
     { value: firstLineStartingWith(lines, "label:"), maxChars: 120 },
@@ -582,8 +583,15 @@ function fitSystemPromptForTurnLatency(
   return joined.length <= budget ? joined.trim() : protectedSection.trim();
 }
 
+// The Studio input and provider boundaries share a character limit.
+// Keep complete task and continuity blocks when an assembled prompt grows past it.
+function fitStudioRenderSystemPrompt(systemPrompt, maxChars = 16_000) {
+  return fitSystemPromptForTurnLatency(systemPrompt, { fastMaxChars: maxChars });
+}
+
 export {
   DEFAULT_PROTECTED_TAGS,
+  fitStudioRenderSystemPrompt,
   extractTaggedBlocks,
   fitSystemPromptForTurnLatency,
 };

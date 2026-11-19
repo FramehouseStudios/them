@@ -133,7 +133,7 @@ import {
   MEMORY_BLOCK_OPEN,
 } from "./lib/prompt_assembly.js";
 import { DEFAULT_FEATURE_TARGET_PAGES, findSequenceForPage } from "./lib/feature_screenplay_map.js";
-import { fitSystemPromptForTurnLatency as fitSystemPromptForTurnLatencyBase } from "./lib/system_prompt_trim.js";
+import { fitSystemPromptForTurnLatency as fitSystemPromptForTurnLatencyBase, fitStudioRenderSystemPrompt } from "./lib/system_prompt_trim.js";
 import { createScaleBackplane } from "./lib/scale_backplane.mjs";
 import { createPersistence } from "./lib/persistence_adapter.js";
 import { checkKnownDomainsAtStartup } from "./lib/known_domains_startup_check.js";
@@ -20369,7 +20369,7 @@ async function renderStudioRealtimeText({
   maxTokens = 0,
 }) {
   const cleanSystemPrompt =
-    normalizeSnippet(systemPrompt, 16_000) ||
+    fitStudioRenderSystemPrompt(systemPrompt) ||
     CLEMENTINE_PROFILE.prompts.defaultSystemPrompt;
   const cleanTranscript = normalizeSnippet(transcript, 8_000);
   if (!cleanTranscript) {
@@ -20458,7 +20458,7 @@ async function streamStudioRealtimeText({
   onDelta,
 }) {
   const cleanSystemPrompt =
-    normalizeSnippet(systemPrompt, 16_000) ||
+    fitStudioRenderSystemPrompt(systemPrompt) ||
     CLEMENTINE_PROFILE.prompts.defaultSystemPrompt;
   const cleanTranscript = normalizeSnippet(transcript, 8_000);
   if (!cleanTranscript) {
