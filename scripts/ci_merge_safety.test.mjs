@@ -265,6 +265,37 @@ test("[ci-merge-safety] readiness does not duplicate gates or create a skipped-j
   assert.match(jobs, /Run iPhone voice-fault smoke and macOS scaffold build \(required\)/);
 });
 
+
+test("[ci-merge-safety] offline recovery uses its own Mac and must pass the protected Quality Gate", () => {
+  const offlineJob = qualityGate.match(/\n  offline-save-recovery:\n([\s\S]*?)(?=\n  required-quality:)/)?.[1];
+  assert.ok(offlineJob, "Offline recovery must run in a separate job.");
+  assert.match(offlineJob, /runs-on: macos-latest/);
+  assert.match(offlineJob, /run: npm ci/);
+  assert.match(offlineJob, /SCREENPLAY_SAVE_INCLUDE_MACOS: "0"/);
+  assert.match(offlineJob, /run: npm run eval:screenplay-save-network-fault/);
+  assert.doesNotMatch(offlineJob, /secrets\.|continue-on-error|if: .*draft/);
+  assert.equal(qualityGate.match(/run: npm run eval:screenplay-save-network-fault/g)?.length, 1);
+
+  const requiredJob = qualityGate.slice(qualityGate.indexOf("\n  required-quality:\n"));
+  assert.match(requiredJob, /name: Quality Gate\n/);
+  assert.match(requiredJob, /needs: \[quality-gate, offline-save-recovery\]/);
+  assert.match(requiredJob, /if: \$\{\{ always\(\) \}\}/);
+  assert.match(requiredJob, /WRITER_RESULT: \$\{\{ needs\.quality-gate\.result \}\}/);
+  assert.match(requiredJob, /RECOVERY_RESULT: \$\{\{ needs\.offline-save-recovery\.result \}\}/);
+  const command = stepRun("Require both iPhone proof jobs", requiredJob);
+  for (const [writer, recovery] of [
+    ["success", "success"], ["failure", "success"], ["success", "failure"],
+    ["cancelled", "success"], ["success", "skipped"], ["success", ""],
+  ]) {
+    const result = spawnSync("bash", ["-c", command], {
+      encoding: "utf8",
+      env: { ...process.env, WRITER_RESULT: writer, RECOVERY_RESULT: recovery },
+    });
+    assert.equal(result.status, writer === "success" && recovery === "success" ? 0 : 1,
+      `Writer ${writer} and recovery ${recovery}: ${result.stderr}`);
+  }
+});
+
 test("[ci-merge-safety] complete backend tests gate pull requests and main pushes without provider secrets", () => {
   assert.match(qualityGate, /^\s+push:\n\s+branches:\n\s+- main/m);
   const backendJob = qualityGate.match(/\n  backend-tests:\n[\s\S]*?\n  quality-gate:/)?.[0] || "";
