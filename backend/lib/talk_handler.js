@@ -73,6 +73,11 @@ import {
 } from "./structural_screenplay_quality.js";
 import { createPageCancelledError, isPageCancelledError } from "./clementine/page_abort.js";
 import { acceptsTalkPageWithoutAudio } from "./talk_state.js";
+import {
+  isDirectStudioPageCommand,
+  isDirectStudioShortFilmCommand,
+  requestsFinalStudioVoiceRouting,
+} from "./screenplay_turn_target.js";
 import { createMuseAwareChatSupplier } from "./clementine/muse_provider.js";
 import { isShortFilmBetaEnabled } from "./clementine/short_film_beta.js";
 import { parseShortFilmIntent } from "./clementine/short_film_intent.js";
@@ -1791,10 +1796,11 @@ function createTalkHandler(deps) {
     if (activeSession && previousMemory) {
       activeSession.memory = previousMemory;
     }
-    debugTranscriptOverride = TALK_TEST_DEBUG_TRANSCRIPT_ENABLED
+    const routeFromFinalTranscript = requestsFinalStudioVoiceRouting(req);
+    debugTranscriptOverride = TALK_TEST_DEBUG_TRANSCRIPT_ENABLED && !routeFromFinalTranscript
       ? normalizeSnippet(req.body?.debug_transcript ?? req.body?.debugTranscript, 1_200)
       : "";
-    const clientTranscriptOverride = normalizeSnippet(
+    const clientTranscriptOverride = routeFromFinalTranscript ? "" : normalizeSnippet(
       req.body?.client_transcript ?? req.body?.clientTranscript,
       1_200
     );
@@ -1803,6 +1809,7 @@ function createTalkHandler(deps) {
       8_000
     );
     const studioMeta = sanitizeStudioTurnMetadata(req.body || null);
+    if (routeFromFinalTranscript) studioMeta.screenplayTarget = "";
     let isScreenplayPageWriteTurn =
       String(studioMeta?.screenplayTarget || "").trim().toLowerCase() === "page";
     const talkTestDebugOfflineScreenplayMode = TALK_TEST_DEBUG_OFFLINE_ENABLED &&
@@ -2033,12 +2040,14 @@ function createTalkHandler(deps) {
         activeSession.memory = await persistTalkMemory(previousMemory, Date.now());
       }
     }
-    // Beta short-film: after STT, if flag on, no target, and transcript parses, promote to page-write (real voice turn)
-    if (
+    // Explicit targets keep their existing behavior. Automatic voice uses the
+    // final transcript and acquires a Page reservation after the confidence gate.
+    const shortFilmPageRequested =
       isShortFilmBetaEnabled(process.env) &&
       !String(studioMeta?.screenplayTarget || "").trim() &&
-      parseShortFilmIntent(transcript)
-    ) {
+      (!routeFromFinalTranscript || isDirectStudioShortFilmCommand(transcript)) &&
+      parseShortFilmIntent(transcript);
+    if (!routeFromFinalTranscript && shortFilmPageRequested) {
       studioMeta.screenplayTarget = "page";
       studioMeta.screenplayPromptSource = "short_film_beta";
       isScreenplayPageWriteTurn = true;
@@ -2064,12 +2073,12 @@ function createTalkHandler(deps) {
       req.body?.partial_transcript_hint ?? req.body?.partialTranscriptHint,
       320
     );
-    const speculativePrepareRequested = isSpeculativePrepareRequest(req);
+    const speculativePrepareRequested = !routeFromFinalTranscript && isSpeculativePrepareRequest(req);
     const talkSessionKey = resolveTalkSessionKey(req);
     const speculativePrepareKey = normalizeSpeculativeKey(
       req.body?.speculative_key ?? req.body?.speculativeKey
     );
-    const speculativeReuseKeyInput = normalizeSpeculativeKey(
+    const speculativeReuseKeyInput = routeFromFinalTranscript ? "" : normalizeSpeculativeKey(
       req.body?.speculative_reuse_key ?? req.body?.speculativeReuseKey
     );
     const speculativePromptHashInput = normalizeSpeculativePromptHash(
@@ -2082,15 +2091,6 @@ function createTalkHandler(deps) {
     }
     if (transcriptWords >= 24 || transcript.length >= 160) {
       thinkingDelayMs = Math.min(thinkingDelayMs, 60);
-    }
-    const talkGenerationTranscript =
-      isScreenplayPageWriteTurn && screenplayGenerationTranscript
-        ? screenplayGenerationTranscript
-        : transcript;
-    if (talkGenerationTranscript !== transcript) {
-      logger.log(
-        `[${rid}] screenplay_generation_transcript active chars=${talkGenerationTranscript.length}`
-      );
     }
     logger.log(
       `\n[${reqId}] transcription (${sttModelUsed}${sttUsedLanguageHint ? ",lang" : ",no-lang"} conf=${sttConfidence.toFixed(2)}): "${transcript}"`
@@ -2111,9 +2111,11 @@ function createTalkHandler(deps) {
       rawTaskCreateIntent.shouldCreate ||
       rawTaskCompleteIntent.shouldComplete
     );
+    const finalTranscriptRequestsPage = routeFromFinalTranscript &&
+      (shortFilmPageRequested || isDirectStudioPageCommand(transcript));
     const shouldPromptLowConfidenceRepeat =
-      isLikelyAmbiguousLowConfidenceUtterance(transcript, sttConfidence) &&
-      !hasStrongActionTrigger;
+      (finalTranscriptRequestsPage && sttConfidence < LOCAL_ACTION_MIN_STT_CONFIDENCE) ||
+      (isLikelyAmbiguousLowConfidenceUtterance(transcript, sttConfidence) && !hasStrongActionTrigger);
     if (shouldPromptLowConfidenceRepeat) {
       const clarificationPrompt = buildLowConfidenceClarificationPrompt(transcript);
       try {
@@ -2155,6 +2157,39 @@ function createTalkHandler(deps) {
         `[${rid}] continue_listening reason=low_confidence_transcript words=${transcriptWords} stt_conf=${sttConfidence.toFixed(2)}`
       );
       return res.status(204).end();
+    }
+    let finalTranscriptPageMaxTokens = 0;
+    if (finalTranscriptRequestsPage) {
+      const reserve = req.clementine?.reserveFinalTranscriptPage;
+      if (typeof reserve !== "function") {
+        res.setHeader("Cache-Control", "no-store");
+        return res.status(503).json({
+          ok: false,
+          error: "page_reservation_unavailable",
+          message: "Writing is temporarily unavailable. Try again.",
+        });
+      }
+      finalTranscriptPageMaxTokens = computeChatMaxTokensForTurn({
+        transcript,
+        screenplayPageWrite: true,
+        screenplayRequestedPages: shortFilmPageRequested?.requestedPages ||
+          resolveTalkScreenplayRequestedPageBatch({ transcript, studioMeta }),
+      });
+      if (!reserve(transcript, finalTranscriptPageMaxTokens)) return;
+      studioMeta.screenplayTarget = "page";
+      if (shortFilmPageRequested) studioMeta.screenplayPromptSource = "short_film_beta";
+      isScreenplayPageWriteTurn = true;
+    } else if (routeFromFinalTranscript) {
+      studioMeta.screenplayTarget = "voice_pin";
+    }
+    const talkGenerationTranscript =
+      !routeFromFinalTranscript && isScreenplayPageWriteTurn && screenplayGenerationTranscript
+        ? screenplayGenerationTranscript
+        : transcript;
+    if (talkGenerationTranscript !== transcript) {
+      logger.log(
+        `[${rid}] screenplay_generation_transcript active chars=${talkGenerationTranscript.length}`
+      );
     }
     const allowLowConfidenceAction =
       hasStrongActionTrigger &&
@@ -3950,7 +3985,7 @@ ${directorOutputRule}
           studioMeta,
         })
       : 0;
-    const chatMaxTokens = computeChatMaxTokensForTurn({
+    const chatMaxTokens = finalTranscriptPageMaxTokens || computeChatMaxTokensForTurn({
       transcript: talkGenerationTranscript,
       turnPlanner,
       flags,

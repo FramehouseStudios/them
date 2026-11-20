@@ -23,6 +23,47 @@ function normalizeScreenplayTarget(value = "") {
   return "";
 }
 
+function requestsFinalStudioVoiceRouting(req) {
+  const body = req?.body || {};
+  const header = req?.get?.("x-talk-route-from-final-transcript") ||
+    req?.headers?.["x-talk-route-from-final-transcript"];
+  const source = trimToString(body.screenplayPromptSource ?? body.screenplay_prompt_source ?? body.promptSource, 16);
+  const hasExplicitTarget = [
+    body.screenplayTarget,
+    body.screenplay_target,
+    body.target,
+    body.studio_screenplay_target,
+    body.studioScreenplayTarget,
+  ].some((value) => normalizeScreenplayTarget(value));
+  return header === "1" && Boolean(trimToString(req?.authUser?.id, 96)) &&
+    source.toLowerCase() === "voice" && !hasExplicitTarget;
+}
+
+function studioVoiceCommandText(transcript) {
+  return trimToString(transcript, 8_000)
+    .replace(/[’‘]/g, "'")
+    .replace(/^(?:(?:hey[ ,]+)?clementine[,: ]+)?(?:(?:can|could|would|will) you\s+)?(?:please\s+)?/i, "");
+}
+
+function hasVoiceCommandCorrection(text) {
+  return /(?:[.!?;]\s*|\s+(?=(?:actually|sorry|wait)\b))(?:(?:actually|sorry|wait)[, ]+)?(?:please\s+)?(?:do not|don't|never mind)\b/i.test(text);
+}
+
+function isDirectStudioPageCommand(transcript) {
+  const text = studioVoiceCommandText(transcript);
+  const command = /^(?:write|draft)\s+(?:(?:me|us)\s+)?(?:(?:the|a|an|my|our)\s+)?(?:opening|first|next)\s+(?:scene|page)\b/i;
+  const match = text.match(command);
+  if (!match || hasVoiceCommandCorrection(text)) return false;
+  const remainder = text.slice(match[0].length);
+  return !/^\s+(?:(?:as|like)\s+(?:(?:a|an)\s+)?)?(?:heading|title|number|outline|summary|synopsis|breakdown|example)\b/i.test(remainder);
+}
+
+function isDirectStudioShortFilmCommand(transcript) {
+  const text = studioVoiceCommandText(transcript);
+  return /^(?:(?:i (?:want|need) to|let's)\s+)?(?:write|draft)\s+(?:a|my|our|the)\s+short[ -]film\b/i.test(text) &&
+    !hasVoiceCommandCorrection(text);
+}
+
 function textFromRequest(input = {}) {
   if (!input || typeof input !== "object") return "";
   return [
@@ -256,6 +297,9 @@ function resolveScreenplayTargetFromRequest(input = {}) {
 
 export {
   inferScreenplayTargetFromRequest,
+  isDirectStudioPageCommand,
+  isDirectStudioShortFilmCommand,
   normalizeScreenplayTarget,
+  requestsFinalStudioVoiceRouting,
   resolveScreenplayTargetFromRequest,
 };

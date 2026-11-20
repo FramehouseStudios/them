@@ -10,6 +10,7 @@
 // Each reservation owns an AbortController; cancel(id)/cancelByOwner abort
 // it. talk_handler injects req.clementine.abortSignal at chat call sites.
 
+import { requestsFinalStudioVoiceRouting } from "../screenplay_turn_target.js";
 import { classifyIntent, INTENT } from "./intents.js";
 import { laneForIntent, LANE } from "./lanes.js";
 import {
@@ -201,20 +202,27 @@ function beginPageWork(store, {
     metaObj.walletReservationId = walletReservation.reservationId;
   }
 
-  const reservation = store.reserve({
-    sessionId: String(sessionId || "").trim() || "anonymous",
-    userId,
-    maxOutputTokens,
-    reason: lane.intent || "page",
-    meta: Object.keys(metaObj).length ? metaObj : null,
-  });
+  let reservation;
+  try {
+    reservation = store.reserve({
+      sessionId: String(sessionId || "").trim() || "anonymous",
+      userId,
+      maxOutputTokens,
+      reason: lane.intent || "page",
+      meta: Object.keys(metaObj).length ? metaObj : null,
+    });
 
-  if (
-    walletReservation?.reservationId &&
-    walletStore &&
-    typeof walletStore.linkPageReservation === "function"
-  ) {
-    walletStore.linkPageReservation(walletReservation.reservationId, reservation.id);
+    if (
+      walletReservation?.reservationId &&
+      walletStore &&
+      typeof walletStore.linkPageReservation === "function"
+    ) {
+      walletStore.linkPageReservation(walletReservation.reservationId, reservation.id);
+    }
+  } catch (error) {
+    if (reservation?.id) store.cancel?.(reservation.id);
+    if (walletReservation?.reservationId) walletStore.release(walletReservation.reservationId);
+    throw error;
   }
 
   return { lane, reservation, reserved: true, walletReservation };
@@ -238,7 +246,8 @@ function createPageLaneTalkAdapter({
   }
 
   return async function handleTalkWithPageLane(req, res) {
-    const utterance = peekUtterance(req);
+    const deferVoiceRoute = requestsFinalStudioVoiceRouting(req);
+    const utterance = deferVoiceRoute ? "" : peekUtterance(req);
     const hints = peekPageHints(req);
     const sessionId = resolveSessionId(req);
     const userId = resolveUserId(req);
@@ -246,8 +255,8 @@ function createPageLaneTalkAdapter({
     // --- Reflex short-circuit (before wallet / Spark) ---
     // greetings / thanks / check-ins / acks / soft silence via templates.
     // See talk_edge_adapter.js + reflex_lane.js. No CoreML / Glimmer yet.
-    const earlyLane = resolveTalkLane(utterance, hints);
-    const reflexHit = tryTalkEdgeReflex({
+    const earlyLane = resolveTalkLane(utterance, deferVoiceRoute ? { intent: INTENT.UNKNOWN } : hints);
+    const reflexHit = deferVoiceRoute ? null : tryTalkEdgeReflex({
       text: utterance,
       laneInfo: earlyLane,
       knownFacts: peekKnownFacts(req),
@@ -291,40 +300,23 @@ function createPageLaneTalkAdapter({
       return handleTalkRequest(req, res);
     }
 
-    let lane;
-    let reservation = null;
-    let walletReservation = null;
-    try {
-      const started = beginPageWork(pageReservationStore, {
-        utterance,
-        hints,
-        sessionId,
-        userId,
-        meta: { source: "talk_edge" },
-        walletStore,
+    const startPageWork = (text, laneHints) => beginPageWork(pageReservationStore, {
+      utterance: text,
+      hints: laneHints,
+      sessionId,
+      userId,
+      meta: { source: "talk_edge" },
+      walletStore,
+    });
+    const sendEmptyWallet = () => {
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(402).json({
+        ok: false,
+        error: "wallet_empty",
+        message: "You are out of Page turns. Top up to keep writing.",
       });
-      lane = started.lane;
-      reservation = started.reservation;
-      walletReservation = started.walletReservation || null;
-    } catch (err) {
-      if (err?.code === "wallet_empty") {
-        try {
-          res.setHeader("Cache-Control", "no-store");
-        } catch (_e) {
-          /* ignore */
-        }
-        return res.status(402).json({
-          ok: false,
-          error: "wallet_empty",
-          message: "You are out of Page turns. Top up to keep writing.",
-        });
-      }
-      logger?.warn?.(
-        `[clementine/page] reserve skipped: ${err?.message || err}`
-      );
-      lane = resolveTalkLane(utterance, hints);
-    }
-
+    };
+    let walletReservation = null;
     // Generation only proposes usage. Settle after the handler's quality and
     // response stages; an HTTP 200 recovery reply is still a failed write.
     let pendingOutputTokens = null;
@@ -342,49 +334,97 @@ function createPageLaneTalkAdapter({
         walletStore.commit(walletReservation.reservationId, pendingOutputTokens);
       }
     };
-    if (walletReservation?.reservationId && walletStore) {
-      res.once('finish', () => settleWallet(true));
-      res.once('close', () => settleWallet(false));
-    }
-    const pageMultipass = isPageMultipassEnabled();
-    req.clementine = {
-      intent: lane.intent,
-      lane: lane.lane,
-      effort: lane.effort,
-      walletMeter: lane.walletMeter,
-      pageMultipass,
-      reservationId: reservation?.id || null,
-      reservation,
-      walletReservationId: walletReservation?.reservationId || null,
-      walletReservation,
-      /**
-       * Record generation usage; the response lifecycle settles the reservation.
-       */
-      commitWallet:
-        walletReservation?.reservationId && walletStore
-          ? (actualOutputTokens) => {
-              pendingOutputTokens = Math.max(0, Number(actualOutputTokens) || 0);
-            }
-          : null,
-      abortSignal: reservation?.id
-        ? pageReservationStore.getAbortSignal(reservation.id)
-        : null,
-      /**
-       * Billing gate. Call before Muse / wallet debit.
-       * talk_handler also gates via gatePageGeneration(req.clementine).
-       */
-      proceed: reservation
-        ? () => pageReservationStore.proceed(reservation.id)
-        : () => ({ ok: true, code: "no_page_reservation", reservation: null }),
+    const installLane = ({ lane, reservation, walletReservation: wallet }, abortSignal) => {
+      walletReservation = wallet;
+      if (walletReservation?.reservationId && walletStore) {
+        res.once('finish', () => settleWallet(true));
+        res.once('close', () => settleWallet(false));
+      }
+      req.clementine = {
+        intent: lane.intent,
+        lane: lane.lane,
+        effort: lane.effort,
+        walletMeter: lane.walletMeter,
+        pageMultipass: isPageMultipassEnabled(),
+        reservationId: reservation?.id || null,
+        reservation,
+        walletReservationId: walletReservation?.reservationId || null,
+        walletReservation,
+        /**
+         * Record generation usage; the response lifecycle settles the reservation.
+         */
+        commitWallet:
+          walletReservation?.reservationId && walletStore
+            ? (actualOutputTokens) => {
+                pendingOutputTokens = Math.max(0, Number(actualOutputTokens) || 0);
+              }
+            : null,
+        abortSignal,
+        /**
+         * Billing gate. Call before Muse / wallet debit.
+         * talk_handler also gates via gatePageGeneration(req.clementine).
+         */
+        proceed: reservation
+          ? () => pageReservationStore.proceed(reservation.id)
+          : () => ({ ok: true, code: "no_page_reservation", reservation: null }),
+      };
+
+      if (reservation?.id) {
+        try {
+          res.setHeader("x-clementine-page-reservation", reservation.id);
+          res.setHeader("x-clementine-lane", lane.lane);
+        } catch (_e) {
+          /* headers may already be sent in edge cases */
+        }
+      }
+
     };
 
-    if (reservation?.id) {
+    if (deferVoiceRoute) {
+      installLane({ lane: earlyLane, reservation: null, walletReservation: null }, null);
+      req.clementine.reserveFinalTranscriptPage = (transcript, maxOutputTokens) => {
+        if (req.aborted || res.destroyed || res.headersSent) return false;
+        try {
+          if (!walletStore || !(maxOutputTokens > 0)) throw new Error("Page wallet is unavailable");
+          const started = startPageWork(transcript, {
+            pageMode: true,
+            maxOutputTokens,
+          });
+          const abortSignal = pageReservationStore.getAbortSignal(started.reservation?.id);
+          if (!started.walletReservation?.reservationId || !abortSignal) {
+            if (started.reservation?.id) pageReservationStore.cancel(started.reservation.id);
+            throw new Error("Page reservation is incomplete");
+          }
+          installLane(started, abortSignal);
+          return true;
+        } catch (error) {
+          if (error?.code === "wallet_empty") {
+            sendEmptyWallet();
+          } else {
+            logger?.warn?.(`[clementine/page] deferred reserve failed: ${error?.message || error}`);
+            res.setHeader("Cache-Control", "no-store");
+            res.status(503).json({
+              ok: false,
+              error: "page_reservation_unavailable",
+              message: "Writing is temporarily unavailable. Try again.",
+            });
+          }
+          return false;
+        }
+      };
+    } else {
+      let started;
       try {
-        res.setHeader("x-clementine-page-reservation", reservation.id);
-        res.setHeader("x-clementine-lane", lane.lane);
-      } catch (_e) {
-        /* headers may already be sent in edge cases */
+        started = startPageWork(utterance, hints);
+      } catch (error) {
+        if (error?.code === "wallet_empty") return sendEmptyWallet();
+        logger?.warn?.(`[clementine/page] reserve skipped: ${error?.message || error}`);
+        started = { lane: earlyLane, reservation: null, walletReservation: null };
       }
+      const abortSignal = started.reservation?.id
+        ? pageReservationStore.getAbortSignal(started.reservation.id)
+        : null;
+      installLane(started, abortSignal);
     }
 
     try {
