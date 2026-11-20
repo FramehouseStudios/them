@@ -95,6 +95,41 @@ final class V1SmokeUITests: XCTestCase {
 #endif
     }
 
+    func test_keyboard_actions_follow_page_and_prompt_focus() throws {
+#if os(iOS)
+        let app = launchApp(openStudio: true, openCommandBar: true)
+        defer { app.terminate() }
+        let prompt = element(identifier: "studio.prompt.field", in: app)
+        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+        guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
+        let keyboardSend = app.buttons["studio.prompt.keyboard-send"]
+        XCTAssertTrue(keyboardSend.waitForExistence(timeout: 5))
+        let inspectorToggle = app.buttons["studio.sidebar.right.toggle"]
+        XCTAssertTrue(waitForHittability(of: inspectorToggle, timeout: 5))
+        inspectorToggle.tap()
+        let editor = app.textViews["studio.draft.editor"]
+        XCTAssertTrue(waitForHittability(of: editor, timeout: 5))
+        editor.tap()
+        editor.typeText("The page keeps this line.")
+        XCTAssertTrue(waitForDraft(in: app, containing: "The page keeps this line.", timeout: 5))
+        XCTAssertTrue(app.buttons["studio.draft.keyboard-save"].waitForExistence(timeout: 3))
+        let pageKeyboard = XCTAttachment(screenshot: app.screenshot())
+        pageKeyboard.name = "Typed paper line above the software keyboard"
+        pageKeyboard.lifetime = .keepAlways
+        add(pageKeyboard)
+        XCTAssertTrue(waitForDisappearance(of: keyboardSend, timeout: 3))
+        inspectorToggle.tap()
+        let drawer = element(identifier: "studio.sidebar.right.drawer", in: app)
+        XCTAssertTrue(drawer.waitForExistence(timeout: 5))
+        XCTAssertTrue(revealInStudioDrawer(prompt, drawer: drawer, scrollingUp: false, maxSwipes: 12))
+        prompt.tap()
+        XCTAssertTrue(keyboardSend.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForHittability(of: keyboardSend, timeout: 3))
+#else
+        throw XCTSkip("Keyboard focus ownership specifically covers iPhone.")
+#endif
+    }
+
     func test_studio_page_preserves_uninterrupted_typing_while_following_caret() throws {
 #if os(iOS)
         let app = launchApp(openStudio: true)
@@ -112,27 +147,6 @@ final class V1SmokeUITests: XCTestCase {
 #else
         throw XCTSkip("Native uninterrupted typing specifically covers iPhone.")
 #endif
-    }
-
-    private func dismissKeyboardTypingTutorialIfPresent(in app: XCUIApplication) -> Bool {
-#if os(iOS)
-        // Preserved 2fcdc772: identify this system tutorial, not any Continue action.
-        let tutorial = app.staticTexts.matching(NSPredicate(
-            format: "label BEGINSWITH %@", "Speed up your typing by sliding"
-        )).firstMatch
-        guard tutorial.waitForExistence(timeout: 0.5) else { return true }
-        let continueTyping = app.buttons["Continue"].firstMatch
-        guard continueTyping.exists, continueTyping.isHittable else {
-            XCTFail("The keyboard tutorial did not expose its Continue action.")
-            return false
-        }
-        continueTyping.tap()
-        guard waitForDisappearance(of: tutorial, timeout: 5) else {
-            XCTFail("The keyboard tutorial still covers the Studio controls.")
-            return false
-        }
-#endif
-        return true
     }
 
     func test_profile_exposes_local_demo_and_keychain_remember_options_separately_from_apple() {
@@ -491,18 +505,25 @@ final class V1SmokeUITests: XCTestCase {
             "The Projects drawer did not expose its project title field."
         )
         projectTitleField.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: writerLoopWait(5)),
+            "Tapping the project title must open the keyboard before typing.")
+        guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
         projectTitleField.typeText(projectTitle)
-        let createProject = app.buttons["Create"]
-        XCTAssertTrue(waitForHittability(of: createProject, timeout: writerLoopWait(5)))
-        createProject.tap()
-        XCTAssertTrue(
-            staticText(containing: projectTitle, in: app).waitForExistence(timeout: writerLoopWait(12)),
-            "The project created through the iPhone UI did not appear in the Projects drawer."
-        )
+        guard projectTitleField.value as? String == projectTitle else {
+            XCTFail("The focused project title field did not receive the complete title.")
+            return
+        }
+        // Submit through the focused form's Done action. A separate click
+        // while the keyboard owns focus was delivered without activating Create on CI.
+        projectTitleField.typeText("\n")
         let projectID = try await waitForWriterLoopProject(
             titled: projectTitle,
             fixture: fixture,
             timeout: writerLoopWait(20)
+        )
+        XCTAssertTrue(
+            staticText(containing: projectTitle, in: app).waitForExistence(timeout: writerLoopWait(12)),
+            "The project created through the iPhone UI did not appear in the Projects drawer."
         )
 
         guard dismissWriterLoopProjectKeyboard(in: app) else {
@@ -523,11 +544,11 @@ final class V1SmokeUITests: XCTestCase {
         if draftInspector.waitForExistence(timeout: writerLoopWait(3)), !draftInspector.isSelected {
             draftInspector.tap()
         }
-        let autosave = app.switches["studio.draft.document.autosave"]
-        XCTAssertTrue(
-            revealInStudioDrawer(autosave, drawer: rightDrawer, scrollingUp: true, maxSwipes: 12),
-            "The writer-loop could not reach the Autosave switch."
-        )
+        let autosave = rightDrawer.switches["studio.draft.document.autosave"]
+        guard revealFullyInStudioDrawer(autosave, drawer: rightDrawer, maxSwipes: 12) else {
+            XCTFail("The writer-loop could not bring Autosave fully into the inspector viewport.")
+            return
+        }
         guard writerLoopSwitchState(autosave) == true else {
             XCTFail("Autosave's initial on state was not confirmed before the writer-loop began.")
             return
@@ -3325,6 +3346,27 @@ final class V1SmokeUITests: XCTestCase {
         }
     }
 
+    private func dismissKeyboardTypingTutorialIfPresent(in app: XCUIApplication) -> Bool {
+#if os(iOS)
+        // Preserved 2fcdc772: identify this system tutorial, not any Continue action.
+        let tutorial = app.staticTexts.matching(NSPredicate(
+            format: "label BEGINSWITH %@", "Speed up your typing by sliding"
+        )).firstMatch
+        guard tutorial.waitForExistence(timeout: 0.5) else { return true }
+        let continueTyping = app.buttons["Continue"].firstMatch
+        guard continueTyping.exists, continueTyping.isHittable else {
+            XCTFail("The keyboard tutorial did not expose its Continue action.")
+            return false
+        }
+        continueTyping.tap()
+        guard waitForDisappearance(of: tutorial, timeout: 5) else {
+            XCTFail("The keyboard tutorial still covers the Studio controls.")
+            return false
+        }
+#endif
+        return true
+    }
+
     private func submitFocusedPrompt(in app: XCUIApplication, field: XCUIElement) {
 #if os(iOS)
         let toolbarSend = app.buttons["studio.prompt.keyboard-send"]
@@ -5031,7 +5073,7 @@ final class V1SmokeUITests: XCTestCase {
         timeout: TimeInterval
     ) async throws -> String {
         let deadline = Date().addingTimeInterval(timeout)
-        var lastPayload: [String: Any] = [:]
+        var lastProjectCount = 0
         while Date() < deadline {
             let response = try await requestJSON(
                 baseURL: fixture.baseURL,
@@ -5042,8 +5084,8 @@ final class V1SmokeUITests: XCTestCase {
                 queryItems: [URLQueryItem(name: "limit", value: "50")]
             )
             try assertHTTP(response, context: "writer-loop project list")
-            lastPayload = response.payload
             let projects = response.payload["screenplay_projects"] as? [[String: Any]] ?? []
+            lastProjectCount = projects.count
             if let project = projects.first(where: { stringValue($0["title"]) == title }) {
                 return try firstNonEmptyString(
                     project["id"],
@@ -5057,7 +5099,7 @@ final class V1SmokeUITests: XCTestCase {
             domain: "themUITests.writerLoop",
             code: 1,
             userInfo: [
-                NSLocalizedDescriptionKey: "Timed out waiting for UI-created project \(title). Last payload: \(lastPayload)"
+                NSLocalizedDescriptionKey: "Timed out waiting for the UI-created project. The last authenticated project list contained \(lastProjectCount) entries."
             ]
         )
     }

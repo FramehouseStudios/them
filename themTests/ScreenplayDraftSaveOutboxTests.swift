@@ -40,6 +40,37 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         try? await Task.sleep(for: .milliseconds(1_100))
     }
 
+    func testConfirmedAutosaveRetiresOnlyTheExactPassiveCopy() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let draft = "Caf\u{0065}\u{0301}\r\n"
+        let autosave = makeEntry(id: "passive", draft: draft)
+        var manual = makeEntry(id: "manual", draft: draft, createdAt: 110, source: "studio_manual")
+        manual.baseVersionId = "manual-base"
+        let parked = makeEntry(id: "parked", draft: "Another writer choice.", createdAt: 120)
+        try await queue.enqueue(autosave)
+        try await queue.enqueue(manual)
+        try await queue.enqueue(parked)
+        try await queue.markParked(id: parked.id, error: ScreenplayDraftSaveOutbox.conflictReason)
+        let wrongOwner = try await queue.markSatisfiedAutosave(id: autosave.id, projectId: autosave.projectId,
+            ownerUserId: "other-user", confirmedDraft: draft, confirmedVersion: autosave.baseVersionId)
+        let wrongBase = try await queue.markSatisfiedAutosave(id: autosave.id, projectId: autosave.projectId,
+            ownerUserId: autosave.ownerUserId, confirmedDraft: draft, confirmedVersion: "another-version")
+        let differentBytes = try await queue.markSatisfiedAutosave(id: autosave.id, projectId: autosave.projectId,
+            ownerUserId: autosave.ownerUserId, confirmedDraft: "Café\r\n", confirmedVersion: autosave.baseVersionId)
+        let explicit = try await queue.markSatisfiedAutosave(id: manual.id, projectId: manual.projectId,
+            ownerUserId: manual.ownerUserId, confirmedDraft: draft, confirmedVersion: manual.baseVersionId)
+        let acknowledged = try await queue.markSatisfiedAutosave(id: autosave.id, projectId: autosave.projectId,
+            ownerUserId: autosave.ownerUserId, confirmedDraft: draft, confirmedVersion: autosave.baseVersionId)
+        XCTAssertFalse(wrongOwner)
+        XCTAssertFalse(wrongBase)
+        XCTAssertFalse(differentBytes)
+        XCTAssertFalse(explicit)
+        XCTAssertTrue(acknowledged)
+        let remaining = try await ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory).entriesForTesting()
+        XCTAssertEqual(Set(remaining.map(\.id)), Set([manual.id, parked.id]))
+        XCTAssertEqual(remaining.first(where: { $0.id == parked.id })?.status, .parked)
+    }
+
     func testLateStatusCallbacksCannotReactivateConflictCopy() async throws {
         let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let entry = makeEntry(id: "late-callback", draft: "The writer's exact words.")
@@ -1174,7 +1205,8 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     private func makeEntry(
         id: String,
         draft: String = "Draft one",
-        createdAt: TimeInterval = 100
+        createdAt: TimeInterval = 100,
+        source: String = "studio_autosave"
     ) -> ScreenplayDraftSaveOutboxEntry {
         ScreenplayDraftSaveOutboxEntry(
             id: id,
@@ -1184,7 +1216,7 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
             title: "Feature",
             phase: "scene_draft",
             notes: "",
-            source: "studio_autosave",
+            source: source,
             studioWriteAnchors: [],
             screenplayBindings: [],
             baseVersionId: "server-v1",
