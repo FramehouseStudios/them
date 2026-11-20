@@ -10,7 +10,7 @@ final class StudioVoiceTaskScopeTests: XCTestCase {
         let owner = ScreenplayStudioAuthContext(userID: "writer", sessionIntentGeneration: 5)
 
         func context() -> StudioVoiceProjectContext {
-            .init(owner: owner, projectID: bridge.preferredProjectID, selectionID: bridge.projectSelectionID)
+            .init(owner: owner, projectID: bridge.preferredProjectID, selectionID: bridge.voiceProjectSelection.id)
         }
 
         bridge.preferredProjectID = "voice-project-a"
@@ -23,6 +23,21 @@ final class StudioVoiceTaskScopeTests: XCTestCase {
         bridge.preferredProjectID = "voice-project-a"
         XCTAssertEqual(context().projectID, requestContext.projectID)
         XCTAssertNotEqual(context(), requestContext)
+    }
+
+    func testNewProjectSelectionInvalidatesVoiceWhileItsDraftIsStillLoading() {
+        var selection = StudioVoiceProjectSelection()
+        selection.select("project-a")
+        let speakingSelectionID = selection.id
+        XCTAssertTrue(selection.canUse("project-a"))
+
+        selection.select("project-b")
+        XCTAssertNotEqual(selection.id, speakingSelectionID)
+        XCTAssertFalse(selection.canUse("project-a"))
+        XCTAssertTrue(selection.canUse("project-b"))
+
+        selection.select("project-a")
+        XCTAssertNotEqual(selection.id, speakingSelectionID)
     }
 
     func testFirstClipEndingEarlyKeepsMicClosedUntilRemainderIsReady() {

@@ -80,3 +80,23 @@ struct StudioVoiceProjectContext: Equatable {
     let projectID: String
     let selectionID: UUID
 }
+
+struct StudioVoiceProjectSelection {
+    private(set) var id = UUID()
+    private(set) var requestedProjectID: String?
+
+    mutating func select(_ projectID: String) {
+        let clean = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard requestedProjectID != clean else { return }
+        requestedProjectID = clean
+        invalidate()
+    }
+
+    mutating func invalidate() {
+        id = UUID()
+    }
+
+    func canUse(_ loadedProjectID: String) -> Bool {
+        requestedProjectID == nil || requestedProjectID == loadedProjectID
+    }
+}

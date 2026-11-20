@@ -973,55 +973,12 @@ struct RootExperienceView: View {
 
     private var studioVoiceProjectContext: StudioVoiceProjectContext {
         .init(owner: BackendAuthClient.currentRequestOwner(), projectID: currentStudioProjectID,
-              selectionID: screenplayDraftBridge.projectSelectionID)
+              selectionID: screenplayDraftBridge.voiceProjectSelection.id)
     }
 
     private var usesRealtimePreviewTransport: Bool {
         voiceTransportMode == .realtimePreview
     }
-
-    private static func shouldUseStreamingStudioPageWriteTransport(
-        shouldWriteToPage: Bool,
-        isStudioSurfaceActive: Bool
-    ) -> Bool {
-        _ = shouldWriteToPage
-        return StudioResponseStreamingPolicy.shouldStream(
-            isStudioSurfaceActive: isStudioSurfaceActive
-        )
-    }
-
-    private func shouldUseStreamingStudioPageWriteTransport(
-        shouldWriteToPage: Bool
-    ) -> Bool {
-        Self.shouldUseStreamingStudioPageWriteTransport(
-            shouldWriteToPage: shouldWriteToPage,
-            isStudioSurfaceActive: isStudioSurfaceActive
-        )
-    }
-
-    #if DEBUG || os(macOS)
-    private static let studioPageWriteTransportRoutingChecked: Bool = {
-        precondition(
-            shouldUseStreamingStudioPageWriteTransport(
-                shouldWriteToPage: true,
-                isStudioSurfaceActive: true
-            )
-        )
-        precondition(
-            !shouldUseStreamingStudioPageWriteTransport(
-                shouldWriteToPage: true,
-                isStudioSurfaceActive: false
-            )
-        )
-        precondition(
-            shouldUseStreamingStudioPageWriteTransport(
-                shouldWriteToPage: false,
-                isStudioSurfaceActive: true
-            )
-        )
-        return true
-    }()
-    #endif
 
     private var visualContextStatusText: String {
         guard visualContextEnabled else { return "Off" }
@@ -6124,6 +6081,13 @@ Write this approved story direction directly into screenplay pages now. Maintain
             }
             return
         }
+        let startedInStudio = isStudioSurfaceActive
+        let requestedVoiceProject = studioVoiceProjectContext
+
+        func studioVoiceSelectionIsCurrent() -> Bool {
+            !startedInStudio || (isStudioSurfaceActive && requestedVoiceProject == studioVoiceProjectContext &&
+                screenplayDraftBridge.voiceProjectSelection.canUse(requestedVoiceProject.projectID))
+        }
         // Phase 1 latency pass: start playback on the first streamed segment as soon
         // as it is ready. We stop recording before playback begins to avoid bleed.
         let allowEarlyStreamPlayback = true
@@ -6456,9 +6420,16 @@ Write this approved story direction directly into screenplay pages now. Maintain
             return cleanSource.isEmpty ? "backend_cues" : cleanSource
         }
 
+        func finishStaleStudioVoiceTurn() {
+            isThinking = false
+            orbAudio.stop()
+            voice.markAssistantPlaybackEnded()
+            voice.resumeRecordingIfNeeded()
+        }
+
         func finishPlaybackAndResumeMic() {
             syncedPlaybackClock.completeCurrentSegment()
-            if didStartSyncedVoiceInsert {
+            if didStartSyncedVoiceInsert, studioVoiceSelectionIsCurrent() {
                 screenplayDraftBridge.completeActiveSyncedVoiceInsertIfNeeded()
             } else {
                 _ = commitSyncedVoiceFallbackIfNeeded(
@@ -6705,8 +6676,11 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 shouldWriteToPage: preparedPrompt.shouldWriteToPage
             )
         }
+        guard studioVoiceSelectionIsCurrent() else {
+            finishStaleStudioVoiceTurn()
+            return
+        }
         let initialStudioMetadata = initialStudioTalkMetadata(from: preparedPrompt)
-        let requestedVoiceProject = studioVoiceProjectContext
         let talkScreenplayGenerationTranscript: String? = {
             guard preparedPrompt.shouldWriteToPage else { return nil }
             let confirmedContext = confirmedStudioPageWriteContext(for: preparedPrompt.directorText)
@@ -6783,7 +6757,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             trigger: String,
             markCompleted: Bool
         ) -> String? {
-            guard shouldUseSyncedStudioVoiceInsert else { return nil }
+            guard shouldUseSyncedStudioVoiceInsert, studioVoiceSelectionIsCurrent() else { return nil }
             guard !didStartSyncedVoiceInsert else { return nil }
             guard !didCommitSyncedVoiceFallback else { return nil }
             let authoritativeText = screenplayDraftBridge.syncedVoiceTurnState.authoritativeText
@@ -6818,7 +6792,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         }
 
         func startSyncedVoiceInsertIfPossible(trigger: String, audioURL: URL? = nil) {
-            guard shouldUseSyncedStudioVoiceInsert else { return }
+            guard shouldUseSyncedStudioVoiceInsert, studioVoiceSelectionIsCurrent() else { return }
             guard !didStartSyncedVoiceInsert else { return }
             guard !didInterruptSyncedVoiceInsert else { return }
             guard didRecordAssistantPlaybackStart else { return }
@@ -7010,7 +6984,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     screenplayGenerationTranscriptOverride: talkScreenplayGenerationTranscript,
                     onResponseMetadataReady: { metadata in
                         Task { @MainActor in
-                            guard voiceTaskScope.isCurrent(invocationID), BackendAuthClient.requestOwnerIsCurrent(owner) else { return }
+                            guard voiceTaskScope.isCurrent(invocationID), BackendAuthClient.requestOwnerIsCurrent(owner),
+                                  studioVoiceSelectionIsCurrent() else { return }
                             if preparedPrompt.useScreenplayMode {
                                 screenplayDraftBridge.updateScreenplayQualityStatus(
                                     quality: metadata.screenplayQuality,
@@ -7118,7 +7093,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     },
                     onFirstAudioSegmentReady: { firstSegmentURL in
                         Task { @MainActor in
-                            guard voiceTaskScope.isCurrent(invocationID), BackendAuthClient.requestOwnerIsCurrent(owner) else { return }
+                            guard voiceTaskScope.isCurrent(invocationID), BackendAuthClient.requestOwnerIsCurrent(owner),
+                                  studioVoiceSelectionIsCurrent() else { return }
                             guard allowEarlyStreamPlayback else { return }
                             guard !didStartEarlyStreamPlayback else { return }
                             didStartEarlyStreamPlayback = true
@@ -7185,7 +7161,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     },
                     onTextReady: { rawReply in
                         Task { @MainActor in
-                            guard voiceTaskScope.isCurrent(invocationID), BackendAuthClient.requestOwnerIsCurrent(owner) else { return }
+                            guard voiceTaskScope.isCurrent(invocationID), BackendAuthClient.requestOwnerIsCurrent(owner),
+                                  studioVoiceSelectionIsCurrent() else { return }
                             if !rawReply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                                 clientLatency.recordFirstText(turnID: clientLatencyTurnID)
                             }
@@ -7248,9 +7225,17 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 guard shouldRetryTalkOnce(for: error) else { throw error }
                 HerLog.talk.info("transient TALK failure, retrying once")
                 try await Task.sleep(nanoseconds: 250_000_000)
+                guard studioVoiceSelectionIsCurrent() else {
+                    finishStaleStudioVoiceTurn()
+                    return
+                }
                 result = try await requestTalk()
             }
             guard voiceTaskScope.isCurrent(invocationID), BackendAuthClient.requestOwnerIsCurrent(owner) else { return }
+            guard studioVoiceSelectionIsCurrent() else {
+                finishStaleStudioVoiceTurn()
+                return
+            }
             if let failure = result.recoveredFailure {
                 backendConnectionState = .up
                 backendFailureCount = 0
@@ -7280,8 +7265,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             let serverRoutedPage = !preparedPrompt.shouldWriteToPage && result.screenplayOutput?.writesToPage == true
             if (pageArrivedWithoutAudio || serverRoutedPage) && (!isStudioSurfaceActive ||
                 requestedVoiceProject != studioVoiceProjectContext || (result.screenplayTrace.projectId ?? "") != requestedVoiceProject.projectID) {
-                voice.markAssistantPlaybackEnded()
-                voice.resumeRecordingIfNeeded()
+                finishStaleStudioVoiceTurn()
                 showStudioCommandNotice("The project changed. The scene wasn’t inserted.")
                 return
             }
@@ -7995,12 +7979,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             HerLog.talk.info("STUDIO render text sending chars=\(renderTranscript.count)")
 
             let renderedReply: String
-            #if DEBUG || os(macOS)
-            _ = Self.studioPageWriteTransportRoutingChecked
-            #endif
-            let shouldStreamStudioPageWrite = shouldUseStreamingStudioPageWriteTransport(
-                shouldWriteToPage: shouldWriteToPage
-            )
+            let shouldStreamStudioPageWrite = StudioResponseStreamingPolicy.shouldStream(isStudioSurfaceActive: isStudioSurfaceActive)
             let shouldSpeakTypedReply = studioTypedReplyAudioEnabled
             if shouldSpeakTypedReply {
                 orbAudio.stop()
