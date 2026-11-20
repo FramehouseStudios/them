@@ -505,6 +505,9 @@ final class V1SmokeUITests: XCTestCase {
             "The Projects drawer did not expose its project title field."
         )
         projectTitleField.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: writerLoopWait(5)),
+            "Tapping the project title must open the keyboard before typing.")
+        guard dismissKeyboardTypingTutorialIfPresent(in: app) else { return }
         projectTitleField.typeText(projectTitle)
         guard projectTitleField.value as? String == projectTitle else {
             XCTFail("The focused project title field did not receive the complete title.")
