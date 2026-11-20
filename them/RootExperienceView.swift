@@ -6707,6 +6707,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             )
         }
         let initialStudioMetadata = initialStudioTalkMetadata(from: preparedPrompt)
+        let requestedVoiceProject = studioVoiceProjectContext
         let talkScreenplayGenerationTranscript: String? = {
             guard preparedPrompt.shouldWriteToPage else { return nil }
             let confirmedContext = confirmedStudioPageWriteContext(for: preparedPrompt.directorText)
@@ -7274,6 +7275,14 @@ Write this approved story direction directly into screenplay pages now. Maintain
 #endif
                 return
             }
+            let pageArrivedWithoutAudio = result.audioURL == nil
+            if pageArrivedWithoutAudio && (!isStudioSurfaceActive || requestedVoiceProject != studioVoiceProjectContext ||
+                (result.screenplayTrace.projectId ?? "") != requestedVoiceProject.projectID) {
+                voice.markAssistantPlaybackEnded()
+                voice.resumeRecordingIfNeeded()
+                showStudioCommandNotice("The project changed. The scene wasn’t inserted.")
+                return
+            }
             if !(result.reply ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 clientLatency.recordFirstText(turnID: clientLatencyTurnID)
             }
@@ -7310,6 +7319,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             lastKnowledgeContradictionRisk = min(max(result.knowledgeTrace.contradictionRisk, 0), 1)
             updateTransientTurnBanner(from: result)
             presentCanonClarificationIfNeeded(result.creativeMemoryTrace.canonClarification)
+            if pageArrivedWithoutAudio { screenplayDraftBridge.resetSyncedVoiceTurnTracking() }
             if preparedPrompt.useScreenplayMode {
                 screenplayDraftBridge.updateScreenplayQualityStatus(
                     quality: result.screenplayQuality,
@@ -7384,7 +7394,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 persistDebugVoiceTurnProgress()
             }
 #endif
-            if shouldUseSyncedStudioVoiceInsert {
+            if shouldUseSyncedStudioVoiceInsert, !pageArrivedWithoutAudio {
                 let voiceTimeline = studioDialogueTimeline(from: result.dialogueTimeline)
                 let voiceInsertCues = studioVoiceInsertCues(
                     from: result.screenplayCues,
@@ -7431,7 +7441,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 skipCommitIfMatchesActiveText: didStartSyncedVoiceInsert
                     ? screenplayDraftBridge.syncedVoiceTurnState.authoritativeText
                     : nil,
-                allowImmediateCommit: !shouldUseSyncedStudioVoiceInsert,
+                allowImmediateCommit: pageArrivedWithoutAudio || !shouldUseSyncedStudioVoiceInsert,
                 requireAuthoritativePageOutput: shouldUseSyncedStudioVoiceInsert
             )
             let insertedScreenplayText: String?
@@ -7583,12 +7593,15 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
             handleNoteCaptureIfNeeded(result.noteAction, turnId: result.commit?.turnId)
             isThinking = false
-            if didStartEarlyStreamPlayback {
+            if pageArrivedWithoutAudio {
+                showStudioCommandNotice("Voice is unavailable for this turn.")
+                finishPlaybackAndResumeMic()
+            } else if didStartEarlyStreamPlayback {
                 streamHandoff.responseReady(remainder: result.streamedRemainderURL)
                 if !orbAudio.isSpeaking {
                     playStreamRemainderOrFinish()
                 }
-            } else {
+            } else if let audioURL = result.audioURL {
                 voice.markAssistantPlaybackStarted()
                 didRecordAssistantPlaybackStart = true
 #if DEBUG || os(macOS)
@@ -7602,8 +7615,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 }
 #endif
                 voice.resumeRecordingIfNeeded()
-                HerLog.audio.info("AUDIO file path=\(result.audioURL.path, privacy: .public)")
-                try orbAudio.play(url: result.audioURL, onFinish: {
+                HerLog.audio.info("AUDIO file path=\(audioURL.path, privacy: .public)")
+                try orbAudio.play(url: audioURL, onFinish: {
                     Task { @MainActor in
                         finishPlaybackAndResumeMic()
                     }
@@ -7611,12 +7624,12 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 activeTurnBasedLatencyTurnID = clientLatencyTurnID
                 clientLatency.recordFirstAudio(turnID: clientLatencyTurnID)
                 syncedPlaybackClock.reset()
-                beginSyncedPlaybackClockSegment(for: result.audioURL)
+                beginSyncedPlaybackClockSegment(for: audioURL)
                 if shouldUseSyncedStudioVoiceInsert {
                     screenplayDraftBridge.markSyncedVoiceTurnPlaybackStarted()
                     startSyncedVoiceInsertIfPossible(
                         trigger: "full_response_audio_started",
-                        audioURL: result.audioURL
+                        audioURL: audioURL
                     )
                 }
             }
