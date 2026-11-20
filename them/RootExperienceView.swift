@@ -3435,24 +3435,7 @@ struct RootExperienceView: View {
                             }
                             .padding(.top, 2)
                         }
-                        if let transientTurnBannerText, !transientTurnBannerText.isEmpty {
-                            Text(transientTurnBannerText)
-                                .font(.system(size: 12, weight: .regular, design: .default))
-                                .foregroundColor(.herText.opacity(0.92))
-                                .multilineTextAlignment(.center)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .background(
-                                    Capsule()
-                                        .fill(Color.white.opacity(0.22))
-                                )
-                                .overlay(
-                                    Capsule()
-                                        .stroke(Color.white.opacity(0.28), lineWidth: 1)
-                                )
-                                .padding(.top, 2)
-                                .transition(.opacity)
-                        }
+                        TurnNoticeBanner(message: transientTurnBannerText)
                         homeCompanionSignalCard
                         if !lastKnowledgeCitations.isEmpty {
                             VStack(alignment: .center, spacing: 4) {
@@ -3892,6 +3875,9 @@ struct RootExperienceView: View {
         )
         .id(studioAccountIdentityGeneration)
         .ignoresSafeArea(.container)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            TurnNoticeBanner(message: transientTurnBannerText)
+        }
     }
 
     private var onboardingOverlay: some View {
@@ -7722,9 +7708,11 @@ Write this approved story direction directly into screenplay pages now. Maintain
             if didStartEarlyStreamPlayback {
                 orbAudio.stop()
             }
-            voice.markRequestFailed()
-            HerLog.ui.error("playback error=\(failureReason, privacy: .public), resume mic")
-            voice.resumeRecordingIfNeeded()
+            conversationLoopEnabled = false
+            voice.teardown()
+            transientTurnBannerTask?.cancel()
+            transientTurnBannerText = authRequiredMessage ?? BackendTalkRecoveryFailure.retryMessage(for: error)
+            HerLog.ui.error("voice turn failed, tap Talk to retry")
 #if DEBUG || os(macOS)
             finalizeDebugVoiceTurn(status: "error", error: failureReason)
 #endif
@@ -11446,6 +11434,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
     @MainActor
     private func startConversationLoopIfNeeded() {
+        transientTurnBannerTask?.cancel()
+        transientTurnBannerText = nil
         conversationLoopEnabled = true
         pendingGoodbyeStopAfterPlayback = false
         if voiceTransportMode == .realtimePreview,
