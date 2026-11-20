@@ -1279,6 +1279,14 @@ struct BackendTalkScreenplayOutput: Codable, Equatable {
     }
 }
 
+private struct BackendTalkPageWithoutAudio: Decodable {
+    let screenplayOutput: BackendTalkScreenplayOutput
+
+    enum CodingKeys: String, CodingKey {
+        case screenplayOutput = "screenplay_output"
+    }
+}
+
 struct BackendTalkScreenplayCue: Codable, Equatable {
     let index: Int
     let text: String
@@ -1394,7 +1402,7 @@ struct BackendTalkSpeculativeTrace {
 }
 
 struct BackendTalkResult {
-    let audioURL: URL
+    let audioURL: URL?
     let streamedFirstSegment: Bool
     let streamedRemainderURL: URL?
     let audioDurationMs: Int?
@@ -4333,6 +4341,11 @@ final class BackendClient {
         request.httpMethod = "POST"
         request.timeoutInterval = requestTimeout
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        let routesFromFinalVoice = studioMetadata?.screenplayPromptSource == "voice" && studioMetadata?.screenplayTarget == ""
+        if routesFromFinalVoice { request.setValue("1", forHTTPHeaderField: "X-Talk-Route-From-Final-Transcript") }
+        if routesFromFinalVoice || studioMetadata?.screenplayTarget == "page" {
+            request.setValue("1", forHTTPHeaderField: "X-Talk-Accept-Page-Without-Audio")
+        }
         if preferStreamedTalkAudio && !forceNoStreamAudio {
             request.setValue("audio", forHTTPHeaderField: "X-Talk-Stream")
         } else if forceNoStreamAudio {
@@ -4742,7 +4755,8 @@ final class BackendClient {
                 responseTurnStatus = (self.parseOptionalHeaderString(http, field: "x-turn-status") ?? "responded").lowercased()
                 // Recovery audio is an error explanation, not a generated page/reply.
                 // Return its decoded result so the caller presents the real failure.
-                guard responseTurnStatus != "error_recovered" else { return }
+                guard responseTurnStatus != "error_recovered",
+                      !self.parseHeaderBool(http, field: "x-talk-audio-unavailable", default: false) else { return }
                 responseFirstSegmentBytesHint = self.parseHeaderInt(
                     http,
                     field: "x-tts-first-bytes",
@@ -5087,8 +5101,22 @@ final class BackendClient {
 
         let isMP3 = mimeType == "audio/mpeg"
         let isWAV = mimeType == "audio/wav" || mimeType == "audio/x-wav"
+        let pageWithoutAudio: BackendTalkScreenplayOutput?
+        if parseHeaderBool(http, field: "x-talk-audio-unavailable", default: false) {
+            guard request.value(forHTTPHeaderField: "X-Talk-Accept-Page-Without-Audio") == "1",
+                  responseTurnStatus == "responded",
+                  mimeType == "application/json",
+                  parseHeaderBool(http, field: "x-screenplay-authoritative", default: false),
+                  let fallback = try? JSONDecoder().decode(BackendTalkPageWithoutAudio.self, from: data),
+                  fallback.screenplayOutput.writesToPage else {
+                throw BackendError.stage("tts", "The backend did not return a usable screenplay.")
+            }
+            pageWithoutAudio = fallback.screenplayOutput
+        } else {
+            pageWithoutAudio = nil
+        }
 
-        guard isMP3 || isWAV else {
+        guard isMP3 || isWAV || pageWithoutAudio != nil else {
             if let retried = try await retryAudioValidationIfAllowed("non-audio content-type on 200") {
                 return retried
             }
@@ -5136,7 +5164,7 @@ final class BackendClient {
         var reply = http?.value(forHTTPHeaderField: "x-reply")?
             .removingPercentEncoding?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        var screenplayOutput = parseScreenplayOutput(from: http)
+        var screenplayOutput = pageWithoutAudio ?? parseScreenplayOutput(from: http)
         var screenplayQuality = screenplayOutput?.quality ?? parseScreenplayQuality(from: http)
         var screenplayCues = parseScreenplayCues(from: http)
         var dialogueTimeline = parseDialogueTimeline(from: http)
@@ -5169,7 +5197,7 @@ final class BackendClient {
             field: "x-screenplay-output-available",
             default: false
         )
-        let shouldFetchTurnMeta = turnMetaAvailable && (
+        let shouldFetchTurnMeta = pageWithoutAudio == nil && turnMetaAvailable && (
             (transcript?.isEmpty ?? true) ||
             (reply?.isEmpty ?? true) ||
             (timingSource?.isEmpty ?? true) && screenplayOutputAvailable ||
@@ -5350,9 +5378,15 @@ final class BackendClient {
         }
 
         let audioExt = isWAV ? "wav" : "mp3"
-        let audioURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("them_backend_\(UUID().uuidString).\(audioExt)")
-        try data.write(to: audioURL, options: [.atomic])
+        let audioURL: URL?
+        if pageWithoutAudio != nil {
+            audioURL = nil
+        } else {
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("them_backend_\(UUID().uuidString).\(audioExt)")
+            try data.write(to: url, options: [.atomic])
+            audioURL = url
+        }
 
         let firstSegmentBytes = parseHeaderInt(
             http,

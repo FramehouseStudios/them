@@ -1482,6 +1482,7 @@ final class ScreenplayStudioViewModel: ObservableObject {
         didSet {
             if !selectedProjectID.utf8.elementsEqual(oldValue.utf8) {
                 editorExternalDraftMutationRevision &+= 1
+                ScreenplayLiveDraftBridge.shared.voiceProjectSelection.select(selectedProjectID)
                 lastAcknowledgedDraftSave = nil
             }
         }

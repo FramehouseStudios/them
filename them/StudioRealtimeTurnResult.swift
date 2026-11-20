@@ -11,7 +11,7 @@ extension BackendTalkResult {
         screenplayTrace: BackendTalkScreenplayTrace
     ) -> BackendTalkResult {
         BackendTalkResult(
-            audioURL: URL(fileURLWithPath: "/dev/null"),
+            audioURL: nil,
             streamedFirstSegment: false,
             streamedRemainderURL: nil,
             audioDurationMs: nil,

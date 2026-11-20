@@ -235,6 +235,56 @@ final class BackendTalkOwnerBoundaryTests: XCTestCase {
         XCTAssertEqual(fixture.requests.snapshot().map(\.path), ["/talk"])
     }
 
+    func testOptedInVoiceTurnAcceptsCompleteAuthoritativePageWithoutAudio() async throws {
+        try await assertPageWithoutAudio(target: "page", expectFinalRouting: false)
+        try await assertPageWithoutAudio(target: "", expectFinalRouting: true)
+    }
+
+    private func assertPageWithoutAudio(target: String, expectFinalRouting: Bool) async throws {
+        let text = "INT. SPACECRAFT - NIGHT\n\n" + String(repeating: "Café. A red lamp flickers.\n", count: 300)
+        let output = BackendTalkScreenplayOutput(
+            target: "page", format: "fountain", source: "test", quality: nil, text: text, lines: []
+        )
+        let payload = Data("{\"screenplay_output\":".utf8) + (try JSONEncoder().encode(output)) + Data("}".utf8)
+        let fixture = TalkOwnerFixture(handler: { request, _, _ in
+            if request.url?.path == "/health" { return .healthy }
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-Talk-Accept-Page-Without-Audio"), "1")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-Talk-Route-From-Final-Transcript"), expectFinalRouting ? "1" : nil)
+            return TalkOwnerHTTPStub(status: 200, headers: [
+                "Content-Type": "application/json",
+                "x-turn-status": "responded",
+                "x-talk-audio-unavailable": "1",
+                "x-screenplay-authoritative": "1",
+                "x-screenplay-sync-ready": "0"
+            ], body: payload)
+        })
+        defer { fixture.close() }
+        let callbacks = TalkOwnerCallbackLog()
+        let result = try await fixture.client.talk(
+            fileURL: URL(fileURLWithPath: "/unused-unit-recording.wav"),
+            fileDataOverride: TalkOwnerHTTPStub.wav,
+            studioMetadata: BackendStudioThreadCommitMetadata(
+                screenplayProjectId: "project", screenplayDocumentRevisionId: "", screenplayTarget: target,
+                screenplayPromptSource: "voice", screenplayWriteId: "", screenplayAnchorLine: nil,
+                screenplayAnchorEndLine: nil, screenplayInsertionMode: "", screenplayAnchorSceneLabel: "",
+                screenplayAnchorDraftSceneId: "", screenplayAnchorOutlineSceneId: "", screenplayAnchorOutlineBeatIds: [],
+                screenplayAnchorScriptNodeId: "", screenplayNoteTitle: "", screenplayNoteBody: "",
+                screenplayInsertedText: "", screenplayReplacementApplied: false, screenplayReplacedWriteId: "",
+                screenplayRevisedBlockText: "", screenplayResolvedAnchorExcerpt: ""
+            ),
+            onResponseMetadataReady: { _ in callbacks.record("metadata") },
+            onFirstAudioSegmentReady: { callbacks.record("audio", url: $0) },
+            onTextReady: { _ in callbacks.record("text") }
+        )
+        await drainMainQueue()
+        XCTAssertNil(result.audioURL)
+        XCTAssertNil(result.recoveredFailure)
+        XCTAssertFalse(result.renderContract.syncReady)
+        XCTAssertTrue(try XCTUnwrap(result.screenplayOutput).text.utf8.elementsEqual(text.utf8))
+        XCTAssertTrue(callbacks.events().isEmpty)
+        XCTAssertEqual(fixture.requests.snapshot().map(\.path), ["/health", "/talk"])
+    }
+
     private func assertSuperseded(_ operation: () async throws -> BackendTalkResult,
                                   file: StaticString = #filePath, line: UInt = #line) async {
         do {
@@ -252,7 +302,7 @@ final class BackendTalkOwnerBoundaryTests: XCTestCase {
     }
 
     private func cleanupAudio(_ result: BackendTalkResult, callbacks: TalkOwnerCallbackLog? = nil) {
-        let urls = [result.audioURL] + [result.streamedRemainderURL].compactMap { $0 } + (callbacks?.urls() ?? [])
+        let urls = [result.audioURL, result.streamedRemainderURL].compactMap { $0 } + (callbacks?.urls() ?? [])
         for url in Set(urls) { try? FileManager.default.removeItem(at: url) }
     }
 }

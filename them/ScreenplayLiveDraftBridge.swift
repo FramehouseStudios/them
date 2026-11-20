@@ -2952,17 +2952,16 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     @Published var latestPack: String = ""
     @Published var latestPhase: String = ""
     @Published var latestUserTranscript: String = ""
+    var voiceProjectSelection = StudioVoiceProjectSelection()
     @Published var preferredProjectID: String = "" {
         didSet {
             guard preferredProjectID != oldValue else { return }
+            voiceProjectSelection.invalidate()
             persistPreferredProjectContext()
         }
     }
     @Published var preferredVersionID: String = "" {
-        didSet {
-            guard preferredVersionID != oldValue else { return }
-            persistPreferredProjectContext()
-        }
+        didSet { if preferredVersionID != oldValue { persistPreferredProjectContext() } }
     }
     @Published var debugProjectLoadToken: Int = 0
     @Published var debugRequestedProjectID: String = ""
