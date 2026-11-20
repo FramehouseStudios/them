@@ -2952,9 +2952,11 @@ final class ScreenplayLiveDraftBridge: ObservableObject {
     @Published var latestPack: String = ""
     @Published var latestPhase: String = ""
     @Published var latestUserTranscript: String = ""
+    private(set) var projectSelectionID = UUID()
     @Published var preferredProjectID: String = "" {
         didSet {
             guard preferredProjectID != oldValue else { return }
+            projectSelectionID = UUID()
             persistPreferredProjectContext()
         }
     }

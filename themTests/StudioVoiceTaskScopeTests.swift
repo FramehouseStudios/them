@@ -3,6 +3,28 @@ import XCTest
 
 @MainActor
 final class StudioVoiceTaskScopeTests: XCTestCase {
+    func testVoiceProjectContextChangesWhenWriterLeavesAndReturnsToTheSameProject() {
+        let bridge = ScreenplayLiveDraftBridge.shared
+        let previous = bridge.preferredProjectID
+        defer { bridge.preferredProjectID = previous }
+        let owner = ScreenplayStudioAuthContext(userID: "writer", sessionIntentGeneration: 5)
+
+        func context() -> StudioVoiceProjectContext {
+            .init(owner: owner, projectID: bridge.preferredProjectID, selectionID: bridge.projectSelectionID)
+        }
+
+        bridge.preferredProjectID = "voice-project-a"
+        let requestContext = context()
+        bridge.preferredProjectID = "voice-project-a"
+        XCTAssertEqual(context(), requestContext)
+
+        bridge.preferredProjectID = "voice-project-b"
+        XCTAssertNotEqual(context(), requestContext)
+        bridge.preferredProjectID = "voice-project-a"
+        XCTAssertEqual(context().projectID, requestContext.projectID)
+        XCTAssertNotEqual(context(), requestContext)
+    }
+
     func testFirstClipEndingEarlyKeepsMicClosedUntilRemainderIsReady() {
         var handoff = StudioVoiceStreamHandoff()
         let remainder = URL(fileURLWithPath: "/tmp/voice-remainder.mp3")

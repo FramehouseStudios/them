@@ -966,6 +966,16 @@ struct RootExperienceView: View {
         primarySurface == .studio || uiTestForceStudioSurface
     }
 
+    private var currentStudioProjectID: String {
+        let preferred = screenplayDraftBridge.preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return preferred.isEmpty ? liveScreenplayProjectID.trimmingCharacters(in: .whitespacesAndNewlines) : preferred
+    }
+
+    private var studioVoiceProjectContext: StudioVoiceProjectContext {
+        .init(owner: BackendAuthClient.currentRequestOwner(), projectID: currentStudioProjectID,
+              selectionID: screenplayDraftBridge.projectSelectionID)
+    }
+
     private var usesRealtimePreviewTransport: Bool {
         voiceTransportMode == .realtimePreview
     }
@@ -9310,9 +9320,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             ? liveScreenplayPhase.trimmingCharacters(in: .whitespacesAndNewlines)
             : screenplayDraftBridge.latestPhase.trimmingCharacters(in: .whitespacesAndNewlines)
         let phase = phaseHint.isEmpty ? "scene_draft" : phaseHint
-        let projectId = screenplayDraftBridge.preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? liveScreenplayProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
-            : screenplayDraftBridge.preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let projectId = currentStudioProjectID
         let versionId = screenplayDraftBridge.preferredVersionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? liveScreenplayVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
             : screenplayDraftBridge.preferredVersionID.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -11847,9 +11855,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
     @MainActor
     private func initialStudioTalkMetadata(from preparedPrompt: PreparedTurnPrompt) -> BackendStudioThreadCommitMetadata? {
         guard preparedPrompt.useScreenplayMode else { return nil }
-        let projectId = screenplayDraftBridge.preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? liveScreenplayProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
-            : screenplayDraftBridge.preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let projectId = currentStudioProjectID
         let target = preparedPrompt.shouldWriteToPage ? "page" : "voice_pin"
         let anchorMetadata = preparedPrompt.shouldWriteToPage
             ? resolvedStudioDialogueAnchorMetadata()
@@ -11928,9 +11934,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         requestID: String? = nil
     ) -> BackendStudioThreadCommitMetadata? {
         guard isStudioSurfaceActive else { return nil }
-        let projectId = screenplayDraftBridge.preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? liveScreenplayProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
-            : screenplayDraftBridge.preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let projectId = currentStudioProjectID
         let anchorMetadata = shouldWriteToPage
             ? resolvedStudioDialogueAnchorMetadata()
             : nil
@@ -12050,9 +12054,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
     ) -> BackendStudioThreadCommitMetadata? {
         guard isStudioSurfaceActive else { return nil }
 
-        let projectId = screenplayDraftBridge.preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? liveScreenplayProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
-            : screenplayDraftBridge.preferredProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let projectId = currentStudioProjectID
         let cleanInsertedTextOverride = (insertedTextOverride ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let hasInsertedTextOverride = !cleanInsertedTextOverride.isEmpty

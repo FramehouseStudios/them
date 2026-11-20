@@ -74,3 +74,9 @@ struct StudioVoiceStreamHandoff {
         return action
     }
 }
+
+struct StudioVoiceProjectContext: Equatable {
+    let owner: ScreenplayStudioAuthContext
+    let projectID: String
+    let selectionID: UUID
+}
