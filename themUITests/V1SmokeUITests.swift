@@ -544,11 +544,11 @@ final class V1SmokeUITests: XCTestCase {
         if draftInspector.waitForExistence(timeout: writerLoopWait(3)), !draftInspector.isSelected {
             draftInspector.tap()
         }
-        let autosave = app.switches["studio.draft.document.autosave"]
-        XCTAssertTrue(
-            revealInStudioDrawer(autosave, drawer: rightDrawer, scrollingUp: true, maxSwipes: 12),
-            "The writer-loop could not reach the Autosave switch."
-        )
+        let autosave = rightDrawer.switches["studio.draft.document.autosave"]
+        guard revealFullyInStudioDrawer(autosave, drawer: rightDrawer, maxSwipes: 12) else {
+            XCTFail("The writer-loop could not bring Autosave fully into the inspector viewport.")
+            return
+        }
         guard writerLoopSwitchState(autosave) == true else {
             XCTFail("Autosave's initial on state was not confirmed before the writer-loop began.")
             return
