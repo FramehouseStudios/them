@@ -24,6 +24,7 @@ const PAGE = [
 ].join("\n");
 
 const optIn = { "X-Talk-Accept-Page-Without-Audio": "1", "X-Talk-Stream": "audio" };
+const automaticOptIn = { ...optIn, "X-Talk-Route-From-Final-Transcript": "1" };
 const wav = fs.readFileSync(new URL("../test.wav", import.meta.url));
 
 test("authenticated Page delivery survives synthesis failure and remains owner scoped and idempotent", { timeout: 35_000 }, async () => {
@@ -89,14 +90,23 @@ test("authenticated Page delivery survives synthesis failure and remains owner s
       return response.json.pageTurnsLeft ?? response.json.balance?.pageTurnsLeft;
     };
 
-    const send = (key, extraHeaders = optIn, auth = headers) => {
+    const send = (key, extraHeaders = optIn, auth = headers, { filename, project = projectId } = {}) => {
       const form = new FormData();
-      form.append("client_transcript", "Write the opening scene for my screenplay. Mara meets Vale in a diner at night.");
-      form.append("screenplay_target", "page");
+      if (!filename) {
+        form.append("client_transcript", "Write the opening scene for my screenplay. Mara meets Vale in a diner at night.");
+        form.append("screenplay_target", "page");
+      }
+      if (filename === "advice.wav") {
+        form.append("client_transcript", "Write the next page immediately.");
+        form.append("screenplay_generation_transcript", "Draft the opening scene.");
+        form.append("partial_transcript_hint", "Write the first scene.");
+        form.append("screenplay_target_pages", "120");
+        form.append("page_mode", "true");
+      }
       form.append("screenplay_prompt_source", "voice");
-      form.append("screenplay_project_id", projectId);
-      form.append("max_output_tokens", "400");
-      form.append("file", new Blob([wav], { type: "audio/wav" }), "test.wav");
+      if (project) form.append("screenplay_project_id", project);
+      if (!filename) form.append("max_output_tokens", "400");
+      form.append("file", new Blob([wav], { type: "audio/wav" }), filename || "test.wav");
       return apiRequest(server, "/talk", {
         method: "POST", headers: { ...auth, ...extraHeaders, "X-Idempotency-Key": key }, body: form,
       });
@@ -104,8 +114,11 @@ test("authenticated Page delivery survives synthesis failure and remains owner s
 
     const before = await balance();
     assert.equal(before, 100);
-    const page = await send("one-page-without-audio");
+    const automaticPage = { filename: "opening.wav" };
+    const page = await send("one-page-without-audio", automaticOptIn, headers, automaticPage);
     assert.equal(page.status, 200);
+    assert.ok(page.headers.get("x-clementine-page-reservation"));
+    assert.match(server.stdout.join(""), /transcribed opening\.wav/);
     assert.equal(page.headers.get("x-turn-status"), "responded", `fixture status: ${page.headers.get("x-turn-error-class")}`);
     assert.match(page.headers.get("content-type"), /^application\/json/);
     assert.equal(page.headers.get("x-talk-audio-unavailable"), "1");
@@ -127,17 +140,37 @@ test("authenticated Page delivery survives synthesis failure and remains owner s
     assert.deepEqual(turn.json.screenplay_cues, []);
     assert.equal(await balance(), 99.692);
 
-    const replay = await send("one-page-without-audio");
+    const replay = await send("one-page-without-audio", automaticOptIn, headers, automaticPage);
     assert.equal(replay.headers.get("x-idempotency-replay"), "1");
     assert.equal(replay.text, page.text);
     assert.equal(await balance(), 99.692);
-    const accountMismatch = await send("one-page-without-audio", optIn, { ...other.auth, "X-Client-Token": token });
+    const accountMismatch = await send("one-page-without-audio", automaticOptIn, { ...other.auth, "X-Client-Token": token }, automaticPage);
     assert.equal(accountMismatch.status, 409);
     assert.equal(accountMismatch.json.screenplay_output, undefined);
-    const capabilityMismatch = await send("one-page-without-audio", {});
+    const capabilityMismatch = await send("one-page-without-audio", {}, headers, automaticPage);
     assert.equal(capabilityMismatch.status, 409);
     assert.equal(capabilityMismatch.json.screenplay_output, undefined);
     assert.equal(server.stdout.join("").match(/verified page reached synthesis/g)?.length, 1);
+
+    const generationCalls = () => server.stdout.join("").match(/reached generation/g)?.length || 0;
+    const beforeEmptyWallet = generationCalls();
+    const unfunded = await send("unfunded-opening", automaticOptIn, other.auth, { filename: "opening.wav", project: "" });
+    assert.equal(unfunded.status, 402);
+    assert.equal(unfunded.json.error, "wallet_empty");
+    assert.equal(generationCalls(), beforeEmptyWallet);
+
+    const unclear = await send("unclear-opening", automaticOptIn, headers, { filename: "low-confidence.wav" });
+    assert.equal(unclear.headers.get("x-turn-status"), "asked_repeat");
+    assert.equal(unclear.headers.get("x-clementine-page-reservation"), null);
+    assert.equal(generationCalls(), beforeEmptyWallet);
+
+    const advice = await send("advice-only", automaticOptIn, headers, { filename: "advice.wav" });
+    assert.equal(advice.status, 200);
+    assert.equal(advice.headers.get("x-turn-status"), "responded");
+    assert.equal(advice.headers.get("x-clementine-page-reservation"), null);
+    assert.equal(advice.headers.get("x-screenplay-authoritative"), "0");
+    assert.match(server.stdout.join(""), /transcribed advice\.wav/);
+    assert.equal(await balance(), 99.692);
 
     const oldClient = await send("legacy-page-audio-failure", {});
     assert.equal(oldClient.status, 200);
@@ -145,7 +178,7 @@ test("authenticated Page delivery survives synthesis failure and remains owner s
     assert.equal(oldClient.headers.get("x-talk-audio-unavailable"), null);
     assert.equal(await balance(), 99.692);
 
-    const pending = send("cancelled-page-audio-failure");
+    const pending = send("cancelled-page-audio-failure", automaticOptIn, headers, automaticPage);
     for (let attempt = 0; attempt < 80; attempt += 1) {
       if (server.stdout.join("").match(/verified page reached synthesis/g)?.length === 3) break;
       await setTimeout(20);

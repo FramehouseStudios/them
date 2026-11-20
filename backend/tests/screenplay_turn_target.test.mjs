@@ -6,6 +6,8 @@ process.env.OPENAI_API_KEY ||= "test-openai-key";
 process.env.REALTIME_PROVIDER ||= "stub";
 
 import {
+  isDirectStudioPageCommand,
+  isDirectStudioShortFilmCommand,
   resolveScreenplayTargetFromRequest,
 } from "../lib/screenplay_turn_target.js";
 
@@ -130,4 +132,33 @@ test("[screenplay-turn-target] studio metadata preserves explicit one-line repla
   assert.equal(studio.screenplayInsertionMode, "replace_selection");
   assert.equal(studio.screenplayAnchorLine, 12);
   assert.equal(studio.screenplayAnchorEndLine, 12);
+});
+
+test("[screenplay-turn-target] automatic Studio voice accepts direct scene or page commands", () => {
+  for (const transcript of [
+    "Write the opening scene. Two astronauts discover a movie set.",
+    "Hey Clementine, could you please draft the first page?",
+    "Please write us the next scene.",
+  ]) {
+    assert.equal(isDirectStudioPageCommand(transcript), true, transcript);
+  }
+
+  for (const transcript of [
+    "How would you write the opening scene?",
+    "I could write the opening scene.",
+    "Clementine, don't write the opening scene.",
+    "Write the opening scene. Actually, don’t write it.",
+    "Write the opening scene actually don't write it.",
+    "Write the opening scene as an example.",
+    "Write the first scene heading.",
+    "Draft the next treatment.",
+  ]) {
+    assert.equal(isDirectStudioPageCommand(transcript), false, transcript);
+  }
+});
+
+test("[screenplay-turn-target] automatic short-film routing requires a positive writing command", () => {
+  assert.equal(isDirectStudioShortFilmCommand("Hey Clementine, I want to write a short film today. 15 pages."), true);
+  assert.equal(isDirectStudioShortFilmCommand("How do I write a short film? 15 pages should be enough."), false);
+  assert.equal(isDirectStudioShortFilmCommand("Don't write a short film today."), false);
 });
