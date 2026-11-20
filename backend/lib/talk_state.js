@@ -72,6 +72,10 @@ function sanitizeTalkHeadersForIdempotency(headers) {
   return out;
 }
 
+export function acceptsTalkPageWithoutAudio(req) {
+  return req.get("X-Talk-Accept-Page-Without-Audio") === "1";
+}
+
 function captureTalkResponseHeaders(res) {
   if (!res || typeof res.getHeaders !== "function") return {};
   return sanitizeTalkHeadersForIdempotency(res.getHeaders());
@@ -238,6 +242,13 @@ export function createTalkIdempotencyGuard({
       if (existing) {
         const status = String(existing.status || "");
         if (status === "completed" && Buffer.isBuffer(existing.body)) {
+          if (existing.pageWithoutAudioOwnerId && (
+            String(req.authUser?.id || "").trim() !== existing.pageWithoutAudioOwnerId ||
+            !acceptsTalkPageWithoutAudio(req)
+          )) {
+            res.setHeader("Cache-Control", "no-store");
+            return res.status(409).json({ stage: "idempotency", error: "Incompatible turn replay." });
+          }
           recordTalkMetric({
             statusCode: 208,
             totalMs: 0,
@@ -516,7 +527,7 @@ export function createTalkIdempotencyHelpers({
         now
       );
     },
-    commitSuccess(req, { statusCode = 200, headers = {}, body = Buffer.alloc(0) } = {}) {
+    commitSuccess(req, { statusCode = 200, headers = {}, body = Buffer.alloc(0), pageWithoutAudioOwnerId } = {}) {
       if (!talkIdempotencyEnabled) return;
       const ctx = req?.talkIdempotency;
       if (!ctx?.cacheKey) return;
@@ -534,6 +545,7 @@ export function createTalkIdempotencyHelpers({
         statusCode: Math.max(200, Math.min(299, Number(statusCode || 200))),
         headers: normalizedHeaders,
         body: payloadBuffer,
+        ...(pageWithoutAudioOwnerId ? { pageWithoutAudioOwnerId } : {}),
         completedAt: now,
         expiresAt: now + talkIdempotencyTtlMs,
       };

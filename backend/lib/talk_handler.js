@@ -71,9 +71,8 @@ import {
   evaluateStructuralScreenplayReply,
   shouldAcceptStructuralRepair,
 } from "./structural_screenplay_quality.js";
-import {
-  isPageCancelledError,
-} from "./clementine/page_abort.js";
+import { createPageCancelledError, isPageCancelledError } from "./clementine/page_abort.js";
+import { acceptsTalkPageWithoutAudio } from "./talk_state.js";
 import { createMuseAwareChatSupplier } from "./clementine/muse_provider.js";
 import { isShortFilmBetaEnabled } from "./clementine/short_film_beta.js";
 import { parseShortFilmIntent } from "./clementine/short_film_intent.js";
@@ -4737,6 +4736,14 @@ ${directorOutputRule}
       speculativeReuseApplied = false;
     }
 
+    const hasAuthoritativeScreenplayText = isAuthoritativeTalkScreenplayOutput(
+      talkScreenplayOutput,
+      { studioMeta: talkScreenplayContinuityStudioMeta, transcript: talkGenerationTranscript }
+    );
+    const acceptPageWithoutAudio = isScreenplayPageWriteTurn && hasAuthoritativeScreenplayText &&
+      Boolean(req.authUser?.id) && acceptsTalkPageWithoutAudio(req);
+    let pageAudioUnavailable = false;
+
     // ---- 3) TTS (MP3) ----
     const ttsStart = Date.now();
     logger.log(
@@ -4810,12 +4817,16 @@ ${directorOutputRule}
             status,
           });
           logger.log(`[${rid}] screenplay cue TTS failed ${diagnostic.supportMessage}`);
-          throw createTalkFailureError({
-            requestId: rid,
-            providerStage: "tts",
-            status,
-            message,
-          });
+          if (isPageCancelledError(err)) throw err;
+          if (!acceptPageWithoutAudio || status === 499) {
+            throw createTalkFailureError({
+              requestId: rid,
+              providerStage: "tts",
+              status,
+              message,
+            });
+          }
+          pageAudioUnavailable = true;
         }
       } else {
         ttsLeadIn = earlyTtsLeadIn || pickTtsLeadIn({ rid, transcript, reply });
@@ -4920,7 +4931,9 @@ ${directorOutputRule}
       }
     }
     const combinedMp3 = secondMp3.length ? Buffer.concat([firstMp3, secondMp3]) : firstMp3;
-    if (!combinedMp3.length) {
+    const audioIsValid = combinedMp3.length > 0 && isLikelyMp3Buffer(combinedMp3);
+    if (acceptPageWithoutAudio && !audioIsValid) pageAudioUnavailable = true;
+    if (!pageAudioUnavailable && !combinedMp3.length) {
       throw createTalkFailureError({
         requestId: rid,
         providerStage: "tts",
@@ -4930,7 +4943,7 @@ ${directorOutputRule}
       });
     }
 
-    if (!isLikelyMp3Buffer(combinedMp3)) {
+    if (!pageAudioUnavailable && !audioIsValid) {
       const signatureHex = combinedMp3.subarray(0, 8).toString("hex");
       logger.log(`[${rid}] TTS non-MP3 signature first8=${signatureHex}`);
       throw createTalkFailureError({
@@ -4942,7 +4955,7 @@ ${directorOutputRule}
       });
     }
 
-    if (!didLogMp3SignatureLocal) {
+    if (!pageAudioUnavailable && !didLogMp3SignatureLocal) {
       const marker =
         combinedMp3.length >= 3 && combinedMp3.subarray(0, 3).toString("utf8") === "ID3"
           ? "ID3"
@@ -4952,8 +4965,31 @@ ${directorOutputRule}
       didLogMp3SignatureLocal = true;
     }
 
+    const creativeMemoryWriteSummary = await creativeMemoryWritePromise;
+    await ensureMinThinkingDelay({
+      startedAtMs: thinkingStartedAt,
+      targetDelayMs: thinkingDelayMs,
+    });
+    if (pageAudioUnavailable) {
+      const signal = req.clementine?.abortSignal;
+      if (signal?.aborted || req.aborted || res.destroyed) {
+        throw createPageCancelledError({
+          reason: typeof signal?.reason === "string" ? signal.reason : "cancelled",
+          reservationId: req.clementine?.reservationId,
+        });
+      }
+      firstMp3 = secondMp3 = Buffer.alloc(0);
+      talkAudioDurationMs = 0;
+      talkScreenplayCues = [];
+      talkScreenplayTimingSource = "";
+      talkTtsSegmentCount = 0;
+      ttsProviderUsed = "unavailable";
+      ttsVoiceUsed = "";
+      res.setHeader("x-talk-audio-unavailable", "1");
+    }
+
     // Response headers
-    res.setHeader("Content-Type", "audio/mpeg");
+    res.setHeader("Content-Type", pageAudioUnavailable ? "application/json; charset=utf-8" : "audio/mpeg");
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("x-cycle-index", String(cycleUiReflection.cycleIndex));
     res.setHeader("x-ui-orb-saturation", cycleUiReflection.orbSaturation.toFixed(3));
@@ -4963,7 +4999,7 @@ ${directorOutputRule}
     res.setHeader("x-safeguard-over-attachment", overAttachmentSafeguard.active ? "1" : "0");
     res.setHeader("x-assistant-self-name", encodeURIComponent(assistantSelfName));
     res.setHeader("x-thinking-ms", String(thinkingDelayMs));
-    res.setHeader("x-talk-stream-mode", streamAudioRequested ? "audio" : "off");
+    res.setHeader("x-talk-stream-mode", streamAudioRequested && !pageAudioUnavailable ? "audio" : "off");
     res.setHeader("x-chat-stream-used", streamChatUsed ? "1" : "0");
     res.setHeader("x-speculative-reuse", speculativeReuseApplied ? "1" : "0");
     if (speculativeReuseApplied && speculativeReuseKeyInput) {
@@ -5017,14 +5053,10 @@ ${directorOutputRule}
     if (talkReplyPreview) {
       res.setHeader("x-reply", encodeURIComponent(String(talkReplyPreview)));
     }
-    const hasAuthoritativeScreenplayText = isAuthoritativeTalkScreenplayOutput(
-      talkScreenplayOutput,
-      { studioMeta: talkScreenplayContinuityStudioMeta, transcript: talkGenerationTranscript }
-    );
     const talkRenderContract = {
       reply_role: hasAuthoritativeScreenplayText ? "preview" : "final",
       authoritative_page_text_available: hasAuthoritativeScreenplayText,
-      sync_ready: hasAuthoritativeScreenplayText,
+      sync_ready: hasAuthoritativeScreenplayText && !pageAudioUnavailable,
     };
     res.setHeader("x-reply-role", talkRenderContract.reply_role);
     res.setHeader("x-screenplay-authoritative", talkRenderContract.authoritative_page_text_available ? "1" : "0");
@@ -5045,12 +5077,11 @@ ${directorOutputRule}
     if (talkScreenplayOutput?.target) {
       res.setHeader("x-screenplay-target", encodeURIComponent(String(talkScreenplayOutput.target)));
     }
-    const creativeMemoryWriteSummary = await creativeMemoryWritePromise;
     applyCreativeMemoryTraceHeaders(res, req.creativeMemoryTrace);
     applyCanonClarificationHeader(res, creativeMemoryWriteSummary);
     applyTalkScreenplayQualityHeaders(res, talkScreenplayOutput);
     applyTalkScreenplayRepairHeaders(res, talkScreenplayRepairTrace);
-    if (talkScreenplayOutput) {
+    if (talkScreenplayOutput && !pageAudioUnavailable) {
       const screenplayOutputJson = JSON.stringify(talkScreenplayOutput);
       if (screenplayOutputJson.length <= 5000) {
         res.setHeader("x-screenplay-output", encodeURIComponent(screenplayOutputJson));
@@ -5083,7 +5114,7 @@ ${directorOutputRule}
       encodeURIComponent(ttsVoiceUsed),
     );
     res.setHeader("x-tts-filler", encodeURIComponent(ttsLeadIn || ""));
-    res.setHeader("x-tts-segments", String(Math.max(1, Number(talkTtsSegmentCount || 1))));
+    res.setHeader("x-tts-segments", pageAudioUnavailable ? "0" : String(Math.max(1, Number(talkTtsSegmentCount || 1))));
     res.setHeader("x-tts-first-bytes", String(Math.max(0, Number(firstMp3.length || 0))));
     res.setHeader("x-turn-quality-specificity", clampUnit(turnQualityComponents.specificity, 0).toFixed(3));
     res.setHeader("x-turn-quality-continuity", clampUnit(turnQualityComponents.continuity, 0).toFixed(3));
@@ -5098,7 +5129,7 @@ ${directorOutputRule}
     const committedHistoryUpdatedAt = deriveHistoryUpdatedAt(activeSession?.memory);
     const committedMemoryUpdatedAt = deriveMemoriesUpdatedAt(activeSession?.memory);
     const committedStateVersion = buildMemoryStateVersion(activeSession?.memory);
-    const talkDialogueTimeline = hasAuthoritativeScreenplayText
+    const talkDialogueTimeline = talkRenderContract.sync_ready
       ? buildTalkDialogueTimelineRevision({
         turnId: committedTurnId,
         requestId: rid,
@@ -5193,12 +5224,7 @@ ${directorOutputRule}
       res.setHeader("x-task-status", "none");
     }
 
-    await ensureMinThinkingDelay({
-      startedAtMs: thinkingStartedAt,
-      targetDelayMs: thinkingDelayMs,
-    });
-
-    if (streamAudioRequested) {
+    if (streamAudioRequested && !pageAudioUnavailable) {
       // Chunked streaming mode: write first sentence segment immediately, then remainder segment.
       if (remainderSpeech && !secondMp3.length) {
         try {
@@ -5354,6 +5380,9 @@ ${directorOutputRule}
 
     ttsMs = Date.now() - ttsStart;
     const audioBuffer = Buffer.concat([firstMp3, secondMp3]);
+    const responseBody = pageAudioUnavailable
+      ? Buffer.from(JSON.stringify({ screenplay_output: talkScreenplayOutput }), "utf8")
+      : audioBuffer;
     const stt_ms = sttMs;
     const llm_ms = chatMs;
     const tts_ms = ttsMs;
@@ -5366,7 +5395,8 @@ ${directorOutputRule}
     commitTalkIdempotencySuccess(req, {
       statusCode: 200,
       headers: captureTalkResponseHeaders(res),
-      body: audioBuffer,
+      body: responseBody,
+      pageWithoutAudioOwnerId: pageAudioUnavailable ? String(req.authUser.id).trim() : undefined,
     });
     recordTalkMetric({
       statusCode: 200,
@@ -5478,8 +5508,8 @@ ${directorOutputRule}
     logger.log(`[${reqId}] DONE`);
     logger.log("--------------------------------------------------");
 
-    res.setHeader("Content-Length", String(audioBuffer.length));
-    return res.send(audioBuffer);
+    res.setHeader("Content-Length", String(responseBody.length));
+    return res.send(responseBody);
   } catch (err) {
     const totalMs = Date.now() - t0;
     if (isPageCancelledError(err) && !res.headersSent) {
