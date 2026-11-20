@@ -3,6 +3,25 @@ import XCTest
 
 @MainActor
 final class StudioVoiceTaskScopeTests: XCTestCase {
+    func testFirstClipEndingEarlyKeepsMicClosedUntilRemainderIsReady() {
+        var handoff = StudioVoiceStreamHandoff()
+        let remainder = URL(fileURLWithPath: "/tmp/voice-remainder.mp3")
+
+        XCTAssertEqual(handoff.nextAction(), .wait)
+        handoff.responseReady(remainder: remainder)
+        XCTAssertEqual(handoff.nextAction(), .play(remainder))
+        XCTAssertEqual(handoff.nextAction(), .alreadyHandled)
+    }
+
+    func testSingleClipCompletionRearmsExactlyOnceAfterResponseIsReady() {
+        var handoff = StudioVoiceStreamHandoff()
+
+        handoff.responseReady(remainder: nil)
+        XCTAssertEqual(handoff.nextAction(), .finish)
+        handoff.responseReady(remainder: nil)
+        XCTAssertEqual(handoff.nextAction(), .alreadyHandled)
+    }
+
     func testEarlyReturningOperationAutomaticallyReleasesItsSlot() async throws {
         let scope = StudioVoiceTaskScope()
         let id = scope.start { invocationID in

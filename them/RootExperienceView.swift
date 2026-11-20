@@ -3435,24 +3435,7 @@ struct RootExperienceView: View {
                             }
                             .padding(.top, 2)
                         }
-                        if let transientTurnBannerText, !transientTurnBannerText.isEmpty {
-                            Text(transientTurnBannerText)
-                                .font(.system(size: 12, weight: .regular, design: .default))
-                                .foregroundColor(.herText.opacity(0.92))
-                                .multilineTextAlignment(.center)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .background(
-                                    Capsule()
-                                        .fill(Color.white.opacity(0.22))
-                                )
-                                .overlay(
-                                    Capsule()
-                                        .stroke(Color.white.opacity(0.28), lineWidth: 1)
-                                )
-                                .padding(.top, 2)
-                                .transition(.opacity)
-                        }
+                        TurnNoticeBanner(message: transientTurnBannerText)
                         homeCompanionSignalCard
                         if !lastKnowledgeCitations.isEmpty {
                             VStack(alignment: .center, spacing: 4) {
@@ -3892,6 +3875,9 @@ struct RootExperienceView: View {
         )
         .id(studioAccountIdentityGeneration)
         .ignoresSafeArea(.container)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            TurnNoticeBanner(message: transientTurnBannerText)
+        }
     }
 
     private var onboardingOverlay: some View {
@@ -5347,7 +5333,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             #"\bwrite\b.*\b(?:screenplay\s+)?action\s+line(?:s)?\b"#,
             #"\bwrite\b.*\b(?:screenplay\s+)?dialogue\s+line(?:s)?\b"#
         ]
-        if directPageWritePatterns.contains(where: {
+        if DraftStudioPromptRouter.isDirectOpeningSceneRequest(userText) || directPageWritePatterns.contains(where: {
             normalized.range(of: $0, options: .regularExpression) != nil
         }) {
             return true
@@ -6139,7 +6125,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         var didInterruptSyncedVoiceInsert = false
         var didCommitSyncedVoiceFallback = false
         var didCommitEarlyStudioDraftPreviewFallback = false
-        var pendingStreamRemainderURL: URL?
+        var streamHandoff = StudioVoiceStreamHandoff()
         let syncedPlaybackClock = SegmentedPlaybackClock()
         var debugSyncedPlaybackSeekApplied = false
         var debugSyncedPlaybackSeekCount = 0
@@ -6228,16 +6214,13 @@ Write this approved story direction directly into screenplay pages now. Maintain
 #endif
         }
 
-        var didReceiveTalkResponse = false
         var debugSyncedInsertCancelTask: Task<Void, Never>?
         let cleanClientTranscriptOverride = String(clientTranscriptOverride ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let effectiveTranscript = cleanClientTranscriptOverride.isEmpty
-            ? transcript
-            : cleanClientTranscriptOverride
-        let effectivePartialHintForTalk = cleanClientTranscriptOverride.isEmpty
-            ? currentPartialHintForTalk()
-            : String(cleanClientTranscriptOverride.prefix(320))
+        // The displayed transcript belongs to a completed turn. Route using this utterance only.
+        let effectiveTranscript = cleanClientTranscriptOverride.isEmpty ? currentPartialHintForTalk() : cleanClientTranscriptOverride
+        let effectivePartialHintForTalk = String(effectiveTranscript.prefix(320))
+        lastNonEmptyPartialTranscriptHint = ""
 
 #if DEBUG || os(macOS)
         var debugVoiceTurnDidFinalize = false
@@ -6503,16 +6486,20 @@ Write this approved story direction directly into screenplay pages now. Maintain
         }
 
         func playStreamRemainderOrFinish() {
-            syncedPlaybackClock.completeCurrentSegment()
-            guard let remainderURL = pendingStreamRemainderURL else {
-                guard didReceiveTalkResponse else {
-                    HerLog.audio.info("waiting for full streamed audio before finishing playback")
-                    return
-                }
+            let remainderURL: URL
+            switch streamHandoff.nextAction() {
+            case .alreadyHandled:
+                return
+            case .wait:
+                syncedPlaybackClock.completeCurrentSegment()
+                return
+            case .finish:
                 finishPlaybackAndResumeMic()
                 return
+            case let .play(url):
+                remainderURL = url
             }
-            pendingStreamRemainderURL = nil
+            syncedPlaybackClock.completeCurrentSegment()
             do {
                 HerLog.audio.info("playing stream remainder path=\(remainderURL.path, privacy: .public)")
                 try orbAudio.play(url: remainderURL, onFinish: {
@@ -7252,7 +7239,6 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 result = try await requestTalk()
             }
             guard voiceTaskScope.isCurrent(invocationID), BackendAuthClient.requestOwnerIsCurrent(owner) else { return }
-            didReceiveTalkResponse = true
             if let failure = result.recoveredFailure {
                 backendConnectionState = .up
                 backendFailureCount = 0
@@ -7564,15 +7550,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     expectedOwner: owner
                 )
                 guard voiceTaskScope.isCurrent(invocationID), BackendAuthClient.requestOwnerIsCurrent(owner) else { return }
-                if containsStudioOpenCommand(text) {
-                    let turnId = result.commit?.turnId ?? ""
-                    if turnId.isEmpty || turnId != lastAutoOpenedStudioTurnID {
-                        openStudio()
-                        if !turnId.isEmpty {
-                            lastAutoOpenedStudioTurnID = turnId
-                        }
-                    }
-                } else if shouldAutoOpenStudioForScriptIntent(text) {
+                if shouldAutoOpenStudioForScriptIntent(text) {
                     let turnId = result.commit?.turnId ?? ""
                     if turnId.isEmpty || turnId != lastAutoOpenedStudioTurnID {
                         openStudio()
@@ -7596,7 +7574,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
             handleNoteCaptureIfNeeded(result.noteAction, turnId: result.commit?.turnId)
             isThinking = false
             if didStartEarlyStreamPlayback {
-                pendingStreamRemainderURL = result.streamedRemainderURL
+                streamHandoff.responseReady(remainder: result.streamedRemainderURL)
                 if !orbAudio.isSpeaking {
                     playStreamRemainderOrFinish()
                 }
@@ -7730,9 +7708,11 @@ Write this approved story direction directly into screenplay pages now. Maintain
             if didStartEarlyStreamPlayback {
                 orbAudio.stop()
             }
-            voice.markRequestFailed()
-            HerLog.ui.error("playback error=\(failureReason, privacy: .public), resume mic")
-            voice.resumeRecordingIfNeeded()
+            conversationLoopEnabled = false
+            voice.teardown()
+            transientTurnBannerTask?.cancel()
+            transientTurnBannerText = authRequiredMessage ?? BackendTalkRecoveryFailure.retryMessage(for: error)
+            HerLog.ui.error("voice turn failed, tap Talk to retry")
 #if DEBUG || os(macOS)
             finalizeDebugVoiceTurn(status: "error", error: failureReason)
 #endif
@@ -11454,6 +11434,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
 
     @MainActor
     private func startConversationLoopIfNeeded() {
+        transientTurnBannerTask?.cancel()
+        transientTurnBannerText = nil
         conversationLoopEnabled = true
         pendingGoodbyeStopAfterPlayback = false
         if voiceTransportMode == .realtimePreview,
@@ -12374,7 +12356,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
     private func shouldAutoOpenStudioForScriptIntent(_ text: String) -> Bool {
         let normalized = " \(text.lowercased()) "
         guard !normalized.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
-        if containsStudioOpenCommand(text) { return true }
+        if containsStudioOpenCommand(text) || DraftStudioPromptRouter.isDirectOpeningSceneRequest(text) { return true }
 
         let directIntentPhrases = [
             " write a script ",

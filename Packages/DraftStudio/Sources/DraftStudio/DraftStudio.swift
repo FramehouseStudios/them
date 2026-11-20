@@ -23,6 +23,11 @@ public struct DraftStudioPromptSignals: Codable, Hashable, Sendable {
 }
 
 public enum DraftStudioPromptRouter {
+    public static func isDirectOpeningSceneRequest(_ prompt: String) -> Bool {
+        let pattern = #"(?i)\A\s*(?:(?:hey\s+)?clementine[\s,]+)?(?:(?:can|could|would)\s+you\s+)?(?:please\s+)?(?:write|draft)\s+(?:(?:the|an?)\s+)?(?:opening|first)\s+scene\b"#
+        return prompt.range(of: pattern, options: .regularExpression) != nil
+    }
+
     public static func shouldRouteToPage(
         _ prompt: String,
         preferredTarget: DraftStudioPromptTarget = .automatic,
@@ -43,7 +48,7 @@ public enum DraftStudioPromptRouter {
         if signals.isExplicitStoryAdvice {
             return false
         }
-        if signals.isForcedPageWrite || signals.isExplicitPageWrite {
+        if signals.isForcedPageWrite || signals.isExplicitPageWrite || isDirectOpeningSceneRequest(clean) {
             return true
         }
         return false

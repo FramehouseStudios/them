@@ -23,3 +23,22 @@ import Testing
     #expect(DraftStudioPromptRouter.shouldRouteToPage("notes", preferredTarget: .page) == true)
     #expect(DraftStudioPromptRouter.shouldRouteToPage("write it", preferredTarget: .voicePin, signals: DraftStudioPromptSignals(isForcedPageWrite: true)) == false)
 }
+
+@Test(arguments: [
+    "Write the opening scene. Two astronauts discover their spacecraft is a film set.",
+    "Clementine, could you please draft the first scene?",
+    "Please write an opening scene:"
+])
+func openingSceneCommandsRouteToPage(_ prompt: String) {
+    #expect(DraftStudioPromptRouter.shouldRouteToPage(prompt))
+    #expect(!DraftStudioPromptRouter.shouldRouteToPage(prompt, preferredTarget: .voicePin))
+}
+
+@Test(arguments: [
+    "How do I write the opening scene?",
+    "Let's talk about how to draft the first scene.",
+    "Do not write the opening scene."
+])
+func openingSceneDiscussionDoesNotRouteToPage(_ prompt: String) {
+    #expect(!DraftStudioPromptRouter.shouldRouteToPage(prompt))
+}

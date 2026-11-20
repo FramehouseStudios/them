@@ -28,6 +28,15 @@ final class BackendTalkRecoveryFailureTests: XCTestCase {
         XCTAssertFalse(failure.message.contains("saved"))
     }
 
+    func testTerminalTranscriptionFailureUsesSameSafeRetryGuidance() {
+        let message = BackendTalkRecoveryFailure.retryMessage(
+            for: BackendError.stage("stt", "private upstream diagnostic")
+        )
+        XCTAssertTrue(message.contains("couldn't transcribe that recording"))
+        XCTAssertTrue(message.contains("Tap Talk to retry"))
+        XCTAssertFalse(message.contains("private upstream diagnostic"))
+    }
+
     func testUnknownStageNeverEchoesProviderOrPrivateHeaderText() throws {
         for stage in [nil, "unknown-private-stage", "server", " "] as [String?] {
             let failure = try XCTUnwrap(BackendTalkRecoveryFailure(turnStatus: "error_recovered", stage: stage))
