@@ -236,6 +236,11 @@ final class BackendTalkOwnerBoundaryTests: XCTestCase {
     }
 
     func testOptedInVoiceTurnAcceptsCompleteAuthoritativePageWithoutAudio() async throws {
+        try await assertPageWithoutAudio(target: "page", expectFinalRouting: false)
+        try await assertPageWithoutAudio(target: "", expectFinalRouting: true)
+    }
+
+    private func assertPageWithoutAudio(target: String, expectFinalRouting: Bool) async throws {
         let text = "INT. SPACECRAFT - NIGHT\n\n" + String(repeating: "Café. A red lamp flickers.\n", count: 300)
         let output = BackendTalkScreenplayOutput(
             target: "page", format: "fountain", source: "test", quality: nil, text: text, lines: []
@@ -244,6 +249,7 @@ final class BackendTalkOwnerBoundaryTests: XCTestCase {
         let fixture = TalkOwnerFixture(handler: { request, _, _ in
             if request.url?.path == "/health" { return .healthy }
             XCTAssertEqual(request.value(forHTTPHeaderField: "X-Talk-Accept-Page-Without-Audio"), "1")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-Talk-Route-From-Final-Transcript"), expectFinalRouting ? "1" : nil)
             return TalkOwnerHTTPStub(status: 200, headers: [
                 "Content-Type": "application/json",
                 "x-turn-status": "responded",
@@ -258,7 +264,7 @@ final class BackendTalkOwnerBoundaryTests: XCTestCase {
             fileURL: URL(fileURLWithPath: "/unused-unit-recording.wav"),
             fileDataOverride: TalkOwnerHTTPStub.wav,
             studioMetadata: BackendStudioThreadCommitMetadata(
-                screenplayProjectId: "project", screenplayDocumentRevisionId: "", screenplayTarget: "page",
+                screenplayProjectId: "project", screenplayDocumentRevisionId: "", screenplayTarget: target,
                 screenplayPromptSource: "voice", screenplayWriteId: "", screenplayAnchorLine: nil,
                 screenplayAnchorEndLine: nil, screenplayInsertionMode: "", screenplayAnchorSceneLabel: "",
                 screenplayAnchorDraftSceneId: "", screenplayAnchorOutlineSceneId: "", screenplayAnchorOutlineBeatIds: [],

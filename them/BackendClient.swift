@@ -4341,7 +4341,9 @@ final class BackendClient {
         request.httpMethod = "POST"
         request.timeoutInterval = requestTimeout
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-        if studioMetadata?.screenplayTarget == "page" {
+        let routesFromFinalVoice = studioMetadata?.screenplayPromptSource == "voice" && studioMetadata?.screenplayTarget == ""
+        if routesFromFinalVoice { request.setValue("1", forHTTPHeaderField: "X-Talk-Route-From-Final-Transcript") }
+        if routesFromFinalVoice || studioMetadata?.screenplayTarget == "page" {
             request.setValue("1", forHTTPHeaderField: "X-Talk-Accept-Page-Without-Audio")
         }
         if preferStreamedTalkAudio && !forceNoStreamAudio {

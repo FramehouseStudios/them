@@ -2735,12 +2735,11 @@ struct RootExperienceView: View {
         }
         voice.onSpeechProgressSnapshot = { audioSnapshot, partial, speechAge in
             let cleaned = partial.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !cleaned.isEmpty else { return }
-            let screenplayModeHint = isStudioSurfaceActive || shouldAutoOpenStudioForScriptIntent(cleaned)
+            guard !cleaned.isEmpty, !isStudioSurfaceActive, !shouldAutoOpenStudioForScriptIntent(cleaned) else { return }
             let speculativePreparedPrompt = buildPreparedTurnPrompt(
                 confirmedTranscript: cleaned,
                 partialHint: cleaned,
-                isScreenplayModeOverride: screenplayModeHint,
+                isScreenplayModeOverride: false,
                 turnKeyNamespace: "speculative"
             )
             speculativeTalk.prepareIfNeeded(
@@ -6711,6 +6710,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
         let talkScreenplayGenerationTranscript: String? = {
             guard preparedPrompt.shouldWriteToPage else { return nil }
             let confirmedContext = confirmedStudioPageWriteContext(for: preparedPrompt.directorText)
+            // Use the server’s full transcript unless the writer approved a separate story direction.
+            guard !cleanClientTranscriptOverride.isEmpty || confirmedContext != nil else { return nil }
             let renderTranscript = studioRenderTranscript(
                 for: preparedPrompt.directorText,
                 confirmedContext: confirmedContext,
@@ -7276,8 +7277,9 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 return
             }
             let pageArrivedWithoutAudio = result.audioURL == nil
-            if pageArrivedWithoutAudio && (!isStudioSurfaceActive || requestedVoiceProject != studioVoiceProjectContext ||
-                (result.screenplayTrace.projectId ?? "") != requestedVoiceProject.projectID) {
+            let serverRoutedPage = !preparedPrompt.shouldWriteToPage && result.screenplayOutput?.writesToPage == true
+            if (pageArrivedWithoutAudio || serverRoutedPage) && (!isStudioSurfaceActive ||
+                requestedVoiceProject != studioVoiceProjectContext || (result.screenplayTrace.projectId ?? "") != requestedVoiceProject.projectID) {
                 voice.markAssistantPlaybackEnded()
                 voice.resumeRecordingIfNeeded()
                 showStudioCommandNotice("The project changed. The scene wasn’t inserted.")
@@ -7433,11 +7435,13 @@ Write this approved story direction directly into screenplay pages now. Maintain
                     screenplayDraftBridge.failSyncedVoiceTurn(reason: "Missing authoritative screenplay sync payload.")
                 }
             }
+            let pageTarget = preparedPrompt.shouldWriteToPage || serverRoutedPage
+            let resultMemoryDomain = serverRoutedPage ? StudioMemoryDomain.project : preparedPrompt.memoryDomain
             let talkInsertedScreenplayText = applyLiveScreenplayPreview(
                 from: result,
                 promptSource: .voice,
-                memoryDomainOverride: preparedPrompt.memoryDomain,
-                preferredTargetOverride: preparedPrompt.shouldWriteToPage ? .page : .voicePin,
+                memoryDomainOverride: resultMemoryDomain,
+                preferredTargetOverride: pageTarget ? .page : .voicePin,
                 skipCommitIfMatchesActiveText: didStartSyncedVoiceInsert
                     ? screenplayDraftBridge.syncedVoiceTurnState.authoritativeText
                     : nil,
@@ -7506,12 +7510,12 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 insertedText: effectiveInsertedScreenplayText,
                 promptSource: .voice,
                 promptTextOverride: preparedPrompt.directorText,
-                promptTargetOverride: preparedPrompt.shouldWriteToPage ? .page : .voicePin
+                promptTargetOverride: pageTarget ? .page : .voicePin
             )
             await annotateStudioTalkTurnIfNeeded(
                 result: result,
                 promptSource: .voice,
-                targetOverride: preparedPrompt.shouldWriteToPage ? .page : .voicePin,
+                targetOverride: pageTarget ? .page : .voicePin,
                 insertedTextOverride: effectiveInsertedScreenplayText,
                 expectedOwner: owner
             )
@@ -7523,8 +7527,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 recordStudioConversationMemoryIfNeeded(
                     user: confirmedTranscript,
                     assistant: confirmedReply,
-                    memoryDomain: preparedPrompt.memoryDomain,
-                    isScreenplayMode: preparedPrompt.useScreenplayMode,
+                    memoryDomain: resultMemoryDomain,
+                    isScreenplayMode: preparedPrompt.useScreenplayMode || serverRoutedPage,
                     source: .voice
                 )
                 showReplyEcho(user: confirmedTranscript, assistant: confirmedReply)
@@ -7565,8 +7569,8 @@ Write this approved story direction directly into screenplay pages now. Maintain
                 }
                 await syncEvolutionForMemoryDomain(
                     userMessage: text,
-                    memoryDomain: preparedPrompt.memoryDomain,
-                    isScreenplayMode: preparedPrompt.useScreenplayMode,
+                    memoryDomain: resultMemoryDomain,
+                    isScreenplayMode: preparedPrompt.useScreenplayMode || serverRoutedPage,
                     expectedOwner: owner
                 )
                 guard voiceTaskScope.isCurrent(invocationID), BackendAuthClient.requestOwnerIsCurrent(owner) else { return }
@@ -11869,7 +11873,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
     private func initialStudioTalkMetadata(from preparedPrompt: PreparedTurnPrompt) -> BackendStudioThreadCommitMetadata? {
         guard preparedPrompt.useScreenplayMode else { return nil }
         let projectId = currentStudioProjectID
-        let target = preparedPrompt.shouldWriteToPage ? "page" : "voice_pin"
+        let target = preparedPrompt.shouldWriteToPage ? "page" : (isStudioSurfaceActive ? "" : "voice_pin")
         let anchorMetadata = preparedPrompt.shouldWriteToPage
             ? resolvedStudioDialogueAnchorMetadata()
             : nil
