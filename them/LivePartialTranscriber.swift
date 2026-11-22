@@ -2,7 +2,8 @@ import Foundation
 import AVFoundation
 import Speech
 
-final class LivePartialTranscriber {
+// Recognition state lives on the private serial queue. UI callbacks run on MainActor.
+nonisolated final class LivePartialTranscriber: @unchecked Sendable {
     private let queue = DispatchQueue(label: "io.them.them.partial-transcriber")
     private let cadenceSeconds: TimeInterval = 0.14
     private let minCharsToEmit = 3
@@ -14,7 +15,7 @@ final class LivePartialTranscriber {
     private var lastEmitAt: Date = .distantPast
     private var lastEmittedText = ""
 
-    var onPartial: ((String) -> Void)?
+    @MainActor var onPartial: ((String) -> Void)?
 
     func requestAuthorizationIfNeeded() {
         queue.async { [weak self] in
