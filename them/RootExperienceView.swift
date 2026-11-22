@@ -12534,13 +12534,7 @@ Write this approved story direction directly into screenplay pages now. Maintain
         orbAudio.stop()
         promptSpeaker.stop()
         typedReplySpeaker.cancel()
-        voice.markRequestFailed()
-        if voiceTransportMode == .realtimePreview {
-            voice.stopRecording()
-            voice.teardown()
-            return
-        }
-        voice.resumeRecordingIfNeeded()
+        voice.teardown()
     }
 }
 

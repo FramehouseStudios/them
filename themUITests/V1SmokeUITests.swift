@@ -20,6 +20,33 @@ final class V1SmokeUITests: XCTestCase {
         studio.terminate()
     }
 
+    func test_studio_stop_releases_standard_microphone_and_allows_rearming() throws {
+#if os(iOS)
+        let app = launchApp(openStudio: true)
+        defer { app.terminate() }
+
+        let talk = app.buttons["studio.compact.talk"]
+        let ready = NSPredicate(format: "label == %@", "Start talking")
+        let listening = NSPredicate(format: "label == %@", "Stop talking")
+        func waitFor(_ state: NSPredicate) -> Bool {
+            XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: state, object: talk)], timeout: 8) == .completed
+        }
+
+        XCTAssertTrue(talk.waitForExistence(timeout: 10))
+        XCTAssertTrue(waitFor(ready))
+        talk.tap()
+        XCTAssertTrue(waitFor(listening), "Studio did not arm the microphone.")
+        talk.tap()
+        XCTAssertTrue(waitFor(ready), "Stop left the microphone armed.")
+        talk.tap()
+        XCTAssertTrue(waitFor(listening), "Studio could not start a fresh microphone session.")
+        talk.tap()
+        XCTAssertTrue(waitFor(ready))
+#else
+        throw XCTSkip("The compact microphone control is an iPhone workflow.")
+#endif
+    }
+
     func test_studio_page_accepts_complete_direct_typing() throws {
 #if os(iOS)
         let app = launchApp(openStudio: true)
