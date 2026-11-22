@@ -3175,14 +3175,14 @@ struct RootExperienceView: View {
         AnyView(
             view
                 .alert(item: $voice.micPermissionNotice) { notice in
-                    Alert(
-                        title: Text(notice.title),
-                        message: Text(notice.message),
-                        primaryButton: .default(Text("Open Settings")) {
-                            openMicrophoneSettings()
-                        },
-                        secondaryButton: .cancel()
-                    )
+                    let title = Text(notice.title)
+                    let message = Text(notice.message)
+                    if notice.offersSettings {
+                        return Alert(title: title, message: message,
+                            primaryButton: .default(Text("Open Settings"), action: openMicrophoneSettings),
+                            secondaryButton: .cancel())
+                    }
+                    return Alert(title: title, message: message, dismissButton: .default(Text("OK")))
                 }
                 .confirmationDialog(
                     "Report a Problem",
