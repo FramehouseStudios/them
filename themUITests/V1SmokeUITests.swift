@@ -35,6 +35,16 @@ final class V1SmokeUITests: XCTestCase {
         XCTAssertTrue(talk.waitForExistence(timeout: 10))
         XCTAssertTrue(waitFor(ready))
         talk.tap()
+
+        // An erased simulator presents the first-use microphone permission prompt.
+        let microphonePrompt = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+            .alerts.matching(NSPredicate(format: "label CONTAINS[c] %@", "microphone")).firstMatch
+        if microphonePrompt.waitForExistence(timeout: 5) {
+            let allow = microphonePrompt.buttons["Allow"]
+            XCTAssertTrue(allow.exists, "The microphone permission prompt did not offer Allow.")
+            allow.tap()
+        }
+
         XCTAssertTrue(waitFor(listening), "Studio did not arm the microphone.")
         talk.tap()
         XCTAssertTrue(waitFor(ready), "Stop left the microphone armed.")
