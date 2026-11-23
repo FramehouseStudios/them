@@ -3612,7 +3612,11 @@ final class V1SmokeUITests: XCTestCase {
     ) -> Bool {
         guard waitForHittability(of: element, timeout: max(1, timeout / 4)),
               let initial = writerLoopSwitchState(element), initial != expected else { return false }
-        element.tap()
+        // A centered tap on the visible track left the switch on in the hosted
+        // iPhone run. Slide its current thumb once, then require the new value.
+        let from = element.coordinate(withNormalizedOffset: CGVector(dx: initial ? 0.76 : 0.24, dy: 0.5))
+        let to = element.coordinate(withNormalizedOffset: CGVector(dx: expected ? 0.76 : 0.24, dy: 0.5))
+        from.press(forDuration: 0.05, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.12)
         return waitForWriterLoopSwitch(element, toBeOn: expected, timeout: timeout)
     }
 
