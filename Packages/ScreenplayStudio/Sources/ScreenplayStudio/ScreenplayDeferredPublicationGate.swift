@@ -28,7 +28,7 @@ public enum ScreenplayDeferredPublicationGate {
         activeInsertionRequestID: UUID?
     ) -> Bool {
         guard let requirement = requirements[generation] else { return true }
-        return currentText == requirement.text && requestIsCurrent(
+        return currentText.utf8.elementsEqual(requirement.text.utf8) && requestIsCurrent(
             requirement.requestID,
             lastAppliedInsertionID: lastAppliedInsertionID,
             activeInsertionRequestID: activeInsertionRequestID

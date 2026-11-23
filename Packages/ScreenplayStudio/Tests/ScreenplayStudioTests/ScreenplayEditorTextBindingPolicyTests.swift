@@ -81,4 +81,29 @@ final class ScreenplayEditorTextBindingPolicyTests: XCTestCase {
             documentDidChange: false
         ))
     }
+    func testUnicodeNormalFormsRemainDistinctNativeAcknowledgements() {
+        let composed = "Caf\u{00e9}"
+        let decomposed = "Cafe\u{0301}"
+        var pending = ScreenplayEditorTextBindingPolicy.PendingPublications()
+        pending.record(composed)
+        pending.record(decomposed)
+        XCTAssertTrue(pending.acknowledge(composed))
+        XCTAssertTrue(pending.acknowledge(decomposed))
+    }
+
+    func testCanonicalStringEqualityCannotHideAByteChangingModelReplacement() {
+        XCTAssertTrue(ScreenplayEditorTextBindingPolicy.shouldApplyModelText(
+            incomingText: "Cafe\u{0301}", currentEditorText: "Caf\u{00e9}",
+            lastRenderedModelText: "Caf\u{00e9}", isEditorFocused: true,
+            documentDidChange: false
+        ))
+    }
+
+    func testDeferredGenerationRequiresExactBytesRatherThanUnicodeEquivalence() {
+        XCTAssertFalse(ScreenplayDeferredPublicationGate.acceptsTextGeneration(
+            1, requirements: [1: ScreenplayDeferredTextPublicationRequirement(text: "Caf\u{00e9}", requestID: nil)],
+            currentText: "Cafe\u{0301}", lastAppliedInsertionID: nil, activeInsertionRequestID: nil
+        ))
+    }
+
 }

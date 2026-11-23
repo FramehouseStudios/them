@@ -254,8 +254,12 @@ struct ScreenplayDraftSaveIntentPolicy {
 }
 
 struct ScreenplayDraftSaveCompletionPolicy {
+    nonisolated static func hasSameBytes(_ lhs: String, _ rhs: String) -> Bool {
+        lhs.utf8.elementsEqual(rhs.utf8)
+    }
+
     static func hasUnsavedChanges(currentDraft: String, savedDraft: String) -> Bool {
-        normalizedDraft(currentDraft) != normalizedDraft(savedDraft)
+        !hasSameBytes(normalizedDraft(currentDraft), normalizedDraft(savedDraft))
     }
 
     private static func normalizedDraft(_ draft: String) -> String {
@@ -278,6 +282,15 @@ struct ScreenplayDraftIntegrityFingerprint {
 }
 
 struct ScreenplayDraftSaveCoalescingPolicy {
+    /// Only an already acknowledged passive save may be skipped.
+    static func isSatisfiedAutosave(draft: String, source: String, notes: String,
+        baseVersion: String, confirmedDraft: String, confirmedVersion: String) -> Bool {
+        let confirmed = confirmedVersion.trimmingCharacters(in: .whitespacesAndNewlines)
+        return source == "studio_autosave" && notes.isEmpty && !confirmed.isEmpty &&
+            baseVersion.trimmingCharacters(in: .whitespacesAndNewlines) == confirmed &&
+            ScreenplayDraftSaveCompletionPolicy.hasSameBytes(draft, confirmedDraft)
+    }
+
     static func shouldCoalesce(
         activeDraft: String,
         activeSource: String,
