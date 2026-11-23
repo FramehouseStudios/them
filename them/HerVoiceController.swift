@@ -430,6 +430,7 @@ struct MicPermissionNotice: Identifiable {
     let id = UUID()
     let title: String
     let message: String
+    let offersSettings: Bool
 }
 
 @MainActor
@@ -457,8 +458,13 @@ final class HerVoiceController: ObservableObject {
     @Published var micPermissionNotice: MicPermissionNotice?
 
     // MARK: - Audio
-    private let engine = AVAudioEngine()
-    private var isEngineRunning = false
+    typealias MicrophonePermissionRequest = (@escaping (AVAuthorizationStatus) -> Void) -> Void
+    private enum CaptureStartupError: Error { case invalidInputFormat }
+
+    private var engine: AVAudioEngine?
+    private let requestMicrophonePermission: MicrophonePermissionRequest
+    private let prepareListeningSession: () throws -> Void
+    private var pendingArmRequestID: UUID?
     private var isInputTapInstalled = false
 
     // Playback hook (use your existing player)
@@ -566,7 +572,12 @@ final class HerVoiceController: ObservableObject {
         )
     }
 
-    init() {
+    init(
+        requestMicrophonePermission: MicrophonePermissionRequest? = nil,
+        prepareListeningSession: (() throws -> Void)? = nil
+    ) {
+        self.requestMicrophonePermission = requestMicrophonePermission ?? Self.requestMicPermission
+        self.prepareListeningSession = prepareListeningSession ?? Self.prepareListeningSessionIfSupported
         partialTranscriber.onPartial = { [weak self] text in
             guard let self else { return }
             self.partialTranscript = text
@@ -577,23 +588,23 @@ final class HerVoiceController: ObservableObject {
     // MARK: - Public API
     func armOnce() {
         HerLog.mic.info("MIC arm() called")
-        guard mode == .idle else { return }
-        partialTranscriber.requestAuthorizationIfNeeded()
-        requestMicPermission { [weak self] granted in
-            guard let self else { return }
-            guard granted else {
-                Task { @MainActor in
-                    self.mode = .idle
-                }
+        guard mode == .idle, pendingArmRequestID == nil else { return }
+        micPermissionNotice = nil
+        let requestID = UUID()
+        pendingArmRequestID = requestID
+        requestMicrophonePermission { [weak self] status in
+            guard let self, self.pendingArmRequestID == requestID else { return }
+            self.pendingArmRequestID = nil
+            guard self.mode == .idle else { return }
+            guard status == .authorized else {
+                self.presentMicPermissionNotice(restricted: status == .restricted)
                 return
             }
-            Task { @MainActor in
-                self.mode = .armedListening
-                self.resetAdaptiveVAD()
-                withAnimation(.easeInOut(duration: 0.35)) {
-                    self.showSpaceHint = false
-                }
-                self.startContinuousListening()
+            self.resetAdaptiveVAD()
+            guard self.startContinuousListening() else { return }
+            self.mode = .armedListening
+            withAnimation(.easeInOut(duration: 0.35)) {
+                self.showSpaceHint = false
             }
         }
     }
@@ -648,6 +659,7 @@ final class HerVoiceController: ObservableObject {
 
     func stopRecording() {
         HerLog.mic.info("stopRecording requested")
+        pendingArmRequestID = nil
         stopAudioEngineIfNeeded()
         partialTranscriber.stop(resetText: true)
         partialLastChangedAt = .distantPast
@@ -655,7 +667,7 @@ final class HerVoiceController: ObservableObject {
         debugPartialStableSeconds = 0
         micLevel = 0
         isSpeechDetected = false
-        let engineRunning = isEngineRunning
+        let engineRunning = engine?.isRunning == true
         HerLog.mic.info("stopRecording complete engineRunning=\(engineRunning)")
         dynamicEndSilenceSeconds = baseEndSilenceSeconds * configuredEndSilenceScale
         silenceQualifiedSince = nil
@@ -664,10 +676,11 @@ final class HerVoiceController: ObservableObject {
     func resumeRecordingIfNeeded() {
         guard mode != .idle, mode != .muted else { return }
         HerLog.mic.info("resume requested mode=\(String(describing: self.mode), privacy: .public)")
-        startContinuousListening()
+        _ = startContinuousListening()
     }
 
     func teardown() {
+        pendingArmRequestID = nil
         stopAudioEngineIfNeeded()
         partialTranscriber.stop(resetText: true)
         partialLastChangedAt = .distantPast
@@ -675,6 +688,7 @@ final class HerVoiceController: ObservableObject {
         debugPartialStableSeconds = 0
         mode = .idle
         showSpaceHint = true
+        micLevel = 0
         isSpeechDetected = false
         cooldownUntil = .distantPast
         hasPendingUtterance = false
@@ -691,29 +705,16 @@ final class HerVoiceController: ObservableObject {
     }
 
     // MARK: - Mic permission
-    private func requestMicPermission(_ done: @escaping (Bool) -> Void) {
-        switch AVCaptureDevice.authorizationStatus(for: .audio) {
-        case .authorized:
-            done(true)
-        case .notDetermined:
-            AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    if !granted {
-                        self.presentMicPermissionNotice(restricted: false)
-                    }
-                    done(granted)
-                }
+    private static func requestMicPermission(_ done: @escaping (AVAuthorizationStatus) -> Void) {
+        let status = AVCaptureDevice.authorizationStatus(for: .audio)
+        guard status == .notDetermined else {
+            done(status)
+            return
+        }
+        AVCaptureDevice.requestAccess(for: .audio) { granted in
+            Task { @MainActor in
+                done(granted ? .authorized : .denied)
             }
-        case .restricted:
-            presentMicPermissionNotice(restricted: true)
-            done(false)
-        case .denied:
-            presentMicPermissionNotice(restricted: false)
-            done(false)
-        @unknown default:
-            presentMicPermissionNotice(restricted: false)
-            done(false)
         }
     }
 
@@ -722,17 +723,40 @@ final class HerVoiceController: ObservableObject {
         let message = restricted
             ? "Microphone access is restricted on this device. Check system restrictions and privacy settings to enable voice conversations."
             : "Microphone access is off. Enable it in Settings > Privacy > Microphone to talk with io.them."
-        micPermissionNotice = MicPermissionNotice(title: title, message: message)
+        micPermissionNotice = MicPermissionNotice(title: title, message: message, offersSettings: true)
         HerLog.mic.error("mic permission denied restricted=\(restricted)")
     }
 
     // MARK: - Engine
-    private func startContinuousListening() {
-        guard !isEngineRunning else { return }
-        prepareListeningSessionIfSupported()
+    private func startContinuousListening() -> Bool {
+        if engine?.isRunning == true, isInputTapInstalled { return true }
+        do {
+            try startAudioCapture()
+            HerLog.mic.info("MIC engine started")
+            return true
+        } catch {
+            teardown()
+            micPermissionNotice = MicPermissionNotice(
+                title: "Microphone Unavailable",
+                message: "Check your microphone or audio connection, then tap Talk to try again.",
+                offersSettings: false
+            )
+            let code = (error as NSError).code
+            HerLog.mic.error("MIC capture startup failed code=\(code, privacy: .public)")
+            return false
+        }
+    }
 
+    private func startAudioCapture() throws {
+        try prepareListeningSession()
+
+        let engine = self.engine ?? AVAudioEngine()
+        self.engine = engine
         let input = engine.inputNode
         let inputFormat = input.outputFormat(forBus: 0)
+        guard inputFormat.sampleRate.isFinite, inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
+            throw CaptureStartupError.invalidInputFormat
+        }
 
         sampleRate = inputFormat.sampleRate
         channels = inputFormat.channelCount
@@ -741,7 +765,6 @@ final class HerVoiceController: ObservableObject {
             "MIC input format sr=\(inputFormat.sampleRate) ch=\(inputFormat.channelCount) format=\(inputFormat.commonFormat.rawValue) interleaved=\(inputFormat.isInterleaved)"
         )
 
-        partialTranscriber.start()
         let partialTranscriber = self.partialTranscriber
         input.removeTap(onBus: 0)
         isInputTapInstalled = false
@@ -782,54 +805,35 @@ final class HerVoiceController: ObservableObject {
         }
         isInputTapInstalled = true
 
-        do {
-            try engine.start()
-            isEngineRunning = true
-            HerLog.mic.info("MIC engine started")
-        } catch {
-            stopAudioEngineIfNeeded()
-            partialTranscriber.stop(resetText: true)
-            print("Audio engine failed to start: \(error)")
-        }
+        try engine.start()
+        partialTranscriber.requestAuthorizationIfNeeded()
+        partialTranscriber.start()
     }
 
     private func stopAudioEngineIfNeeded() {
+        guard let engine else { return }
         // Accessing AVAudioEngine.inputNode lazily binds the Mac input device.
         // Do not create that node while dismissing an idle voice session.
         if isInputTapInstalled {
             engine.inputNode.removeTap(onBus: 0)
             isInputTapInstalled = false
         }
-        if isEngineRunning {
-            engine.stop()
-            isEngineRunning = false
-        }
+        if engine.isRunning { engine.stop() }
     }
 
-    private func prepareListeningSessionIfSupported() {
+    private static func prepareListeningSessionIfSupported() throws {
         #if os(iOS)
-        do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(
-                .playAndRecord,
-                mode: .voiceChat,
-                options: [.defaultToSpeaker, .allowBluetoothHFP]
-            )
-            try session.setActive(true)
+        let session = AVAudioSession.sharedInstance()
+        try session.setCategory(
+            .playAndRecord,
+            mode: .voiceChat,
+            options: [.defaultToSpeaker, .allowBluetoothHFP]
+        )
+        try session.setActive(true)
 
-            let inputs = session.currentRoute.inputs
-                .map { "\($0.portType.rawValue):\($0.portName)" }
-                .joined(separator: ",")
-            let outputs = session.currentRoute.outputs
-                .map { "\($0.portType.rawValue):\($0.portName)" }
-                .joined(separator: ",")
-            let volume = session.outputVolume
-            HerLog.audio.info(
-                "listening session inputs=\(inputs, privacy: .public) outputs=\(outputs, privacy: .public) volume=\(volume)"
-            )
-        } catch {
-            HerLog.audio.error("listening session error=\(error.localizedDescription, privacy: .public)")
-        }
+        let inputs = session.currentRoute.inputs.map { $0.portType.rawValue }.joined(separator: ",")
+        let outputs = session.currentRoute.outputs.map { $0.portType.rawValue }.joined(separator: ",")
+        HerLog.audio.info("listening session inputs=\(inputs, privacy: .public) outputs=\(outputs, privacy: .public)")
         #endif
     }
 
