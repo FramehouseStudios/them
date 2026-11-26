@@ -197,7 +197,13 @@ actor ScreenplayDraftSaveOutbox {
         }
         entries[index].status = .inflight
         entries[index].updatedAt = nowSeconds
-        try persist()
+        do {
+            try persist()
+        } catch {
+            // This claim never reached disk or the sender. Keep it eligible.
+            entries[index] = entry
+            throw error
+        }
         publishSnapshot()
         return entries[index]
     }
