@@ -185,26 +185,30 @@ actor ScreenplayDraftSaveOutbox {
         let cleanProjectId = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanOwnerUserId = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
         let nowSeconds = now.timeIntervalSince1970
-        guard let index = entries.firstIndex(where: {
+        guard let first = entries.firstIndex(where: {
             $0.projectId == cleanProjectId && $0.ownerUserId == cleanOwnerUserId
         }) else {
             return nil
+        }
+        let index: Int
+        if entries[first].status == .parked && entries[first].lastError == Self.conflictReason {
+            // A captured Keep Mine remains the writer's choice after relaunch;
+            // older parked copies themselves must never become runnable again.
+            guard let choice = entries.firstIndex(where: {
+                $0.projectId == cleanProjectId && $0.ownerUserId == cleanOwnerUserId
+                    && $0.status == .pending && $0.source == "studio_conflict_resolve"
+            }) else { return nil }
+            index = choice
+        } else {
+            index = first
         }
         let entry = entries[index]
         guard entry.status == .pending,
               force || entry.nextAttemptAt <= nowSeconds else {
             return nil
         }
-        entries[index].status = .inflight
-        entries[index].updatedAt = nowSeconds
-        do {
-            try persist()
-        } catch {
-            // This claim never reached disk or the sender. Keep it eligible.
-            entries[index] = entry
-            throw error
-        }
-        publishSnapshot()
+        guard try markInflight(id: entry.id, now: now,
+            resolvingConflict: entry.source == "studio_conflict_resolve") else { return nil }
         return entries[index]
     }
 
@@ -219,14 +223,26 @@ actor ScreenplayDraftSaveOutbox {
         }
     }
 
-    func markInflight(id: String, now: Date = Date()) throws {
+    @discardableResult
+    func markInflight(id: String, now: Date = Date(), resolvingConflict: Bool = false) throws -> Bool {
         try loadIfNeeded()
-        guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
-        guard entries[index].status != .parked || entries[index].lastError != Self.conflictReason else { return }
-        entries[index].status = .inflight
+        guard let index = entries.firstIndex(where: { $0.id == id }) else { return false }
+        let entry = entries[index]
+        guard entry.status != .parked || entry.lastError != Self.conflictReason else { return false }
+        let needsChoice = !resolvingConflict && entries.contains {
+            $0.projectId == entry.projectId && $0.ownerUserId == entry.ownerUserId
+                && $0.status == .parked && $0.lastError == Self.conflictReason
+        }
+        let previous = entries
+        entries[index].status = needsChoice ? .parked : .inflight
         entries[index].updatedAt = now.timeIntervalSince1970
-        try persist()
+        if needsChoice {
+            entries[index].lastError = Self.conflictReason
+            entries[index].nextAttemptAt = 0
+        }
+        do { try persist() } catch { entries = previous; throw error }
         publishSnapshot()
+        return !needsChoice
     }
 
     @discardableResult
@@ -337,7 +353,12 @@ actor ScreenplayDraftSaveOutbox {
     }
 
     /// Retain every immutable draft until the writer resolves this chain.
-    func retainConflict(projectId: String, ownerUserId: String, now: Date = Date()) throws -> ScreenplayDraftSaveOutboxEntry? {
+    func retainConflict(
+        projectId: String,
+        ownerUserId: String,
+        now: Date = Date(),
+        excludingServerDraft: String? = nil
+    ) throws -> ScreenplayDraftSaveOutboxEntry? {
         try loadIfNeeded()
         let previous = entries
         let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -350,7 +371,10 @@ actor ScreenplayDraftSaveOutbox {
         }
         do { try persist() } catch { entries = previous; throw error }
         publishSnapshot()
-        return entries.last { $0.projectId == project && $0.ownerUserId == owner }
+        return entries.last { entry in
+            entry.projectId == project && entry.ownerUserId == owner &&
+                !(excludingServerDraft.map { entry.draft.utf8.elementsEqual($0.utf8) } ?? false)
+        }
     }
 
     /// Only an explicit Load Server choice discards conflicts already present at that choice.
@@ -418,6 +442,17 @@ actor ScreenplayDraftSaveOutbox {
     func entriesForTesting() throws -> [ScreenplayDraftSaveOutboxEntry] {
         try loadIfNeeded()
         return entries
+    }
+
+    /// Preserve a captured choice; otherwise newer held words cannot replace the original conflict base.
+    func conflictAuthorityEntry(projectId: String, ownerUserId: String) throws -> ScreenplayDraftSaveOutboxEntry? {
+        try loadIfNeeded()
+        let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let owner = ownerUserId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let scoped = entries.filter { $0.projectId == project && $0.ownerUserId == owner }
+        return scoped.first {
+            ($0.status == .pending || $0.status == .inflight) && $0.source == "studio_conflict_resolve"
+        } ?? scoped.first { $0.status == .parked && $0.lastError == Self.conflictReason }
     }
 
     func pendingEntry(projectId: String, ownerUserId: String) throws -> ScreenplayDraftSaveOutboxEntry? {
