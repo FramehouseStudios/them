@@ -826,6 +826,57 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
     }
 
     @MainActor
+    func testConflictRestoresWriterWhenNewestQueuedCopyMatchesCompetingServerDraft() async throws {
+        let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let local = "  INT. ROOM - NIGHT\r\n\r\nWriter words. \r\n"
+        let server = "INT. ROOM - NIGHT\n\nThe collaborator leaves."
+        try await queue.enqueue(replacingOwner(of: makeEntry(id: "writer", draft: local, createdAt: 100), with: owner))
+        try await queue.enqueue(replacingOwner(of: makeEntry(id: "server-preview", draft: server, createdAt: 101), with: owner))
+        let suite = "them.conflict-handler.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recovery = ScreenplayLocalDraftRecoveryStore(defaults: defaults, key: "recovery")
+        let model = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery, draftSaveOutbox: queue)
+        model.selectedProjectID = "project-1"
+        model.applyStructuralUITestDraft(server, versionID: "remote")
+        let conflict = ScreenplayStudioViewModel.SaveConflictState(projectId: "project-1",
+            baseVersionId: "server-v1", serverVersionId: "remote", serverDraft: server,
+            serverDraftExcerpt: server, serverUpdatedAt: 1)
+
+        await model.handleDraftSaveConflict(conflict, ownerUserId: owner)
+
+        XCTAssertEqual(Array(model.fountainDraft.utf8), Array(local.utf8))
+        XCTAssertTrue(model.hasUnsavedDraftChanges)
+        XCTAssertEqual(model.conflictState, conflict)
+        XCTAssertEqual(model.parkedDraftSaveCount, 2)
+        XCTAssertEqual(recovery.payloads(ownerUserId: owner)["project-1"]?["draft"] as? String, local)
+
+        let relaunched = ScreenplayStudioViewModel(localDraftRecoveryStore: recovery, draftSaveOutbox: queue)
+        relaunched.selectedProjectID = "project-1"
+        let data = try JSONSerialization.data(withJSONObject: [
+            "id": "project-1", "title": "Script", "activeVersionId": "remote",
+            "versions": [["id": "remote", "draft": server]]
+        ])
+        let project = try JSONDecoder().decode(BackendScreenplayProjectSummary.self, from: data)
+        let hydrated = await relaunched.hydrateDraftRestoringQueuedSaves(from: project)
+        XCTAssertTrue(hydrated)
+        XCTAssertEqual(Array(relaunched.fountainDraft.utf8), Array(local.utf8))
+        XCTAssertTrue(relaunched.hasUnsavedDraftChanges)
+        XCTAssertEqual(relaunched.conflictState?.serverVersionId, "remote")
+
+        let newerLocal = local + "\nA trailing writer line. "
+        model.applyStructuralUITestDraft(server, versionID: "remote")
+        recovery.save(ownerUserId: owner, projectId: "project-1", draft: newerLocal,
+                      baseVersionId: "local-base", dirty: true, savedAt: 200)
+        await model.handleDraftSaveConflict(conflict, ownerUserId: owner)
+        await model.handleDraftDebouncedChange(newerLocal)
+        XCTAssertEqual(Array(model.fountainDraft.utf8), Array(newerLocal.utf8))
+        XCTAssertEqual(model.latestVersionID, "local-base")
+        XCTAssertEqual(recovery.dirtyOrdinarySnapshot(ownerUserId: owner, projectId: "project-1")?.baseVersionId, "local-base")
+    }
+
+    @MainActor
     func testRealConflictHandlerKeepsNewerEditorWorkAndAllSubmittedCopies() async throws {
         let owner = BackendAuthClient.currentAuthSessionState().user?.userId ?? ""
         let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)

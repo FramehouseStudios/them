@@ -337,7 +337,12 @@ actor ScreenplayDraftSaveOutbox {
     }
 
     /// Retain every immutable draft until the writer resolves this chain.
-    func retainConflict(projectId: String, ownerUserId: String, now: Date = Date()) throws -> ScreenplayDraftSaveOutboxEntry? {
+    func retainConflict(
+        projectId: String,
+        ownerUserId: String,
+        now: Date = Date(),
+        excludingServerDraft: String? = nil
+    ) throws -> ScreenplayDraftSaveOutboxEntry? {
         try loadIfNeeded()
         let previous = entries
         let project = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -350,7 +355,10 @@ actor ScreenplayDraftSaveOutbox {
         }
         do { try persist() } catch { entries = previous; throw error }
         publishSnapshot()
-        return entries.last { $0.projectId == project && $0.ownerUserId == owner }
+        return entries.last { entry in
+            entry.projectId == project && entry.ownerUserId == owner &&
+                !(excludingServerDraft.map { entry.draft.utf8.elementsEqual($0.utf8) } ?? false)
+        }
     }
 
     /// Only an explicit Load Server choice discards conflicts already present at that choice.
