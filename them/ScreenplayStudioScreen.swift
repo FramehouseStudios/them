@@ -453,6 +453,7 @@ struct ScreenplayStudioScreen: View {
             "has_unsaved_draft_changes": vm.hasUnsavedDraftChanges,
             "is_manual_draft_editing": vm.isManualDraftEditing,
             "is_saving": vm.isSaving,
+            "debug_draft_save_drain": vm.debugDraftSaveDrainSnapshot,
             "queued_draft_save_count": vm.queuedDraftSaveCount,
             "parked_draft_save_count": vm.parkedDraftSaveCount,
             "manual_save_trigger_count": uiTestManualSaveTriggerCount,
@@ -493,7 +494,6 @@ struct ScreenplayStudioScreen: View {
         ])
     }
     #endif
-
     private var studioConfiguredView: some View {
         studioPresentationBoundView
             .confirmationDialog(

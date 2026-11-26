@@ -1,4 +1,5 @@
 import XCTest
+import Combine
 @testable import them
 
 final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
@@ -1560,6 +1561,45 @@ final class ScreenplayStudioDraftRecoveryTests: XCTestCase {
             currentDraft: savedDraft + "\n\nA second horn answers.",
             savedDraft: savedDraft
         ))
+    }
+
+    func testSaveReceiptKeepsCanonicallyEquivalentNewerBytesDirty() {
+        let savedDraft = "INT. CAF\u{00C9} - NIGHT\n\nA cup cools."
+        let newerDraft = "INT. CAFE\u{0301} - NIGHT\n\nA cup cools."
+        XCTAssertEqual(newerDraft, savedDraft, "This regression requires canonical String equality.")
+        XCTAssertNotEqual(Array(newerDraft.utf8), Array(savedDraft.utf8))
+
+        XCTAssertTrue(ScreenplayDraftSaveCompletionPolicy.hasUnsavedChanges(
+            currentDraft: newerDraft,
+            savedDraft: savedDraft
+        ), "A receipt for the composed draft must not acknowledge newer decomposed bytes.")
+        XCTAssertTrue(ScreenplayDraftSaveCompletionPolicy.hasUnsavedChanges(
+            currentDraft: savedDraft,
+            savedDraft: newerDraft
+        ), "Receipt identity must distinguish both Unicode representations.")
+        XCTAssertFalse(ScreenplayDraftSaveCompletionPolicy.hasUnsavedChanges(
+            currentDraft: newerDraft,
+            savedDraft: newerDraft
+        ), "An exact receipt still acknowledges the current bytes.")
+        XCTAssertFalse(ScreenplayDraftSaveCompletionPolicy.hasUnsavedChanges(
+            currentDraft: "  \(newerDraft)\r\n",
+            savedDraft: newerDraft
+        ), "Existing boundary-whitespace and newline normalization remains unchanged.")
+    }
+
+    func testDraftPublisherPreservesUnicodeByteChangesAndDropsOnlyExactDuplicates() {
+        let composed = "Caf\u{00E9}"
+        let decomposed = "Cafe\u{0301}"
+        var received: [String] = []
+        let subscription = [composed, composed, decomposed, decomposed, composed]
+            .publisher
+            .removeDuplicates(by: ScreenplayDraftSaveCompletionPolicy.hasSameBytes)
+            .sink { received.append($0) }
+        withExtendedLifetime(subscription) {
+            XCTAssertEqual(received.map { Array($0.utf8) }, [composed, decomposed, composed].map { Array($0.utf8) })
+        }
+        XCTAssertFalse(ScreenplayDraftSaveCompletionPolicy.hasSameBytes(composed + "\n", composed),
+            "Publisher identity preserves raw newline edits; receipt normalization has its separate existing contract.")
     }
 
     func testDraftIntegrityFingerprintIsDeterministicAndContentSensitive() {
