@@ -5,11 +5,27 @@ import { tmpdir } from "node:os";
 
 import {
   assertSinglePassedTestSummary,
+  assertPassedTestSummary,
   failureOutputTail,
   FAILURE_OUTPUT_LIMIT,
   xcresultFailureDetails,
   writerLoopResultBundlePath,
 } from "../evals/studio_ios_writer_loop_contract_helpers.mjs";
+
+test("[screenplay-save-recovery] requires both passing, unskipped recovery tests", () => {
+  assert.doesNotThrow(() => assertPassedTestSummary({
+    totalTestCount: 2, passedTests: 2, failedTests: 0, skippedTests: 0,
+  }, 2, "Recovery proof incomplete"));
+  for (const summary of [
+    undefined,
+    { totalTestCount: 1, passedTests: 1, failedTests: 0, skippedTests: 0 },
+    { totalTestCount: 2, passedTests: 1, failedTests: 0, skippedTests: 1 },
+    { totalTestCount: 2, passedTests: 1, failedTests: 1, skippedTests: 0 },
+    { totalTestCount: 3, passedTests: 3, failedTests: 0, skippedTests: 0 },
+  ]) {
+    assert.throws(() => assertPassedTestSummary(summary, 2, "Recovery proof incomplete"), /Recovery proof incomplete/);
+  }
+});
 
 for (const [name, environment, expectedDirectory] of [
   ["explicit artifact owner", { ARTIFACT_DIR: "/tmp/them-owned-evidence", RUNNER_TEMP: "/runner", TMPDIR: "/temporary" }, "/tmp/them-owned-evidence"],
