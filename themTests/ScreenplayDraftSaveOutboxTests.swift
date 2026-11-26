@@ -1027,6 +1027,37 @@ final class ScreenplayDraftSaveOutboxTests: XCTestCase {
         super.tearDown()
     }
 
+    func testFailedDrainClaimLeavesSaveAvailableForRetry() async throws {
+        let queue = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
+        let entry = makeEntry(id: "retry-claim", draft: "INT. ROOM - NIGHT\n\nHer cafe\u{0301} stays open.")
+        try await queue.enqueue(entry)
+
+        let manifest = storageDirectory.appendingPathComponent("queue.json")
+        let original = storageDirectory.appendingPathComponent("original-queue.json")
+        let files = FileManager.default
+        try files.moveItem(at: manifest, to: original)
+        try files.createDirectory(at: manifest, withIntermediateDirectories: false)
+        try Data([1]).write(to: manifest.appendingPathComponent("block-replacement"))
+
+        do {
+            _ = try await queue.beginNext(projectId: entry.projectId, ownerUserId: entry.ownerUserId, force: true)
+            XCTFail("The manifest obstruction should prevent persisting the claim.")
+        } catch {
+            // The manifest still holds the original entry.
+        }
+        try files.removeItem(at: manifest)
+        try files.moveItem(at: original, to: manifest)
+
+        let afterFailure = await queue.snapshot(ownerUserId: entry.ownerUserId)
+        XCTAssertEqual(afterFailure.pendingCount, 1)
+        XCTAssertEqual(afterFailure.inflightCount, 0)
+        let recovered = try await queue.beginNext(projectId: entry.projectId, ownerUserId: entry.ownerUserId, force: true)
+        let claimed = try XCTUnwrap(recovered)
+        XCTAssertEqual(claimed.id, entry.id)
+        XCTAssertEqual(claimed.baseVersionId, entry.baseVersionId)
+        XCTAssertEqual(Array(claimed.draft.utf8), Array(entry.draft.utf8))
+    }
+
     func testQueuePersistsAndRecoversInterruptedInflightSave() async throws {
         let firstStore = ScreenplayDraftSaveOutbox(storageDirectory: storageDirectory)
         let entry = makeEntry(id: "save-1")
