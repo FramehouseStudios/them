@@ -1937,6 +1937,19 @@ final class ScreenplayStudioViewModel: ObservableObject {
     }
 
     #if DEBUG
+    private var debugLastDraftSaveOutboxSnapshot = ScreenplayDraftSaveOutboxSnapshot.empty
+    var debugDraftSaveDrainSnapshot: [String: Any] {
+        let selected = selectedProjectID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return [
+            "pending": debugLastDraftSaveOutboxSnapshot.pendingCount,
+            "inflight": debugLastDraftSaveOutboxSnapshot.inflightCount,
+            "slot_claimed": draftSaveSlot.isClaimed,
+            "streaming_preview": isStreamingDraftPreviewActive,
+            "project_ready": !selected.isEmpty && selected == debugLoadedDraftProjectID
+                && selected == selectedProject?.id.trimmingCharacters(in: .whitespacesAndNewlines),
+        ]
+    }
+
     var debugDidLoadScreenplayProjectsFromBackend: Bool {
         didLoadScreenplayProjectsFromBackend
     }
@@ -5991,6 +6004,9 @@ final class ScreenplayStudioViewModel: ObservableObject {
         let ownerUserId = BackendAuthClient.currentAuthSessionState().user?.userId
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let snapshot = await draftSaveOutbox.snapshot(ownerUserId: ownerUserId)
+        #if DEBUG
+        debugLastDraftSaveOutboxSnapshot = snapshot
+        #endif
         queuedDraftSaveCount = snapshot.activeCount
         parkedDraftSaveCount = snapshot.parkedCount
         guard !isSaving, conflictState == nil else { return }
