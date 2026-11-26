@@ -5319,7 +5319,7 @@ nonisolated enum BackendAuthClient {
     }
 
     private static func run<T: Decodable>(_ request: URLRequest, as type: T.Type) async throws -> T {
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await URLSession.shared.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -6961,7 +6961,7 @@ actor BackendMemoryAPI {
         nextSessionBootstrapTaskID += 1
         let taskID = nextSessionBootstrapTaskID
         let task = Task { () throws -> SessionBootstrapHTTPResult in
-            let (data, response) = try await urlSession.data(for: request)
+            let (data, response) = try await urlSession.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
             guard let http = response as? HTTPURLResponse else {
                 throw BackendMemoryAPIError.invalidResponse
             }
@@ -7130,7 +7130,7 @@ actor BackendMemoryAPI {
 
     func fetchOpsRoutesManifest() async throws -> BackendOpsRouteManifestResponse {
         let request = try makeRequest(path: "/ops/routes")
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -7145,7 +7145,7 @@ actor BackendMemoryAPI {
 
     func fetchMemoryStats() async throws -> BackendMemoryStatsResponse {
         let request = try makeRequest(path: "/memory/stats")
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -7158,7 +7158,7 @@ actor BackendMemoryAPI {
 
     func fetchTalkStats() async throws -> BackendTalkStatsResponse {
         let request = try makeRequest(path: "/talk/stats")
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -7175,7 +7175,7 @@ actor BackendMemoryAPI {
             queryItems.append(URLQueryItem(name: "sinceMs", value: String(Int(sinceMs.rounded()))))
         }
         let request = try makeRequest(path: "/talk/errors", extraQueryItems: queryItems)
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -7188,7 +7188,7 @@ actor BackendMemoryAPI {
 
     private func fetchHealth(path: String, baseURL: URL) async throws -> BackendHealthStatus {
         let request = try makeRequest(path: path, baseURL: baseURL)
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -7297,7 +7297,7 @@ actor BackendMemoryAPI {
         if !force, canUseSharedCache, let cached = historyCacheByLimit[limit], !cached.etag.isEmpty {
             request.setValue(cached.etag, forHTTPHeaderField: "If-None-Match")
         }
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -7364,7 +7364,7 @@ actor BackendMemoryAPI {
         if !force, canUseSharedCache, let cached = memoriesCacheByLimit[limit], !cached.etag.isEmpty {
             request.setValue(cached.etag, forHTTPHeaderField: "If-None-Match")
         }
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -7440,7 +7440,7 @@ actor BackendMemoryAPI {
         request.httpBody = body
 
         do {
-            let (data, response) = try await session.data(for: request)
+            let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
             guard let http = response as? HTTPURLResponse else {
                 throw BackendMemoryAPIError.invalidResponse
             }
@@ -7514,7 +7514,7 @@ actor BackendMemoryAPI {
             limit: max(1, historyLimit),
             extraQueryItems: extraQuery
         )
-        var responsePair = try await session.data(for: request)
+        var responsePair = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard var http = responsePair.1 as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -7524,7 +7524,7 @@ actor BackendMemoryAPI {
                 limit: max(1, historyLimit),
                 extraQueryItems: extraQuery
             )
-            responsePair = try await session.data(for: request)
+            responsePair = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
             guard let retryHTTP = responsePair.1 as? HTTPURLResponse else {
                 throw BackendMemoryAPIError.invalidResponse
             }
@@ -7579,7 +7579,7 @@ actor BackendMemoryAPI {
     ) async throws -> BackendReadResult<BackendActionReceiptsResponse> {
         _ = try? await bootstrapSession(force: false)
         let request = try makeRequest(path: "/actions/receipts", limit: limit)
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -7611,7 +7611,7 @@ actor BackendMemoryAPI {
         _ = try? await bootstrapSession(force: false)
         var request = try makeRequest(path: "/account/export")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -7668,7 +7668,7 @@ actor BackendMemoryAPI {
             limit: max(1, limit),
             extraQueryItems: [URLQueryItem(name: "status", value: normalizedStatus.isEmpty ? "all" : normalizedStatus)]
         )
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -7695,7 +7695,7 @@ actor BackendMemoryAPI {
             path: "/recap",
             extraQueryItems: [URLQueryItem(name: "window", value: windowValue)]
         )
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -7727,7 +7727,7 @@ actor BackendMemoryAPI {
                 URLQueryItem(name: "include_drafts", value: includeDrafts ? "1" : "0"),
             ]
         )
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -7780,7 +7780,7 @@ actor BackendMemoryAPI {
             includeAuthToken: includeAuthToken,
             clientTokenOverride: clientTokenOverride
         )
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -7810,7 +7810,7 @@ actor BackendMemoryAPI {
     func fetchScreenplayCompanionState() async throws -> BackendReadResult<BackendScreenplayCompanionStateResponse> {
         _ = try? await bootstrapSession(force: false)
         let request = try makeRequest(path: "/screenplay/companion/state")
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -7862,7 +7862,7 @@ actor BackendMemoryAPI {
             includeAuthToken: includeAuthToken,
             clientTokenOverride: clientTokenOverride
         )
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -7971,7 +7971,7 @@ actor BackendMemoryAPI {
             payload["studio_ask_note_history"] = historyPayload
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -8017,7 +8017,7 @@ actor BackendMemoryAPI {
             clientTokenOverride: clientTokenOverride
         )
         request.httpBody = Data("{}".utf8)
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -8085,7 +8085,7 @@ actor BackendMemoryAPI {
             "beats": beats.map(screenplayBeatPayload),
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -8151,7 +8151,7 @@ actor BackendMemoryAPI {
             payload["phase"] = phase
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -8200,7 +8200,7 @@ actor BackendMemoryAPI {
             payload["phase"] = phase
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -8230,7 +8230,7 @@ actor BackendMemoryAPI {
     func exportMemories() async throws -> BackendReadResult<BackendMemoryExportResponse> {
         _ = try? await bootstrapSession(force: false)
         let request = try makeRequest(path: "/memories/export")
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -8266,7 +8266,7 @@ actor BackendMemoryAPI {
             includeAuthToken: includeAuthToken,
             clientTokenOverride: clientTokenOverride
         )
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -8326,7 +8326,7 @@ actor BackendMemoryAPI {
             "invited_by": invitedBy,
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -8382,7 +8382,7 @@ actor BackendMemoryAPI {
             includeAuthToken: includeAuthToken,
             clientTokenOverride: clientTokenOverride
         )
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -8479,7 +8479,7 @@ actor BackendMemoryAPI {
             payload["anchor_line"] = anchorLine
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -8598,7 +8598,7 @@ actor BackendMemoryAPI {
                 clientTokenOverride: clientTokenOverride
             )
             request.httpBody = requestBody
-            let responsePair = try await session.data(for: request)
+            let responsePair = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
             guard let response = responsePair.1 as? HTTPURLResponse else {
                 throw BackendMemoryAPIError.invalidResponse
             }
@@ -8691,7 +8691,7 @@ actor BackendMemoryAPI {
             payload["signals"] = signalsPayload
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -8744,7 +8744,7 @@ actor BackendMemoryAPI {
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
 
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -8786,7 +8786,7 @@ actor BackendMemoryAPI {
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
 
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -8819,7 +8819,7 @@ actor BackendMemoryAPI {
             "revision_color": revisionColor,
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -8873,7 +8873,7 @@ actor BackendMemoryAPI {
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
 
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -8905,7 +8905,7 @@ actor BackendMemoryAPI {
             withJSONObject: screenplayExportDocumentPayload(draft: draft, title: title),
             options: []
         )
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -9050,7 +9050,7 @@ actor BackendMemoryAPI {
     func fetchScreenplayExportFormats() async throws -> BackendScreenplayExportFormatsResponse {
         _ = try? await bootstrapSession(force: false)
         let request = try makeRequest(path: "/screenplay/export/formats")
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -9068,7 +9068,7 @@ actor BackendMemoryAPI {
         var request = try makeWriteRequest(path: "/screenplay/import/fountain")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: ["text": text], options: [])
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -9274,7 +9274,7 @@ actor BackendMemoryAPI {
         if let priority, !priority.isEmpty { payload["priority"] = priority }
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
 
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -9394,7 +9394,7 @@ actor BackendMemoryAPI {
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
 
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -9462,7 +9462,7 @@ actor BackendMemoryAPI {
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
 
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -9526,7 +9526,7 @@ actor BackendMemoryAPI {
             request.setValue(latestSeenStateVersion, forHTTPHeaderField: "X-State-Version")
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: outgoingPayload, options: [])
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -9575,7 +9575,7 @@ actor BackendMemoryAPI {
         _ = try? await bootstrapSession(force: false)
         var request = try makeWriteRequest(path: path)
         request.httpBody = Data("{}".utf8)
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }
@@ -9780,7 +9780,7 @@ actor BackendMemoryAPI {
                 payload["support_intent_hint"] = reassuranceNeed > 0.58 ? "comfort_first" : "clarity_then_comfort"
 
                 request.httpBody = try JSONSerialization.data(withJSONObject: payload)
-                let (_, response) = try await URLSession.shared.data(for: request)
+                let (_, response) = try await URLSession.shared.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
                 let status = (response as? HTTPURLResponse)?.statusCode ?? -1
                 // 404 = backend doesn't support this endpoint yet — silently skip.
                 if status != 200 && status != 204 && status != 404 {
@@ -10013,7 +10013,7 @@ actor BackendMemoryAPI {
     }
 
     private func run<T: Decodable>(_ request: URLRequest, as type: T.Type) async throws -> T {
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         guard let http = response as? HTTPURLResponse else {
             throw BackendMemoryAPIError.invalidResponse
         }

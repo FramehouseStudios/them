@@ -361,7 +361,7 @@ actor OfflineTalkOutbox {
     }
 
     private static func liveTransport(_ request: URLRequest) async throws -> OfflineTalkOutboxSendResult {
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await URLSession.shared.data(for: request, delegate: BackendHTTPRedirectGuard.shared)
         let http = response as? HTTPURLResponse
         let headers = http?.allHeaderFields.reduce(into: [String: String]()) { result, pair in
             guard let key = pair.key as? String else { return }
